@@ -116,7 +116,7 @@ enum OptMame {
     Add {
         /// input directory
         #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-        input: PathBuf,
+        input: Vec<PathBuf>,
 
         /// output directory
         #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
@@ -282,7 +282,7 @@ enum OptRedump {
 
         /// input .bin file
         #[structopt(parse(from_os_str))]
-        bin: PathBuf,
+        bin: Vec<PathBuf>,
     },
 }
 
@@ -429,8 +429,9 @@ fn mame_create<R: Read>(mut xml: R, sqlite_db: Option<&Path>) -> Result<(), Erro
     Ok(())
 }
 
-fn mame_add<S>(input: &Path, output: &Path, machines: &[S], dry_run: bool) -> Result<(), Error>
+fn mame_add<P, S>(input: &[P], output: &Path, machines: &[S], dry_run: bool) -> Result<(), Error>
 where
+    P: AsRef<Path>,
     S: AsRef<str>,
 {
     use std::collections::HashSet;
@@ -438,8 +439,9 @@ where
 
     let machines: HashSet<String> = machines.iter().map(|s| s.as_ref().to_string()).collect();
 
-    let roms: Vec<PathBuf> = WalkDir::new(input)
-        .into_iter()
+    let roms: Vec<PathBuf> = input
+        .iter()
+        .flat_map(|p| WalkDir::new(p).into_iter())
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
@@ -775,15 +777,20 @@ where
     Ok(())
 }
 
-fn redump_split(root: &Path, bin_path: &Path, delete: bool) -> Result<(), Error> {
-    let bin_size = bin_path.metadata().map(|m| m.len())?;
-
+fn redump_split<P>(root: &Path, bin_paths: &[P], delete: bool) -> Result<(), Error>
+where
+    P: AsRef<Path>,
+{
     let db: redump::SplitDb = read_cache(CACHE_REDUMP_SPLIT)?;
 
-    if let Some(matches) = db.possible_matches(bin_size) {
+    bin_paths.iter().try_for_each(|bin_path| {
         let mut bin_data = Vec::new();
         File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
-        if let Some(exact_match) = matches.iter().find(|m| m.matches(&bin_data)) {
+
+        if let Some(exact_match) = db
+            .possible_matches(bin_data.len() as u64)
+            .and_then(|matches| matches.iter().find(|m| m.matches(&bin_data)))
+        {
             exact_match.extract(&root, &bin_data)?;
             if delete {
                 use std::fs::remove_file;
@@ -791,9 +798,8 @@ fn redump_split(root: &Path, bin_path: &Path, delete: bool) -> Result<(), Error>
                 remove_file(bin_path)?;
             }
         }
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 pub enum VerifyMismatch {
