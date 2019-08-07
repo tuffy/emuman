@@ -47,7 +47,7 @@ is done using the `mess` commands, illustrated in the next section.
 ## Populating the Database
 
 `emuman` needs to be seeded with MAME driver information
-so that it knows which machines require which ROMS.
+so that it knows which machines require which ROMs.
 
 One way to get this information is on the
 [MAME downloads page](https://www.mamedev.org/release.html).
@@ -69,7 +69,7 @@ in an appropriate system-specific directory.
 ## Adding New ROMs for Machines
 
 Given a source directory of raw unzipped ROMs and a target
-directory, you can add all the ROMS for a given `machine` using
+directory, you can add all the ROMS for a given machine using
 
     emuman mame add -i inputdir -o outputdir machine
 
