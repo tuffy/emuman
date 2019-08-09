@@ -1,6 +1,9 @@
-use super::report::{ReportRow, SortBy};
-use super::rom::{chd_sha1, disk_to_chd, node_to_disk, RomId, SoftwareDisk, SoftwareRom};
-use super::{Error, VerifyMismatch, VerifyResult};
+use super::{
+    no_parens, no_slashes,
+    report::{ReportRow, SortBy},
+    rom::{chd_sha1, disk_to_chd, node_to_disk, RomId, SoftwareDisk, SoftwareRom},
+    Error, VerifyMismatch, VerifyResult,
+};
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, params, Transaction};
 use serde_derive::{Deserialize, Serialize};
@@ -1276,7 +1279,7 @@ fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
     }
 }
 
-pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy) {
+pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy, simple: bool) {
     use prettytable::{cell, format, row, Table};
 
     let mut results: Vec<&ReportRow> = machines.iter().filter_map(|m| db.get(m)).collect();
@@ -1286,8 +1289,16 @@ pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy) {
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
     for machine in results {
         table.add_row(row![
-            machine.description,
-            machine.manufacturer,
+            if simple {
+                no_slashes(no_parens(&machine.description))
+            } else {
+                &machine.description
+            },
+            if simple {
+                no_parens(&machine.manufacturer)
+            } else {
+                &machine.manufacturer
+            },
             machine.year,
             machine.name
         ]);

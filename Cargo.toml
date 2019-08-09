@@ -1,18 +1,18 @@
 [package]
 name = "emuman"
 description = "Utility to managing emulator ROM files."
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
 structopt = "0.2"
-roxmltree = "0.6"
-rusqlite = "0.19"
+roxmltree = "0.7"
+rusqlite = "0.20"
 bitstream-io = "0.8"
 sha1 = {version = "0.6", features=["std"]}
-rayon = "1.0"
+rayon = "1.1"
 prettytable-rs = "0.8"
 walkdir = "2"
 directories = "2.0"

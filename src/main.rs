@@ -154,6 +154,10 @@ enum OptMame {
 
         /// machines to report on
         machine: Vec<String>,
+
+        /// display simple report with less information
+        #[structopt(short = "S", long = "simple")]
+        simple: bool,
     },
 }
 
@@ -224,6 +228,10 @@ enum OptMess {
 
         /// software to generate report on
         software: Vec<String>,
+
+        /// display simple report with less information
+        #[structopt(short = "S", long = "simple")]
+        simple: bool,
     },
 
     /// split ROM into MESS-compatible parts, if necessary
@@ -324,7 +332,8 @@ fn main() -> Result<(), Error> {
             root,
             machine,
             sort,
-        }) => mame_report(&root, &machine, sort.as_ref().map(|t| t.deref()))?,
+            simple,
+        }) => mame_report(&root, &machine, sort.as_ref().map(|t| t.deref()), simple)?,
         Opt::Mess(OptMess::Create { xml, database }) => {
             mess_create(&xml, database.as_ref().map(|t| t.deref()))?
         }
@@ -345,11 +354,13 @@ fn main() -> Result<(), Error> {
             software_list,
             software,
             sort,
+            simple,
         }) => mess_report(
             &root,
             software_list.as_ref().map(|t| t.deref()),
             &software,
             sort.as_ref().map(|t| t.deref()),
+            simple,
         )?,
         Opt::Mess(OptMess::Split {
             root,
@@ -496,7 +507,12 @@ where
     Ok(())
 }
 
-fn mame_report<S>(root: &Path, machines: &[S], sort: Option<&str>) -> Result<(), Error>
+fn mame_report<S>(
+    root: &Path,
+    machines: &[S],
+    sort: Option<&str>,
+    simple: bool,
+) -> Result<(), Error>
 where
     S: AsRef<str>,
 {
@@ -516,7 +532,7 @@ where
         _ => report::SortBy::Description,
     };
 
-    mame::report(&read_cache(CACHE_MAME_REPORT)?, &machines, sort);
+    mame::report(&read_cache(CACHE_MAME_REPORT)?, &machines, sort, simple);
     Ok(())
 }
 
@@ -655,6 +671,7 @@ fn mess_report<S>(
     software_list: Option<&str>,
     software: &[S],
     sort: Option<&str>,
+    simple: bool,
 ) -> Result<(), Error>
 where
     S: AsRef<str>,
@@ -678,7 +695,7 @@ where
             _ => report::SortBy::Description,
         };
 
-        mess::report(&db, software_list, &software, sort);
+        mess::report(&db, software_list, &software, sort, simple);
         Ok(())
     } else {
         mess::report_all(&db);
@@ -822,4 +839,22 @@ pub enum VerifyResult {
     Ok,
     Bad(Vec<VerifyMismatch>),
     NoMachine,
+}
+
+#[inline]
+pub fn no_parens<'a>(s: &'a str) -> &'a str {
+    if let Some(index) = s.find('(') {
+        s[0..index].trim_end()
+    } else {
+        s
+    }
+}
+
+#[inline]
+pub fn no_slashes<'a>(s: &'a str) -> &'a str {
+    if let Some(index) = s.find(" / ") {
+        s[0..index].trim_end()
+    } else {
+        s
+    }
 }
