@@ -117,7 +117,7 @@ enum OptMame {
     Add {
         /// input directory
         #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-        input: Vec<PathBuf>,
+        input: PathBuf,
 
         /// output directory
         #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
@@ -484,18 +484,16 @@ fn mame_create<R: Read>(mut xml: R, sqlite_db: Option<&Path>) -> Result<(), Erro
     Ok(())
 }
 
-fn mame_add<P, S>(input: &[P], output: &Path, machines: &[S], dry_run: bool) -> Result<(), Error>
+fn mame_add<S>(input: &Path, output: &Path, machines: &[S], dry_run: bool) -> Result<(), Error>
 where
-    P: AsRef<Path>,
     S: AsRef<str>,
 {
     use walkdir::WalkDir;
 
     let machines: HashSet<String> = machines.iter().map(|s| s.as_ref().to_string()).collect();
 
-    let roms: Vec<PathBuf> = input
-        .iter()
-        .flat_map(|p| WalkDir::new(p).into_iter())
+    let roms: Vec<PathBuf> = WalkDir::new(input)
+        .into_iter()
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
