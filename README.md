@@ -2,8 +2,8 @@
 
 This is a ROM manager primarily for MAME that's based
 around storing ROM files in non-merged, uncompressed sets.
-That means instead of storing all the ROM files for `pacman`
-in a `pacman.zip` file, we will create a `pacman` directory
+That means instead of storing all the ROM files for `mrdo`
+in a `mrdo.zip` file, we will create a `mrdo` directory
 and place all its ROM files in that directory without the use of
 zip files at all.  One directory per machine, and one file per ROM.
 
@@ -139,6 +139,11 @@ This report will be formatted as a table and sent to standard output.
 Machines can be sorted by description, year or manufacturer
 using the `--sort` flag, with description used by default.
 
+Machines highlighted in magenta are those MAME considers
+to be partially working.  Machines highlighted in red are those
+that MAME considers to be preliminary and probably don't work
+at all.
+
 Note that the report doesn't verify a machine's ROMs at all.
 
 # MESS
@@ -205,6 +210,10 @@ a simple report can be generated with
 This report will be formatted as a table and sent to standard output.
 Software can be sorted by description, year or publisher
 using the `--sort` flag, with description used by default.
+
+As with MAME, software highlighted in magenta are titles MAME considers
+to be partially working.  Software highlighted in red are titles
+that MAME considers to be not working.
 
 ## Splitting ROMs
 

@@ -1,6 +1,6 @@
 use super::{
     no_parens, no_slashes,
-    report::{ReportRow, SortBy},
+    report::{ReportRow, SortBy, Status},
     rom::{chd_sha1, disk_to_chd, node_to_disk, RomId, SoftwareDisk, SoftwareRom},
     Error, VerifyMismatch, VerifyResult,
 };
@@ -1053,9 +1053,11 @@ pub fn verify(db: &VerifyDb, root: &Path, machine: &str) -> Result<VerifyResult,
     }
     let machine_roms = match db.roms.get(machine) {
         Some(m) => m,
-        None => return Ok(VerifyResult::Ok), // no ROMs to check, so must be OK
+        None => return Ok(VerifyResult::nothing_to_check(machine)),
     };
 
+    let mut matches = HashSet::new();
+    matches.insert(machine.to_string());
     let machine_root = root.join(machine);
     let mut mismatches = Vec::new();
 
@@ -1092,7 +1094,7 @@ pub fn verify(db: &VerifyDb, root: &Path, machine: &str) -> Result<VerifyResult,
     if let Some(devices) = db.devices.get(machine) {
         for device in devices {
             match verify(db, root, device) {
-                Ok(VerifyResult::Ok) => { /*nothing to do*/ }
+                Ok(VerifyResult::Ok(sub_matches)) => matches.extend(sub_matches.into_iter()),
                 Ok(VerifyResult::Bad(device_mismatches)) => mismatches.extend(device_mismatches),
                 Ok(VerifyResult::NoMachine) => eprintln!(
                     "WARNING: {} references non-existent device {}",
@@ -1111,7 +1113,7 @@ pub fn verify(db: &VerifyDb, root: &Path, machine: &str) -> Result<VerifyResult,
     );
 
     Ok(if mismatches.is_empty() {
-        VerifyResult::Ok
+        VerifyResult::Ok(matches)
     } else {
         VerifyResult::Bad(mismatches)
     })
@@ -1164,6 +1166,7 @@ pub struct VerifyDb {
     roms: HashMap<String, HashMap<String, RomId>>,
     disks: HashMap<String, HashMap<String, String>>,
     devices: HashMap<String, Vec<String>>,
+    device_refs: HashSet<String>,
 }
 
 impl VerifyDb {
@@ -1221,8 +1224,15 @@ impl VerifyDb {
             .collect();
 
         if !devices.is_empty() {
+            self.device_refs
+                .extend(devices.iter().map(|s| s.to_string()));
             self.devices.insert(name.to_string(), devices);
         }
+    }
+
+    #[inline]
+    pub fn is_device(&self, machine: &str) -> bool {
+        self.device_refs.contains(machine)
     }
 }
 
@@ -1273,6 +1283,15 @@ fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
                 .and_then(|c| c.text())
                 .unwrap_or("")
                 .to_string(),
+            status: match node
+                .children()
+                .find(|c| c.tag_name().name() == "driver")
+                .and_then(|c| c.attribute("status"))
+            {
+                Some("good") => Status::Working,
+                Some("imperfect") => Status::Partial,
+                _ => Status::NotWorking,
+            },
         })
     } else {
         None
@@ -1288,20 +1307,24 @@ pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy, simple: b
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
     for machine in results {
-        table.add_row(row![
-            if simple {
-                no_slashes(no_parens(&machine.description))
-            } else {
-                &machine.description
-            },
-            if simple {
-                no_parens(&machine.manufacturer)
-            } else {
-                &machine.manufacturer
-            },
-            machine.year,
-            machine.name
-        ]);
+        let description = if simple {
+            no_slashes(no_parens(&machine.description))
+        } else {
+            &machine.description
+        };
+        let manufacturer = if simple {
+            no_parens(&machine.manufacturer)
+        } else {
+            &machine.manufacturer
+        };
+        let year = &machine.year;
+        let name = &machine.name;
+
+        table.add_row(match machine.status {
+            Status::Working => row![description, manufacturer, year, name],
+            Status::Partial => row![FM => description, manufacturer, year, name],
+            Status::NotWorking => row![FR => description, manufacturer, year, name],
+        });
     }
 
     table.printstd();

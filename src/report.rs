@@ -15,11 +15,19 @@ pub enum SortBy {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum Status {
+    Working,
+    Partial,
+    NotWorking,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportRow {
     pub name: String,
     pub description: String,
     pub manufacturer: String,
     pub year: String,
+    pub status: Status,
 }
 
 impl ReportRow {

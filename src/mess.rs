@@ -1,6 +1,6 @@
 use super::{
     no_parens, no_slashes,
-    report::{ReportRow, SortBy, SummaryReportRow},
+    report::{ReportRow, SortBy, Status, SummaryReportRow},
     rom::{chd_sha1, disk_to_chd, node_to_disk, parse_int, RomId, SoftwareDisk, SoftwareRom},
     Error, VerifyMismatch, VerifyResult,
 };
@@ -590,6 +590,11 @@ fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
                 .and_then(|c| c.text())
                 .unwrap_or("")
                 .to_string(),
+            status: match node.attribute("supported") {
+                Some("no") => Status::NotWorking,
+                Some("partial") => Status::Partial,
+                _ => Status::Working,
+            },
         })
     } else {
         None
@@ -662,20 +667,27 @@ pub fn report(
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 
     for machine in results {
-        table.add_row(row![
-            if simple {
-                no_slashes(no_parens(&machine.description))
-            } else {
-                &machine.description
-            },
-            if simple {
-                no_parens(&machine.manufacturer)
-            } else {
-                &machine.manufacturer
-            },
-            machine.year,
-            machine.name
-        ]);
+        let description = if simple {
+            no_slashes(no_parens(&machine.description))
+        } else {
+            &machine.description
+        };
+
+        let manufacturer = if simple {
+            no_parens(&machine.manufacturer)
+        } else {
+            &machine.manufacturer
+        };
+
+        let year = &machine.year;
+
+        let name = &machine.name;
+
+        table.add_row(match machine.status {
+            Status::Working => row![description, manufacturer, year, name],
+            Status::Partial => row![FM => description, manufacturer, year, name],
+            Status::NotWorking => row![FR => description, manufacturer, year, name],
+        });
     }
     table.printstd();
 }
@@ -754,6 +766,8 @@ impl SoftwareListDb {
 
 pub fn verify(db: &SoftwareListDb, root: &Path, software: &str) -> Result<VerifyResult, Error> {
     use super::mame::verify_rom;
+    let mut matches = HashSet::new();
+    matches.insert(software.to_string());
 
     if !db.software.contains(software) {
         return Ok(VerifyResult::NoMachine);
@@ -761,7 +775,7 @@ pub fn verify(db: &SoftwareListDb, root: &Path, software: &str) -> Result<Verify
 
     let software_roms = match db.roms.get(software) {
         Some(m) => m,
-        None => return Ok(VerifyResult::Ok), // no ROMs to check
+        None => return Ok(VerifyResult::nothing_to_check(software)),
     };
 
     let software_root = root.join(software);
@@ -793,7 +807,7 @@ pub fn verify(db: &SoftwareListDb, root: &Path, software: &str) -> Result<Verify
     );
 
     Ok(if mismatches.is_empty() {
-        VerifyResult::Ok
+        VerifyResult::nothing_to_check(software)
     } else {
         VerifyResult::Bad(mismatches)
     })

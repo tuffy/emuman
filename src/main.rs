@@ -2,6 +2,7 @@ use rayon::prelude::*;
 use roxmltree::Document;
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
@@ -445,7 +446,6 @@ where
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
     use walkdir::WalkDir;
 
     let machines: HashSet<String> = machines.iter().map(|s| s.as_ref().to_string()).collect();
@@ -472,7 +472,7 @@ fn mame_verify<S>(root: &Path, machines: &[S]) -> Result<(), Error>
 where
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
+    use std::sync::Mutex;
 
     let machines: HashSet<String> = if !machines.is_empty() {
         machines.iter().map(|s| s.as_ref().to_string()).collect()
@@ -483,26 +483,37 @@ where
             .collect()
     };
 
-    let romdb = read_cache(CACHE_MAME_VERIFY)?;
+    let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
 
-    machines.par_iter().for_each(|machine| {
-        match mame::verify(&romdb, &root, &machine) {
+    let (devices, games): (Vec<String>, Vec<String>) =
+        machines.into_iter().partition(|m| romdb.is_device(m));
+    let devices: Mutex<HashSet<String>> = Mutex::new(devices.into_iter().collect());
+
+    games.par_iter().for_each(|game| {
+        match mame::verify(&romdb, &root, &game) {
             Ok(VerifyResult::NoMachine) => {}
-            Ok(VerifyResult::Ok) => println!("{} : OK", machine),
+            Ok(VerifyResult::Ok(verified)) => {
+                devices.lock().unwrap().retain(|d| !verified.contains(d));
+                println!("{} : OK", game);
+            }
             Ok(VerifyResult::Bad(mismatches)) => {
                 use std::io::{stdout, Write};
 
                 // ensure results are generated as a unit
                 let stdout = stdout();
                 let mut handle = stdout.lock();
-                writeln!(&mut handle, "{} : BAD", machine).unwrap();
+                writeln!(&mut handle, "{} : BAD", game).unwrap();
                 for mismatch in mismatches {
                     writeln!(&mut handle, "  {}", mismatch).unwrap();
                 }
             }
-            Err(err) => println!("{} : ERROR : {}", machine, err),
+            Err(err) => println!("{} : ERROR : {}", game, err),
         }
     });
+
+    for device in devices.into_inner().unwrap().into_iter() {
+        println!("{} : UNUSED DEVICE", device);
+    }
 
     Ok(())
 }
@@ -516,8 +527,6 @@ fn mame_report<S>(
 where
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
-
     let machines: HashSet<String> = if !machines.is_empty() {
         machines.iter().map(|s| s.as_ref().to_string()).collect()
     } else {
@@ -593,7 +602,6 @@ fn mess_add<S>(
 where
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
     use walkdir::WalkDir;
 
     let roms: Vec<PathBuf> = WalkDir::new(input)
@@ -628,8 +636,6 @@ fn mess_verify<S>(root: &Path, software_list: &str, software: &[S]) -> Result<()
 where
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
-
     let software: HashSet<String> = if !software.is_empty() {
         software.iter().map(|s| s.as_ref().to_owned()).collect()
     } else {
@@ -647,7 +653,7 @@ where
     software.par_iter().for_each(|software| {
         match mess::verify(&db, &root, &software) {
             Ok(VerifyResult::NoMachine) => {}
-            Ok(VerifyResult::Ok) => println!("{} : OK", software),
+            Ok(VerifyResult::Ok(_)) => println!("{} : OK", software),
             Ok(VerifyResult::Bad(mismatches)) => {
                 use std::io::{stdout, Write};
 
@@ -676,8 +682,6 @@ fn mess_report<S>(
 where
     S: AsRef<str>,
 {
-    use std::collections::HashSet;
-
     let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
 
     if let Some(software_list) = software_list {
@@ -836,9 +840,17 @@ impl fmt::Display for VerifyMismatch {
 }
 
 pub enum VerifyResult {
-    Ok,
+    Ok(HashSet<String>),
     Bad(Vec<VerifyMismatch>),
     NoMachine,
+}
+
+impl VerifyResult {
+    fn nothing_to_check(machine: &str) -> Self {
+        let mut set = HashSet::new();
+        set.insert(machine.to_string());
+        VerifyResult::Ok(set)
+    }
 }
 
 #[inline]
