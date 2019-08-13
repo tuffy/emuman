@@ -142,12 +142,24 @@ enum OptMame {
         machine: Vec<String>,
     },
 
+    /// list all machines
+    #[structopt(name = "list")]
+    List {
+        /// sorting order, use "description", "year" or "publisher"
+        #[structopt(short = "s", long = "sort", default_value = "description")]
+        sort: report::SortBy,
+
+        /// display simple list with less information
+        #[structopt(short = "S", long = "simple")]
+        simple: bool,
+    },
+
     /// generate report of sets in collection
     #[structopt(name = "report")]
     Report {
         /// sorting order, use "description", "year" or "manufacturer"
-        #[structopt(short = "s", long = "sort")]
-        sort: Option<String>,
+        #[structopt(short = "s", long = "sort", default_value = "description")]
+        sort: report::SortBy,
 
         /// root directory
         #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
@@ -213,19 +225,34 @@ enum OptMess {
         software: Vec<String>,
     },
 
+    /// list all software in software list
+    #[structopt(name = "list")]
+    List {
+        /// software list to use
+        software_list: Option<String>,
+
+        /// sorting order, use "description", "year" or "publisher"
+        #[structopt(short = "s", long = "sort", default_value = "description")]
+        sort: report::SortBy,
+
+        /// display simple list with less information
+        #[structopt(short = "S", long = "simple")]
+        simple: bool,
+    },
+
     /// generate report of sets in collection
     #[structopt(name = "report")]
     Report {
         /// sorting order, use "description", "year" or "publisher"
-        #[structopt(short = "s", long = "sort")]
-        sort: Option<String>,
+        #[structopt(short = "s", long = "sort", default_value = "description")]
+        sort: report::SortBy,
 
         /// root directory
         #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
         root: PathBuf,
 
         /// software list to use
-        software_list: Option<String>,
+        software_list: String,
 
         /// software to generate report on
         software: Vec<String>,
@@ -329,12 +356,13 @@ fn main() -> Result<(), Error> {
             dry_run,
         }) => mame_add(&input, &output, &machine, dry_run)?,
         Opt::Mame(OptMame::Verify { root, machine }) => mame_verify(&root, &machine)?,
+        Opt::Mame(OptMame::List { sort, simple }) => mame_list(sort, simple)?,
         Opt::Mame(OptMame::Report {
             root,
             machine,
             sort,
             simple,
-        }) => mame_report(&root, &machine, sort.as_ref().map(|t| t.deref()), simple)?,
+        }) => mame_report(&root, &machine, sort, simple)?,
         Opt::Mess(OptMess::Create { xml, database }) => {
             mess_create(&xml, database.as_ref().map(|t| t.deref()))?
         }
@@ -356,13 +384,12 @@ fn main() -> Result<(), Error> {
             software,
             sort,
             simple,
-        }) => mess_report(
-            &root,
-            software_list.as_ref().map(|t| t.deref()),
-            &software,
-            sort.as_ref().map(|t| t.deref()),
+        }) => mess_report(&root, &software_list, &software, sort, simple)?,
+        Opt::Mess(OptMess::List {
+            software_list,
+            sort,
             simple,
-        )?,
+        }) => mess_list(software_list.as_ref().map(|s| s.deref()), sort, simple)?,
         Opt::Mess(OptMess::Split {
             root,
             software_list,
@@ -518,10 +545,15 @@ where
     Ok(())
 }
 
+fn mame_list(sort: report::SortBy, simple: bool) -> Result<(), Error> {
+    mame::list(&read_cache(CACHE_MAME_REPORT)?, sort, simple);
+    Ok(())
+}
+
 fn mame_report<S>(
     root: &Path,
     machines: &[S],
-    sort: Option<&str>,
+    sort: report::SortBy,
     simple: bool,
 ) -> Result<(), Error>
 where
@@ -533,12 +565,6 @@ where
         root.read_dir()?
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect()
-    };
-
-    let sort = match sort {
-        Some("manufacturer") => report::SortBy::Manufacturer,
-        Some("year") => report::SortBy::Year,
-        _ => report::SortBy::Description,
     };
 
     mame::report(&read_cache(CACHE_MAME_REPORT)?, &machines, sort, simple);
@@ -672,11 +698,23 @@ where
     Ok(())
 }
 
+fn mess_list(software_list: Option<&str>, sort: report::SortBy, simple: bool) -> Result<(), Error> {
+    let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
+
+    if let Some(software_list) = software_list {
+        mess::list(&db, software_list, sort, simple)
+    } else {
+        mess::list_all(&db)
+    }
+
+    Ok(())
+}
+
 fn mess_report<S>(
     root: &Path,
-    software_list: Option<&str>,
+    software_list: &str,
     software: &[S],
-    sort: Option<&str>,
+    sort: report::SortBy,
     simple: bool,
 ) -> Result<(), Error>
 where
@@ -684,27 +722,16 @@ where
 {
     let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
 
-    if let Some(software_list) = software_list {
-        let software: HashSet<String> = if !software.is_empty() {
-            software.iter().map(|s| s.as_ref().to_owned()).collect()
-        } else {
-            root.read_dir()?
-                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-                .collect()
-        };
-
-        let sort = match sort {
-            Some("publisher") => report::SortBy::Manufacturer,
-            Some("year") => report::SortBy::Year,
-            _ => report::SortBy::Description,
-        };
-
-        mess::report(&db, software_list, &software, sort, simple);
-        Ok(())
+    let software: HashSet<String> = if !software.is_empty() {
+        software.iter().map(|s| s.as_ref().to_owned()).collect()
     } else {
-        mess::report_all(&db);
-        Ok(())
-    }
+        root.read_dir()?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect()
+    };
+
+    mess::report(&db, software_list, &software, sort, simple);
+    Ok(())
 }
 
 fn mess_split<P>(root: &Path, software_list: &str, roms: &[P], delete: bool) -> Result<(), Error>

@@ -1,5 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryReportRow {
@@ -12,6 +13,19 @@ pub enum SortBy {
     Description,
     Manufacturer,
     Year,
+}
+
+impl FromStr for SortBy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "description" => Ok(SortBy::Description),
+            "publisher" | "manufacturer" => Ok(SortBy::Manufacturer),
+            "year" => Ok(SortBy::Year),
+            _ => Err("invalid sort by value".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

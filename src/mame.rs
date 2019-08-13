@@ -1293,11 +1293,22 @@ fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
     }
 }
 
-pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy, simple: bool) {
-    use prettytable::{cell, format, row, Table};
+pub fn list(db: &ReportDb, sort: SortBy, simple: bool) {
+    let mut results: Vec<&ReportRow> = db.0.values().collect();
+    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
 
+    display_report(&results, simple)
+}
+
+pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy, simple: bool) {
     let mut results: Vec<&ReportRow> = machines.iter().filter_map(|m| db.get(m)).collect();
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
+
+    display_report(&results, simple)
+}
+
+fn display_report(results: &[&ReportRow], simple: bool) {
+    use prettytable::{cell, format, row, Table};
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);

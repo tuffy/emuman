@@ -631,7 +631,7 @@ impl ReportDb {
     }
 }
 
-pub fn report_all(db: &ReportDb) {
+pub fn list_all(db: &ReportDb) {
     use prettytable::{cell, format, row, Table};
     let mut table = Table::new();
 
@@ -644,6 +644,19 @@ pub fn report_all(db: &ReportDb) {
     table.printstd();
 }
 
+pub fn list(db: &ReportDb, software_list: &str, sort: SortBy, simple: bool) {
+    let mut results: Vec<&ReportRow> = db
+        .software_list
+        .get(software_list)
+        .iter()
+        .flat_map(|h| h.values())
+        .collect();
+
+    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
+
+    display_report(&results, simple);
+}
+
 pub fn report(
     db: &ReportDb,
     software_list: &str,
@@ -651,8 +664,6 @@ pub fn report(
     sort: SortBy,
     simple: bool,
 ) {
-    use prettytable::{cell, format, row, Table};
-
     let mut results: Vec<&ReportRow> = software
         .iter()
         .filter_map(|software| {
@@ -661,7 +672,14 @@ pub fn report(
                 .and_then(|soft_db| soft_db.get(software))
         })
         .collect();
+
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
+
+    display_report(&results, simple);
+}
+
+fn display_report(results: &[&ReportRow], simple: bool) {
+    use prettytable::{cell, format, row, Table};
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);

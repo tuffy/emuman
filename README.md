@@ -66,6 +66,16 @@ directly from MAME itself using its `-listxml` option, like:
 In both cases, the cached files will be stored
 in an appropriate system-specific directory.
 
+## Generating a List of Machines
+
+Simply using
+
+    emuman mame list
+
+will generate a list of all machines supported by MAME.
+This list will be very large, so filtering it with `grep`
+is preferred.
+
 ## Adding New ROMs for Machines
 
 Given a source directory of raw unzipped ROMs and a target
@@ -169,6 +179,20 @@ One can get a quick report of all supported software lists using
     emuman mess report
 
 The software list names will be used in all the other `mess` options.
+
+## Generating a List of Software
+
+Simply using
+
+    emuman mess list
+
+will generate a report of all software lists.  Or, using
+
+    emuman mess list some_list
+
+will generate a report of all software for the given software list.
+Since adding software requires knowing its name in MESS,
+this is an easy way to find that name.
 
 ## Adding New ROMs for a Software List
 
