@@ -800,6 +800,7 @@ pub fn verify(db: &SoftwareListDb, root: &Path, software: &str) -> Result<Verify
         }
     }
 
+    // mark any leftover files in disk as extras
     mismatches.extend(
         files_on_disk
             .into_iter()

@@ -1081,27 +1081,22 @@ pub fn verify(db: &VerifyDb, root: &Path, machine: &str) -> Result<VerifyResult,
     }
 
     // then check the machine's disks (if any)
-    if let Some(machine_disks) = db.disks.get(machine) {
-        for (disk_name, sha1) in machine_disks {
-            if let Some(mismatch) = verify_disk(&machine_root, disk_name, sha1, &mut files_on_disk)?
-            {
-                mismatches.push(mismatch);
-            }
+    for (disk_name, sha1) in db.disks.get(machine).iter().flat_map(|d| d.iter()) {
+        if let Some(mismatch) = verify_disk(&machine_root, disk_name, sha1, &mut files_on_disk)? {
+            mismatches.push(mismatch);
         }
     }
 
     // finally, recursively check the machine's devices (if any)
-    if let Some(devices) = db.devices.get(machine) {
-        for device in devices {
-            match verify(db, root, device) {
-                Ok(VerifyResult::Ok(sub_matches)) => matches.extend(sub_matches.into_iter()),
-                Ok(VerifyResult::Bad(device_mismatches)) => mismatches.extend(device_mismatches),
-                Ok(VerifyResult::NoMachine) => eprintln!(
-                    "WARNING: {} references non-existent device {}",
-                    machine, device
-                ),
-                Err(err) => return Err(err),
-            }
+    for device in db.devices.get(machine).iter().flat_map(|d| d.iter()) {
+        match verify(db, root, device) {
+            Ok(VerifyResult::Ok(sub_matches)) => matches.extend(sub_matches.into_iter()),
+            Ok(VerifyResult::Bad(device_mismatches)) => mismatches.extend(device_mismatches),
+            Ok(VerifyResult::NoMachine) => eprintln!(
+                "WARNING: {} references non-existent device {}",
+                machine, device
+            ),
+            Err(err) => return Err(err),
         }
     }
 

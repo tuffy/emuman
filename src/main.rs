@@ -854,7 +854,7 @@ impl VerifyResult {
 }
 
 #[inline]
-pub fn no_parens<'a>(s: &'a str) -> &'a str {
+pub fn no_parens(s: &str) -> &str {
     if let Some(index) = s.find('(') {
         s[0..index].trim_end()
     } else {
@@ -863,7 +863,7 @@ pub fn no_parens<'a>(s: &'a str) -> &'a str {
 }
 
 #[inline]
-pub fn no_slashes<'a>(s: &'a str) -> &'a str {
+pub fn no_slashes(s: &str) -> &str {
     if let Some(index) = s.find(" / ") {
         s[0..index].trim_end()
     } else {
