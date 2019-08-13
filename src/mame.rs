@@ -1293,8 +1293,12 @@ fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
     }
 }
 
-pub fn list(db: &ReportDb, sort: SortBy, simple: bool) {
-    let mut results: Vec<&ReportRow> = db.0.values().collect();
+pub fn list(db: &ReportDb, search: Option<&str>, sort: SortBy, simple: bool) {
+    let mut results: Vec<&ReportRow> = if let Some(search) = search {
+        db.0.values().filter(|r| r.matches(search)).collect()
+    } else {
+        db.0.values().collect()
+    };
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
 
     display_report(&results, simple)

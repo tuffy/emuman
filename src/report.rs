@@ -85,4 +85,11 @@ impl ReportRow {
     fn sort_by_year(&self, other: &ReportRow) -> Ordering {
         self.year.cmp(&other.year)
     }
+
+    pub fn matches(&self, search: &str) -> bool {
+        (self.name == "search")
+            || self.description.contains(search)
+            || self.manufacturer.contains(search)
+            || (self.year == search)
+    }
 }

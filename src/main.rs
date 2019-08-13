@@ -152,6 +152,9 @@ enum OptMame {
         /// display simple list with less information
         #[structopt(short = "S", long = "simple")]
         simple: bool,
+
+        /// search term for querying specific items
+        search: Option<String>,
     },
 
     /// generate report of sets in collection
@@ -238,6 +241,9 @@ enum OptMess {
         /// display simple list with less information
         #[structopt(short = "S", long = "simple")]
         simple: bool,
+
+        /// search term for querying specific items
+        search: Option<String>,
     },
 
     /// generate report of sets in collection
@@ -356,7 +362,11 @@ fn main() -> Result<(), Error> {
             dry_run,
         }) => mame_add(&input, &output, &machine, dry_run)?,
         Opt::Mame(OptMame::Verify { root, machine }) => mame_verify(&root, &machine)?,
-        Opt::Mame(OptMame::List { sort, simple }) => mame_list(sort, simple)?,
+        Opt::Mame(OptMame::List {
+            search,
+            sort,
+            simple,
+        }) => mame_list(search.as_ref().map(|t| t.deref()), sort, simple)?,
         Opt::Mame(OptMame::Report {
             root,
             machine,
@@ -387,9 +397,15 @@ fn main() -> Result<(), Error> {
         }) => mess_report(&root, &software_list, &software, sort, simple)?,
         Opt::Mess(OptMess::List {
             software_list,
+            search,
             sort,
             simple,
-        }) => mess_list(software_list.as_ref().map(|s| s.deref()), sort, simple)?,
+        }) => mess_list(
+            software_list.as_ref().map(|s| s.deref()),
+            search.as_ref().map(|s| s.deref()),
+            sort,
+            simple,
+        )?,
         Opt::Mess(OptMess::Split {
             root,
             software_list,
@@ -545,8 +561,8 @@ where
     Ok(())
 }
 
-fn mame_list(sort: report::SortBy, simple: bool) -> Result<(), Error> {
-    mame::list(&read_cache(CACHE_MAME_REPORT)?, sort, simple);
+fn mame_list(search: Option<&str>, sort: report::SortBy, simple: bool) -> Result<(), Error> {
+    mame::list(&read_cache(CACHE_MAME_REPORT)?, search, sort, simple);
     Ok(())
 }
 
@@ -698,11 +714,16 @@ where
     Ok(())
 }
 
-fn mess_list(software_list: Option<&str>, sort: report::SortBy, simple: bool) -> Result<(), Error> {
+fn mess_list(
+    software_list: Option<&str>,
+    search: Option<&str>,
+    sort: report::SortBy,
+    simple: bool,
+) -> Result<(), Error> {
     let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
 
     if let Some(software_list) = software_list {
-        mess::list(&db, software_list, sort, simple)
+        mess::list(&db, software_list, search, sort, simple)
     } else {
         mess::list_all(&db)
     }

@@ -644,13 +644,20 @@ pub fn list_all(db: &ReportDb) {
     table.printstd();
 }
 
-pub fn list(db: &ReportDb, software_list: &str, sort: SortBy, simple: bool) {
-    let mut results: Vec<&ReportRow> = db
-        .software_list
-        .get(software_list)
-        .iter()
-        .flat_map(|h| h.values())
-        .collect();
+pub fn list(db: &ReportDb, software_list: &str, search: Option<&str>, sort: SortBy, simple: bool) {
+    let mut results: Vec<&ReportRow> = if let Some(search) = search {
+        db.software_list
+            .get(software_list)
+            .iter()
+            .flat_map(|h| h.values().filter(|r| r.matches(search)))
+            .collect()
+    } else {
+        db.software_list
+            .get(software_list)
+            .iter()
+            .flat_map(|h| h.values())
+            .collect()
+    };
 
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
 
