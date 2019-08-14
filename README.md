@@ -14,14 +14,14 @@ If a new version of MAME adds more ROMs to a machine, simply
 move them into the proper directory.  If ROMs get renamed,
 simply rename them.  No compressed archives to mess around with.
 
-### Wouldn't This Waste a Lot of Space?
+## Wouldn't This Waste a Lot of Space?
 
 I use a compressed filesystem (like ZFS) to ensure my ROM files
 don't use more space than they would if they were stuffed into zip files.
 But even if I didn't, ROMs don't use a lot of space to begin with
 compared to MAME's CHD files.
 
-### What About BIOS Files?
+## What About BIOS Files?
 
 Although having the same `uni-bios_3_3.rom` in 50 different places
 wouldn't take up a lot of space in absolute terms, it's still
@@ -36,10 +36,13 @@ Installation is a simple matter of:
     cargo install emuman
 
 which will install the main emuman program.
+This program has several subcommands (git-style) to perform
+actions on different ROM dumps.
+Use the built-in help commands for a quick rundown, if necessary.
 
 # MAME
 
-The MAME subcommand is for handling arcade hardware
+The MAME subcommand is for managing arcade hardware
 as well as ROMs needed for home consoles, portables as so on.
 Handling the software for non-arcade hardware
 is done using the `mess` commands, illustrated in the next section.
@@ -72,9 +75,38 @@ Simply using
 
     emuman mame list
 
-will generate a list of all machines supported by MAME.
-This list will be very large, so filtering it with `grep`
-is preferred.
+will generate a list of all machines supported by MAME
+as a table and sent to standard output.
+
+Machines highlighted in magenta are those MAME considers
+to be partially working.  Machines highlighted in red are those
+that MAME considers to be preliminary and probably don't work
+at all.
+
+This list will be quite large, so you may add a search parameter
+to restrict the list to things you want, like
+
+    emuman mame list parameter
+
+The search parameter looks for a subset of the description
+(e.g. `emuman mame list "Mr. Do"` searches for all
+games with `Mr. Do` in their descriptions), a subset of
+the manufacturer (e.g. `emuman mame list Atari` searches
+for all games with `Atari` in their manufacturer string),
+the game's name prefix (e.g. `emuman mame list mrdo` searches
+for all games whose name starts with `mrdo`), and the game's
+release year (e.g. `emuman mame list 1982` searches for
+all games released in 1982).
+
+The same parameter is applied to all fields simultaneously
+and all matching hits are returned.
+
+In addition, the `--sort` parameter enables you to
+sort output by description (the default), manufacturer
+or release year.
+
+The `--simple` parameter cuts down a lot of extra information
+from the description and manufacturer fields which may not be useful.
 
 ## Adding New ROMs for Machines
 
@@ -83,8 +115,7 @@ directory, you can add all the ROMS for a given machine using
 
     emuman mame add -i inputdir -o outputdir machine
 
-Specifying multiple input directories is okay,
-as is specifying multiple machines to add.
+Specifying multiple machines to add is okay.
 If no directories are specified, the current working directory is used.
 If no machines are specified, `emuman` tries to add
 ROMs to as many machines as possible.
@@ -130,13 +161,16 @@ Given a directory with your added ROM sets, machines can be verified using
 If no directory is specified, the current working directory is used.
 If no machines are specified, `emuman` tries to verify as
 many machines as it finds in the root of the output directory.
-The report will be send to standard output for easy filtering,
+The report will be sent to standard output for easy filtering,
 but will *not* be generated in any particular order.
 
 Machines will be reported as OK only if their directories
 contain all the correct ROMs with the correct names and nothing else.
 Missing files or incorrect files will be reported as BAD,
 as will machine directories with extra files that need to be removed.
+
+Unused device machines will also be reported separately.
+No sense keeping the ROMs for a device that none of your games use.
 
 ## Generating a Report
 
@@ -146,13 +180,8 @@ can be generated with
     emuman mame report -d outputdir
 
 This report will be formatted as a table and sent to standard output.
-Machines can be sorted by description, year or manufacturer
-using the `--sort` flag, with description used by default.
-
-Machines highlighted in magenta are those MAME considers
-to be partially working.  Machines highlighted in red are those
-that MAME considers to be preliminary and probably don't work
-at all.
+The report can be given a search term just as the `list` parameter,
+described above.
 
 Note that the report doesn't verify a machine's ROMs at all.
 
@@ -194,6 +223,9 @@ will generate a report of all software for the given software list.
 Since adding software requires knowing its name in MESS,
 this is an easy way to find that name.
 
+The list can be filtered the same way as the MAME list,
+described above.
+
 ## Adding New ROMs for a Software List
 
 Given a source directory of raw unzipped ROMs, a target directory,
@@ -232,12 +264,8 @@ a simple report can be generated with
     emuman mess report -d outputdir list
 
 This report will be formatted as a table and sent to standard output.
-Software can be sorted by description, year or publisher
-using the `--sort` flag, with description used by default.
-
-As with MAME, software highlighted in magenta are titles MAME considers
-to be partially working.  Software highlighted in red are titles
-that MAME considers to be not working.
+It can also be sorted and filtered the same way as MAME's
+software report, described above.
 
 ## Splitting ROMs
 
@@ -246,6 +274,10 @@ which is at odds with MAME's "one file per ROM" policy.
 The split option divides a ROM into its component parts, if possible.
 
     emuman mess split -o outputdir list rom
+
+Many ROMs can be recombined by simply concatenating them together
+(with `cat`), with the notable exception of NES ROMs
+which lose their 16 byte iNES header during the conversion.
 
 # Redump
 
