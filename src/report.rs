@@ -87,7 +87,7 @@ impl ReportRow {
     }
 
     pub fn matches(&self, search: &str) -> bool {
-        (self.name == search)
+        self.name.starts_with(search)
             || self.description.contains(search)
             || self.manufacturer.contains(search)
             || (self.year == search)
