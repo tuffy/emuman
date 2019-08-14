@@ -252,7 +252,7 @@ struct OptMameList {
     #[structopt(short = "S", long = "simple")]
     simple: bool,
 
-    /// search term for querying specific items
+    /// search term for querying specific machines
     search: Option<String>,
 }
 
@@ -278,28 +278,26 @@ struct OptMameReport {
     #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
-    /// machines to report on
-    machines: Vec<String>,
-
     /// display simple report with less information
     #[structopt(short = "S", long = "simple")]
     simple: bool,
+
+    /// search term for querying specific machines
+    search: Option<String>,
 }
 
 impl OptMameReport {
     fn execute(self) -> Result<(), Error> {
-        let machines: HashSet<String> = if !self.machines.is_empty() {
-            self.machines.into_iter().collect()
-        } else {
-            self.root
-                .read_dir()?
-                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-                .collect()
-        };
+        let machines: HashSet<String> = self
+            .root
+            .read_dir()?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect();
 
         mame::report(
             &read_cache(CACHE_MAME_REPORT)?,
             &machines,
+            self.search.as_ref().map(|s| s.deref()),
             self.sort,
             self.simple,
         );
@@ -558,28 +556,32 @@ struct OptMessReport {
     /// software list to use
     software_list: String,
 
-    /// software to generate report on
-    software: Vec<String>,
-
     /// display simple report with less information
     #[structopt(short = "S", long = "simple")]
     simple: bool,
+
+    /// search term for querying specific software
+    search: Option<String>,
 }
 
 impl OptMessReport {
     fn execute(self) -> Result<(), Error> {
         let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
 
-        let software: HashSet<String> = if !self.software.is_empty() {
-            self.software.into_iter().collect()
-        } else {
-            self.root
-                .read_dir()?
-                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-                .collect()
-        };
+        let software: HashSet<String> = self
+            .root
+            .read_dir()?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect();
 
-        mess::report(&db, &self.software_list, &software, self.sort, self.simple);
+        mess::report(
+            &db,
+            &self.software_list,
+            &software,
+            self.search.as_ref().map(|s| s.deref()),
+            self.sort,
+            self.simple,
+        );
         Ok(())
     }
 }

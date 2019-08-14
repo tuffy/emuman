@@ -1304,8 +1304,17 @@ pub fn list(db: &ReportDb, search: Option<&str>, sort: SortBy, simple: bool) {
     display_report(&results, simple)
 }
 
-pub fn report(db: &ReportDb, machines: &HashSet<String>, sort: SortBy, simple: bool) {
+pub fn report(
+    db: &ReportDb,
+    machines: &HashSet<String>,
+    search: Option<&str>,
+    sort: SortBy,
+    simple: bool,
+) {
     let mut results: Vec<&ReportRow> = machines.iter().filter_map(|m| db.get(m)).collect();
+    if let Some(search) = search {
+        results.retain(|r| r.matches(search));
+    }
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
 
     display_report(&results, simple)

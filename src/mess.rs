@@ -668,6 +668,7 @@ pub fn report(
     db: &ReportDb,
     software_list: &str,
     software: &HashSet<String>,
+    search: Option<&str>,
     sort: SortBy,
     simple: bool,
 ) {
@@ -679,6 +680,10 @@ pub fn report(
                 .and_then(|soft_db| soft_db.get(software))
         })
         .collect();
+
+    if let Some(search) = search {
+        results.retain(|r| r.matches(search));
+    }
 
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
 
