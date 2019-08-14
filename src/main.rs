@@ -8,7 +8,6 @@ use std::fs::File;
 use std::io::Read;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use structopt::StructOpt;
 
 mod mame;
@@ -26,13 +25,6 @@ static CACHE_MESS_REPORT: &str = "mess-report.db";
 static CACHE_MESS_SPLIT: &str = "mess-split.db";
 static CACHE_REDUMP_VERIFY: &str = "redump-verify.db";
 static CACHE_REDUMP_SPLIT: &str = "redump-split.db";
-
-macro_rules! exit_with_error {
-    ($error:expr) => {{
-        eprintln!("{}", $error);
-        exit(1)
-    }};
-}
 
 #[derive(Debug)]
 pub enum Error {
@@ -200,8 +192,7 @@ impl OptMameVerify {
             self.machines.clone().into_iter().collect()
         } else {
             self.root
-                .read_dir()
-                .unwrap_or_else(|err| exit_with_error!(err))
+                .read_dir()?
                 .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
                 .collect()
         };
