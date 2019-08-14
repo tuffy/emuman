@@ -98,83 +98,540 @@ impl fmt::Display for Error {
 }
 
 #[derive(StructOpt)]
+struct OptMameCreate {
+    /// SQLite database
+    #[structopt(long = "db", parse(from_os_str))]
+    database: Option<PathBuf>,
+
+    /// MAME's XML file
+    #[structopt(parse(from_os_str))]
+    xml: Option<PathBuf>,
+}
+
+impl OptMameCreate {
+    fn execute(self) -> Result<(), Error> {
+        let mut xml_data = String::new();
+
+        if let Some(path) = self.xml {
+            File::open(path).and_then(|mut xml| xml.read_to_string(&mut xml_data))?;
+        } else {
+            use std::io::stdin;
+
+            stdin().read_to_string(&mut xml_data)?;
+        }
+
+        let xml = Document::parse(&xml_data)?;
+
+        if let Some(db_file) = self.database {
+            let mut db = open_db(&db_file)?;
+            let trans = db.transaction()?;
+
+            mame::create_tables(&trans)?;
+            mame::clear_tables(&trans)?;
+            mame::xml_to_db(&xml, &trans)?;
+            trans.commit()?;
+
+            println!("* Wrote \"{}\"", db_file.display());
+        }
+
+        write_cache(CACHE_MAME_VERIFY, mame::VerifyDb::from_xml(&xml))?;
+        write_cache(CACHE_MAME_REPORT, mame::ReportDb::from_xml(&xml))?;
+        write_cache(CACHE_MAME_ADD, mame::AddDb::from_xml(&xml))?;
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMameAdd {
+    /// input directory
+    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    input: PathBuf,
+
+    /// output directory
+    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    output: PathBuf,
+
+    /// don't actually add ROMs
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+
+    /// machine to add
+    machines: Vec<String>,
+}
+
+impl OptMameAdd {
+    fn execute(self) -> Result<(), Error> {
+        use walkdir::WalkDir;
+
+        let roms: Vec<PathBuf> = WalkDir::new(&self.input)
+            .into_iter()
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| e.file_type().is_file())
+                    .map(|e| e.into_path())
+            })
+            .collect();
+
+        let mut db: mame::AddDb = read_cache(CACHE_MAME_ADD)?;
+        db.retain_machines(&self.machines.clone().into_iter().collect());
+
+        roms.par_iter()
+            .try_for_each(|rom| mame::copy(&db, &self.output, rom, self.dry_run))
+            .map_err(Error::IO)
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMameVerify {
+    /// root directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// machine to verify
+    machines: Vec<String>,
+}
+
+impl OptMameVerify {
+    fn execute(self) -> Result<(), Error> {
+        use std::sync::Mutex;
+
+        let machines: HashSet<String> = if !self.machines.is_empty() {
+            self.machines.clone().into_iter().collect()
+        } else {
+            self.root
+                .read_dir()
+                .unwrap_or_else(|err| exit_with_error!(err))
+                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                .collect()
+        };
+
+        let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
+
+        let (devices, games): (Vec<String>, Vec<String>) =
+            machines.into_iter().partition(|m| romdb.is_device(m));
+        let devices: Mutex<HashSet<String>> = Mutex::new(devices.into_iter().collect());
+
+        games.par_iter().for_each(|game| {
+            match mame::verify(&romdb, &self.root, &game) {
+                Ok(VerifyResult::NoMachine) => {}
+                Ok(VerifyResult::Ok(verified)) => {
+                    devices.lock().unwrap().retain(|d| !verified.contains(d));
+                    println!("{} : OK", game);
+                }
+                Ok(VerifyResult::Bad(mismatches)) => {
+                    use std::io::{stdout, Write};
+
+                    // ensure results are generated as a unit
+                    let stdout = stdout();
+                    let mut handle = stdout.lock();
+                    writeln!(&mut handle, "{} : BAD", game).unwrap();
+                    for mismatch in mismatches {
+                        writeln!(&mut handle, "  {}", mismatch).unwrap();
+                    }
+                }
+                Err(err) => println!("{} : ERROR : {}", game, err),
+            }
+        });
+
+        for device in devices.into_inner().unwrap().into_iter() {
+            println!("{} : UNUSED DEVICE", device);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMameList {
+    /// sorting order, use "description", "year" or "publisher"
+    #[structopt(short = "s", long = "sort", default_value = "description")]
+    sort: report::SortBy,
+
+    /// display simple list with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+
+    /// search term for querying specific items
+    search: Option<String>,
+}
+
+impl OptMameList {
+    fn execute(self) -> Result<(), Error> {
+        mame::list(
+            &read_cache(CACHE_MAME_REPORT)?,
+            self.search.as_ref().map(|s| s.deref()),
+            self.sort,
+            self.simple,
+        );
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMameReport {
+    /// sorting order, use "description", "year" or "manufacturer"
+    #[structopt(short = "s", long = "sort", default_value = "description")]
+    sort: report::SortBy,
+
+    /// root directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// machines to report on
+    machines: Vec<String>,
+
+    /// display simple report with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+}
+
+impl OptMameReport {
+    fn execute(self) -> Result<(), Error> {
+        let machines: HashSet<String> = if !self.machines.is_empty() {
+            self.machines.into_iter().collect()
+        } else {
+            self.root
+                .read_dir()?
+                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                .collect()
+        };
+
+        mame::report(
+            &read_cache(CACHE_MAME_REPORT)?,
+            &machines,
+            self.sort,
+            self.simple,
+        );
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
 #[structopt(name = "mame")]
 enum OptMame {
     /// create internal database
     #[structopt(name = "create")]
-    Create {
-        /// SQLite database
-        #[structopt(long = "db", parse(from_os_str))]
-        database: Option<PathBuf>,
-
-        /// MAME's XML file
-        #[structopt(parse(from_os_str))]
-        xml: Option<PathBuf>,
-    },
+    Create(OptMameCreate),
 
     /// add ROMs to directory
     #[structopt(name = "add")]
-    Add {
-        /// input directory
-        #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-        input: PathBuf,
-
-        /// output directory
-        #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-        output: PathBuf,
-
-        /// don't actually add ROMs
-        #[structopt(long = "dry-run")]
-        dry_run: bool,
-
-        /// machine to add
-        machine: Vec<String>,
-    },
+    Add(OptMameAdd),
 
     /// verify ROMs in directory
     #[structopt(name = "verify")]
-    Verify {
-        /// root directory
-        #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
-
-        /// machine to verify
-        machine: Vec<String>,
-    },
+    Verify(OptMameVerify),
 
     /// list all machines
     #[structopt(name = "list")]
-    List {
-        /// sorting order, use "description", "year" or "publisher"
-        #[structopt(short = "s", long = "sort", default_value = "description")]
-        sort: report::SortBy,
-
-        /// display simple list with less information
-        #[structopt(short = "S", long = "simple")]
-        simple: bool,
-
-        /// search term for querying specific items
-        search: Option<String>,
-    },
+    List(OptMameList),
 
     /// generate report of sets in collection
     #[structopt(name = "report")]
-    Report {
-        /// sorting order, use "description", "year" or "manufacturer"
-        #[structopt(short = "s", long = "sort", default_value = "description")]
-        sort: report::SortBy,
+    Report(OptMameReport),
+}
 
-        /// root directory
-        #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
+impl OptMame {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptMame::Create(o) => o.execute(),
+            OptMame::Add(o) => o.execute(),
+            OptMame::Verify(o) => o.execute(),
+            OptMame::List(o) => o.execute(),
+            OptMame::Report(o) => o.execute(),
+        }
+    }
+}
 
-        /// machines to report on
-        machine: Vec<String>,
+#[derive(StructOpt)]
+struct OptMessCreate {
+    /// SQLite database
+    #[structopt(long = "db", parse(from_os_str))]
+    database: Option<PathBuf>,
 
-        /// display simple report with less information
-        #[structopt(short = "S", long = "simple")]
-        simple: bool,
-    },
+    /// XML files from hash database
+    #[structopt(parse(from_os_str))]
+    xml: Vec<PathBuf>,
+}
+
+impl OptMessCreate {
+    fn execute(self) -> Result<(), Error> {
+        if let Some(db_file) = self.database {
+            let mut db = open_db(&db_file)?;
+            let trans = db.transaction()?;
+
+            mess::create_tables(&trans)?;
+            mess::clear_tables(&trans)?;
+            self.xml
+                .iter()
+                .try_for_each(|p| mess::add_file(&p, &trans))?;
+            trans.commit()?;
+
+            println!("* Wrote \"{}\"", db_file.display());
+        }
+
+        let mut verify = mess::VerifyDb::default();
+        let mut report = mess::ReportDb::default();
+        let mut add = mess::AddDb::default();
+        let mut split = mess::SplitDb::default();
+
+        for file in self.xml.iter() {
+            let mut xml_data = String::new();
+
+            File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
+
+            let tree = Document::parse(&xml_data)?;
+            let root = tree.root_element();
+
+            verify.add_xml(&root);
+            report.add_xml(&root);
+            add.add_xml(&root);
+            split.add_xml(&root);
+        }
+
+        report.sort_software();
+
+        write_cache(CACHE_MESS_VERIFY, &verify)?;
+        write_cache(CACHE_MESS_REPORT, &report)?;
+        write_cache(CACHE_MESS_ADD, &add)?;
+        write_cache(CACHE_MESS_SPLIT, &split)?;
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessAdd {
+    /// input directory
+    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    input: PathBuf,
+
+    /// output directory
+    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    output: PathBuf,
+
+    /// don't actually add ROMs
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+
+    /// software list to use
+    software_list: String,
+
+    /// software to add
+    software: Vec<String>,
+}
+
+impl OptMessAdd {
+    fn execute(self) -> Result<(), Error> {
+        use walkdir::WalkDir;
+
+        let roms: Vec<PathBuf> = WalkDir::new(&self.input)
+            .into_iter()
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| e.file_type().is_file())
+                    .map(|e| e.into_path())
+            })
+            .collect();
+
+        let software: HashSet<String> = if !self.software.is_empty() {
+            self.software.clone().into_iter().collect()
+        } else {
+            read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_all_software(&self.software_list)
+        };
+
+        if let Some(mut db) =
+            read_cache::<mess::AddDb>(CACHE_MESS_ADD)?.into_software_list(&self.software_list)
+        {
+            db.retain_software(&software);
+
+            roms.par_iter()
+                .try_for_each(|rom| mess::copy(&db, &self.output, rom, self.dry_run))
+                .map_err(Error::IO)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessVerify {
+    /// root directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// software list to use
+    software_list: String,
+
+    /// machine to verify
+    software: Vec<String>,
+}
+
+impl OptMessVerify {
+    fn execute(self) -> Result<(), Error> {
+        let software: HashSet<String> = if !self.software.is_empty() {
+            self.software.clone().into_iter().collect()
+        } else {
+            self.root
+                .read_dir()?
+                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                .collect()
+        };
+
+        let db = match read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?
+            .into_software_list(&self.software_list)
+        {
+            Some(db) => db,
+            None => return Ok(()), // no software to check
+        };
+
+        software.par_iter().for_each(|software| {
+            match mess::verify(&db, &self.root, &software) {
+                Ok(VerifyResult::NoMachine) => {}
+                Ok(VerifyResult::Ok(_)) => println!("{} : OK", software),
+                Ok(VerifyResult::Bad(mismatches)) => {
+                    use std::io::{stdout, Write};
+
+                    // ensure results are generated as a unit
+                    let stdout = stdout();
+                    let mut handle = stdout.lock();
+                    writeln!(&mut handle, "{} : BAD", software).unwrap();
+                    for mismatch in mismatches {
+                        writeln!(&mut handle, "  {}", mismatch).unwrap();
+                    }
+                }
+                Err(err) => println!("{} : ERROR : {}", software, err),
+            }
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessList {
+    /// software list to use
+    software_list: Option<String>,
+
+    /// sorting order, use "description", "year" or "publisher"
+    #[structopt(short = "s", long = "sort", default_value = "description")]
+    sort: report::SortBy,
+
+    /// display simple list with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+
+    /// search term for querying specific items
+    search: Option<String>,
+}
+
+impl OptMessList {
+    fn execute(self) -> Result<(), Error> {
+        let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
+
+        if let Some(software_list) = self.software_list {
+            mess::list(
+                &db,
+                &software_list,
+                self.search.as_ref().map(|s| s.deref()),
+                self.sort,
+                self.simple,
+            )
+        } else {
+            mess::list_all(&db)
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessReport {
+    /// sorting order, use "description", "year" or "publisher"
+    #[structopt(short = "s", long = "sort", default_value = "description")]
+    sort: report::SortBy,
+
+    /// root directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// software list to use
+    software_list: String,
+
+    /// software to generate report on
+    software: Vec<String>,
+
+    /// display simple report with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+}
+
+impl OptMessReport {
+    fn execute(self) -> Result<(), Error> {
+        let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
+
+        let software: HashSet<String> = if !self.software.is_empty() {
+            self.software.into_iter().collect()
+        } else {
+            self.root
+                .read_dir()?
+                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                .collect()
+        };
+
+        mess::report(&db, &self.software_list, &software, self.sort, self.simple);
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessSplit {
+    /// directory to place split ROM pieces
+    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// delete input ROM once split
+    #[structopt(long = "delete")]
+    delete: bool,
+
+    /// software list
+    software_list: String,
+
+    /// ROMs to split
+    #[structopt(parse(from_os_str))]
+    roms: Vec<PathBuf>,
+}
+
+impl OptMessSplit {
+    fn execute(self) -> Result<(), Error> {
+        let db: mess::SplitDb = read_cache(CACHE_MESS_SPLIT)?;
+
+        if let Some(db) = db.into_software_list(&self.software_list) {
+            self.roms.par_iter().try_for_each(|rom| {
+                let mut rom_data = Vec::new();
+                File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
+
+                if mess::is_ines_format(&rom_data) {
+                    mess::remove_ines_header(&mut rom_data);
+                }
+
+                if let Some(exact_match) = db
+                    .get(&(rom_data.len() as u64))
+                    .and_then(|matches| matches.iter().find(|m| m.matches(&rom_data)))
+                {
+                    exact_match.extract(&self.root, &rom_data)?;
+                    if self.delete {
+                        use std::fs::remove_file;
+
+                        remove_file(&rom)?;
+                    }
+                }
+                Ok(())
+            })
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(StructOpt)]
@@ -182,110 +639,150 @@ enum OptMame {
 enum OptMess {
     /// create internal database
     #[structopt(name = "create")]
-    Create {
-        /// SQLite database
-        #[structopt(long = "db", parse(from_os_str))]
-        database: Option<PathBuf>,
-
-        /// XML files from hash database
-        #[structopt(parse(from_os_str))]
-        xml: Vec<PathBuf>,
-    },
+    Create(OptMessCreate),
 
     /// add ROMs to directory
     #[structopt(name = "add")]
-    Add {
-        /// input directory
-        #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-        input: PathBuf,
-
-        /// output directory
-        #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-        output: PathBuf,
-
-        /// don't actually add ROMs
-        #[structopt(long = "dry-run")]
-        dry_run: bool,
-
-        /// software list to use
-        software_list: String,
-
-        /// software to add
-        software: Vec<String>,
-    },
+    Add(OptMessAdd),
 
     /// verify ROMs in directory
     #[structopt(name = "verify")]
-    Verify {
-        /// root directory
-        #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
-
-        /// software list to use
-        software_list: String,
-
-        /// machine to verify
-        software: Vec<String>,
-    },
+    Verify(OptMessVerify),
 
     /// list all software in software list
     #[structopt(name = "list")]
-    List {
-        /// software list to use
-        software_list: Option<String>,
-
-        /// sorting order, use "description", "year" or "publisher"
-        #[structopt(short = "s", long = "sort", default_value = "description")]
-        sort: report::SortBy,
-
-        /// display simple list with less information
-        #[structopt(short = "S", long = "simple")]
-        simple: bool,
-
-        /// search term for querying specific items
-        search: Option<String>,
-    },
+    List(OptMessList),
 
     /// generate report of sets in collection
     #[structopt(name = "report")]
-    Report {
-        /// sorting order, use "description", "year" or "publisher"
-        #[structopt(short = "s", long = "sort", default_value = "description")]
-        sort: report::SortBy,
-
-        /// root directory
-        #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
-
-        /// software list to use
-        software_list: String,
-
-        /// software to generate report on
-        software: Vec<String>,
-
-        /// display simple report with less information
-        #[structopt(short = "S", long = "simple")]
-        simple: bool,
-    },
+    Report(OptMessReport),
 
     /// split ROM into MESS-compatible parts, if necessary
     #[structopt(name = "split")]
-    Split {
-        /// directory to place split ROM pieces
-        #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
+    Split(OptMessSplit),
+}
 
-        /// delete input ROM once split
-        #[structopt(long = "delete")]
-        delete: bool,
+impl OptMess {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptMess::Create(o) => o.execute(),
+            OptMess::Add(o) => o.execute(),
+            OptMess::Verify(o) => o.execute(),
+            OptMess::List(o) => o.execute(),
+            OptMess::Report(o) => o.execute(),
+            OptMess::Split(o) => o.execute(),
+        }
+    }
+}
 
-        /// software list
-        software_list: String,
+#[derive(StructOpt)]
+struct OptRedumpCreate {
+    /// SQLite database
+    #[structopt(long = "db", parse(from_os_str))]
+    database: Option<PathBuf>,
 
-        /// ROMs to split
-        #[structopt(parse(from_os_str))]
-        rom: Vec<PathBuf>,
-    },
+    /// redump XML file
+    #[structopt(parse(from_os_str))]
+    xml: Vec<PathBuf>,
+}
+
+impl OptRedumpCreate {
+    fn execute(self) -> Result<(), Error> {
+        if let Some(db_file) = self.database {
+            let mut db = open_db(&db_file)?;
+            let trans = db.transaction()?;
+
+            redump::create_tables(&trans)?;
+            redump::clear_tables(&trans)?;
+            self.xml
+                .iter()
+                .try_for_each(|p| redump::add_file(&p, &trans))?;
+            trans.commit()?;
+
+            println!("* Wrote \"{}\"", db_file.display());
+        }
+
+        let mut verify = redump::VerifyDb::default();
+        let mut split = redump::SplitDb::default();
+
+        for file in self.xml.iter() {
+            let mut xml_data = String::new();
+
+            File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
+
+            let tree = Document::parse(&xml_data)?;
+            let root = tree.root_element();
+
+            verify.add_xml(&root);
+            split.add_xml(&root);
+        }
+
+        write_cache(CACHE_REDUMP_VERIFY, &verify)?;
+        write_cache(CACHE_REDUMP_SPLIT, &split)?;
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptRedumpVerify {
+    /// software to verify
+    #[structopt(parse(from_os_str))]
+    software: Vec<PathBuf>,
+}
+
+impl OptRedumpVerify {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache(CACHE_REDUMP_VERIFY)?;
+
+        self.software
+            .par_iter()
+            .for_each(|path| match redump::verify(&db, &path) {
+                Ok(result) => println!("{} : {}", result, path.display()),
+                Err(err) => eprintln!("* {} : {}", path.display(), err),
+            });
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptRedumpSplit {
+    /// directory to place output tracks
+    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    root: PathBuf,
+
+    /// delete input .bin once split
+    #[structopt(long = "delete")]
+    delete: bool,
+
+    /// input .bin file
+    #[structopt(parse(from_os_str))]
+    bins: Vec<PathBuf>,
+}
+
+impl OptRedumpSplit {
+    fn execute(self) -> Result<(), Error> {
+        let db: redump::SplitDb = read_cache(CACHE_REDUMP_SPLIT)?;
+
+        self.bins.iter().try_for_each(|bin_path| {
+            let mut bin_data = Vec::new();
+            File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
+
+            if let Some(exact_match) = db
+                .possible_matches(bin_data.len() as u64)
+                .and_then(|matches| matches.iter().find(|m| m.matches(&bin_data)))
+            {
+                exact_match.extract(&self.root, &bin_data)?;
+                if self.delete {
+                    use std::fs::remove_file;
+
+                    remove_file(bin_path)?;
+                }
+            }
+            Ok(())
+        })
+    }
 }
 
 #[derive(StructOpt)]
@@ -293,39 +790,25 @@ enum OptMess {
 enum OptRedump {
     /// create internal database
     #[structopt(name = "create")]
-    Create {
-        /// SQLite database
-        #[structopt(long = "db", parse(from_os_str))]
-        database: Option<PathBuf>,
-
-        /// redump XML file
-        #[structopt(parse(from_os_str))]
-        xml: Vec<PathBuf>,
-    },
+    Create(OptRedumpCreate),
 
     /// verify files against Redump database
     #[structopt(name = "verify")]
-    Verify {
-        /// software to verify
-        #[structopt(parse(from_os_str))]
-        software: Vec<PathBuf>,
-    },
+    Verify(OptRedumpVerify),
 
     /// split .bin file into multiple tracks
     #[structopt(name = "split")]
-    Split {
-        /// directory to place output tracks
-        #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-        root: PathBuf,
+    Split(OptRedumpSplit),
+}
 
-        /// delete input .bin once split
-        #[structopt(long = "delete")]
-        delete: bool,
-
-        /// input .bin file
-        #[structopt(parse(from_os_str))]
-        bin: Vec<PathBuf>,
-    },
+impl OptRedump {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptRedump::Create(o) => o.execute(),
+            OptRedump::Verify(o) => o.execute(),
+            OptRedump::Split(o) => o.execute(),
+        }
+    }
 }
 
 /// Emulation Database Manager
@@ -344,82 +827,20 @@ enum Opt {
     Redump(OptRedump),
 }
 
-fn main() -> Result<(), Error> {
-    match Opt::from_args() {
-        Opt::Mame(OptMame::Create { xml, database }) => {
-            if let Some(path) = xml {
-                mame_create(File::open(path)?, database.as_ref().map(|t| t.deref()))?
-            } else {
-                use std::io::stdin;
-
-                mame_create(stdin(), database.as_ref().map(|t| t.deref()))?
-            }
+impl Opt {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            Opt::Mame(o) => o.execute(),
+            Opt::Mess(o) => o.execute(),
+            Opt::Redump(o) => o.execute(),
         }
-        Opt::Mame(OptMame::Add {
-            input,
-            output,
-            machine,
-            dry_run,
-        }) => mame_add(&input, &output, &machine, dry_run)?,
-        Opt::Mame(OptMame::Verify { root, machine }) => mame_verify(&root, &machine)?,
-        Opt::Mame(OptMame::List {
-            search,
-            sort,
-            simple,
-        }) => mame_list(search.as_ref().map(|t| t.deref()), sort, simple)?,
-        Opt::Mame(OptMame::Report {
-            root,
-            machine,
-            sort,
-            simple,
-        }) => mame_report(&root, &machine, sort, simple)?,
-        Opt::Mess(OptMess::Create { xml, database }) => {
-            mess_create(&xml, database.as_ref().map(|t| t.deref()))?
-        }
-        Opt::Mess(OptMess::Add {
-            input,
-            output,
-            software_list,
-            software,
-            dry_run,
-        }) => mess_add(&input, &output, &software_list, &software, dry_run)?,
-        Opt::Mess(OptMess::Verify {
-            root,
-            software_list,
-            software,
-        }) => mess_verify(&root, &software_list, &software)?,
-        Opt::Mess(OptMess::Report {
-            root,
-            software_list,
-            software,
-            sort,
-            simple,
-        }) => mess_report(&root, &software_list, &software, sort, simple)?,
-        Opt::Mess(OptMess::List {
-            software_list,
-            search,
-            sort,
-            simple,
-        }) => mess_list(
-            software_list.as_ref().map(|s| s.deref()),
-            search.as_ref().map(|s| s.deref()),
-            sort,
-            simple,
-        )?,
-        Opt::Mess(OptMess::Split {
-            root,
-            software_list,
-            rom,
-            delete,
-        }) => mess_split(&root, &software_list, &rom, delete)?,
-        Opt::Redump(OptRedump::Create { xml, database }) => {
-            redump_create(&xml, database.as_ref().map(|t| t.deref()))?
-        }
-        Opt::Redump(OptRedump::Verify { software }) => redump_verify(&software)?,
-        Opt::Redump(OptRedump::Split { root, bin, delete }) => redump_split(&root, &bin, delete)?,
     }
+}
 
-    Ok(())
+fn main() {
+    if let Err(err) = Opt::from_args().execute() {
+        eprintln!("* {}", err);
+    }
 }
 
 fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {
@@ -456,417 +877,6 @@ where
     let dirs = ProjectDirs::from("", "", "EmuMan").expect("no valid home directory");
     let f = BufReader::new(File::open(dirs.data_local_dir().join(db_file))?);
     serde_cbor::from_reader(f).map_err(Error::CBOR)
-}
-
-fn mame_create<R: Read>(mut xml: R, sqlite_db: Option<&Path>) -> Result<(), Error> {
-    let mut xml_data = String::new();
-
-    xml.read_to_string(&mut xml_data)?;
-
-    let xml = Document::parse(&xml_data)?;
-
-    if let Some(db_file) = sqlite_db {
-        let mut db = open_db(db_file)?;
-        let trans = db.transaction()?;
-
-        mame::create_tables(&trans)
-            .and_then(|()| mame::clear_tables(&trans))
-            .and_then(|()| mame::xml_to_db(&xml, &trans))
-            .and_then(|()| trans.commit().map_err(Error::SQL))?;
-
-        println!("* Wrote \"{}\"", db_file.display());
-    }
-
-    write_cache(CACHE_MAME_VERIFY, mame::VerifyDb::from_xml(&xml))?;
-    write_cache(CACHE_MAME_REPORT, mame::ReportDb::from_xml(&xml))?;
-    write_cache(CACHE_MAME_ADD, mame::AddDb::from_xml(&xml))?;
-
-    Ok(())
-}
-
-fn mame_add<S>(input: &Path, output: &Path, machines: &[S], dry_run: bool) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    use walkdir::WalkDir;
-
-    let machines: HashSet<String> = machines.iter().map(|s| s.as_ref().to_string()).collect();
-
-    let roms: Vec<PathBuf> = WalkDir::new(input)
-        .into_iter()
-        .filter_map(|e| {
-            e.ok()
-                .filter(|e| e.file_type().is_file())
-                .map(|e| e.into_path())
-        })
-        .collect();
-
-    let mut db: mame::AddDb = read_cache(CACHE_MAME_ADD)?;
-    db.retain_machines(&machines);
-
-    roms.par_iter()
-        .try_for_each(|rom| mame::copy(&db, output, rom, dry_run))
-        .map_err(Error::IO)
-}
-
-fn mame_verify<S>(root: &Path, machines: &[S]) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    use std::sync::Mutex;
-
-    let machines: HashSet<String> = if !machines.is_empty() {
-        machines.iter().map(|s| s.as_ref().to_string()).collect()
-    } else {
-        root.read_dir()
-            .unwrap_or_else(|err| exit_with_error!(err))
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect()
-    };
-
-    let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
-
-    let (devices, games): (Vec<String>, Vec<String>) =
-        machines.into_iter().partition(|m| romdb.is_device(m));
-    let devices: Mutex<HashSet<String>> = Mutex::new(devices.into_iter().collect());
-
-    games.par_iter().for_each(|game| {
-        match mame::verify(&romdb, &root, &game) {
-            Ok(VerifyResult::NoMachine) => {}
-            Ok(VerifyResult::Ok(verified)) => {
-                devices.lock().unwrap().retain(|d| !verified.contains(d));
-                println!("{} : OK", game);
-            }
-            Ok(VerifyResult::Bad(mismatches)) => {
-                use std::io::{stdout, Write};
-
-                // ensure results are generated as a unit
-                let stdout = stdout();
-                let mut handle = stdout.lock();
-                writeln!(&mut handle, "{} : BAD", game).unwrap();
-                for mismatch in mismatches {
-                    writeln!(&mut handle, "  {}", mismatch).unwrap();
-                }
-            }
-            Err(err) => println!("{} : ERROR : {}", game, err),
-        }
-    });
-
-    for device in devices.into_inner().unwrap().into_iter() {
-        println!("{} : UNUSED DEVICE", device);
-    }
-
-    Ok(())
-}
-
-fn mame_list(search: Option<&str>, sort: report::SortBy, simple: bool) -> Result<(), Error> {
-    mame::list(&read_cache(CACHE_MAME_REPORT)?, search, sort, simple);
-    Ok(())
-}
-
-fn mame_report<S>(
-    root: &Path,
-    machines: &[S],
-    sort: report::SortBy,
-    simple: bool,
-) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    let machines: HashSet<String> = if !machines.is_empty() {
-        machines.iter().map(|s| s.as_ref().to_string()).collect()
-    } else {
-        root.read_dir()?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect()
-    };
-
-    mame::report(&read_cache(CACHE_MAME_REPORT)?, &machines, sort, simple);
-    Ok(())
-}
-
-fn mess_create<P>(xml: &[P], sqlite_db: Option<&Path>) -> Result<(), Error>
-where
-    P: AsRef<Path>,
-{
-    let files: Vec<PathBuf> = xml.iter().map(|f| f.as_ref().into()).collect();
-
-    if let Some(db_file) = sqlite_db {
-        let mut db = open_db(db_file)?;
-        let trans = db.transaction()?;
-
-        mess::create_tables(&trans)
-            .and_then(|()| mess::clear_tables(&trans))
-            .and_then(|()| files.iter().try_for_each(|p| mess::add_file(&p, &trans)))
-            .and_then(|()| trans.commit().map_err(Error::SQL))?;
-
-        println!("* Wrote \"{}\"", db_file.display());
-    }
-
-    let mut verify = mess::VerifyDb::default();
-    let mut report = mess::ReportDb::default();
-    let mut add = mess::AddDb::default();
-    let mut split = mess::SplitDb::default();
-
-    for file in files.iter() {
-        let mut xml_data = String::new();
-
-        File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
-        let tree = Document::parse(&xml_data)?;
-        let root = tree.root_element();
-
-        verify.add_xml(&root);
-        report.add_xml(&root);
-        add.add_xml(&root);
-        split.add_xml(&root);
-    }
-
-    report.sort_software();
-
-    write_cache(CACHE_MESS_VERIFY, &verify)?;
-    write_cache(CACHE_MESS_REPORT, &report)?;
-    write_cache(CACHE_MESS_ADD, &add)?;
-    write_cache(CACHE_MESS_SPLIT, &split)?;
-
-    Ok(())
-}
-
-fn mess_add<S>(
-    input: &Path,
-    output: &Path,
-    software_list: &str,
-    software: &[S],
-    dry_run: bool,
-) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    use walkdir::WalkDir;
-
-    let roms: Vec<PathBuf> = WalkDir::new(input)
-        .into_iter()
-        .filter_map(|e| {
-            e.ok()
-                .filter(|e| e.file_type().is_file())
-                .map(|e| e.into_path())
-        })
-        .collect();
-
-    let software: HashSet<String> = if !software.is_empty() {
-        software.iter().map(|s| s.as_ref().to_string()).collect()
-    } else {
-        read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_all_software(software_list)
-    };
-
-    if let Some(mut db) =
-        read_cache::<mess::AddDb>(CACHE_MESS_ADD)?.into_software_list(&software_list)
-    {
-        db.retain_software(&software);
-
-        roms.par_iter()
-            .try_for_each(|rom| mess::copy(&db, &output, rom, dry_run))
-            .map_err(Error::IO)
-    } else {
-        Ok(())
-    }
-}
-
-fn mess_verify<S>(root: &Path, software_list: &str, software: &[S]) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    let software: HashSet<String> = if !software.is_empty() {
-        software.iter().map(|s| s.as_ref().to_owned()).collect()
-    } else {
-        root.read_dir()?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect()
-    };
-
-    let db =
-        match read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_software_list(software_list) {
-            Some(db) => db,
-            None => return Ok(()), // no software to check
-        };
-
-    software.par_iter().for_each(|software| {
-        match mess::verify(&db, &root, &software) {
-            Ok(VerifyResult::NoMachine) => {}
-            Ok(VerifyResult::Ok(_)) => println!("{} : OK", software),
-            Ok(VerifyResult::Bad(mismatches)) => {
-                use std::io::{stdout, Write};
-
-                // ensure results are generated as a unit
-                let stdout = stdout();
-                let mut handle = stdout.lock();
-                writeln!(&mut handle, "{} : BAD", software).unwrap();
-                for mismatch in mismatches {
-                    writeln!(&mut handle, "  {}", mismatch).unwrap();
-                }
-            }
-            Err(err) => println!("{} : ERROR : {}", software, err),
-        }
-    });
-
-    Ok(())
-}
-
-fn mess_list(
-    software_list: Option<&str>,
-    search: Option<&str>,
-    sort: report::SortBy,
-    simple: bool,
-) -> Result<(), Error> {
-    let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
-
-    if let Some(software_list) = software_list {
-        mess::list(&db, software_list, search, sort, simple)
-    } else {
-        mess::list_all(&db)
-    }
-
-    Ok(())
-}
-
-fn mess_report<S>(
-    root: &Path,
-    software_list: &str,
-    software: &[S],
-    sort: report::SortBy,
-    simple: bool,
-) -> Result<(), Error>
-where
-    S: AsRef<str>,
-{
-    let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
-
-    let software: HashSet<String> = if !software.is_empty() {
-        software.iter().map(|s| s.as_ref().to_owned()).collect()
-    } else {
-        root.read_dir()?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect()
-    };
-
-    mess::report(&db, software_list, &software, sort, simple);
-    Ok(())
-}
-
-fn mess_split<P>(root: &Path, software_list: &str, roms: &[P], delete: bool) -> Result<(), Error>
-where
-    P: AsRef<Path>,
-{
-    let db: mess::SplitDb = read_cache(CACHE_MESS_SPLIT)?;
-    let roms: Vec<PathBuf> = roms.iter().map(|p| p.as_ref().to_path_buf()).collect();
-
-    if let Some(db) = db.into_software_list(software_list) {
-        roms.into_par_iter().try_for_each(|rom| {
-            let mut rom_data = Vec::new();
-            File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
-
-            if mess::is_ines_format(&rom_data) {
-                mess::remove_ines_header(&mut rom_data);
-            }
-
-            if let Some(exact_match) = db
-                .get(&(rom_data.len() as u64))
-                .and_then(|matches| matches.iter().find(|m| m.matches(&rom_data)))
-            {
-                exact_match.extract(&root, &rom_data)?;
-                if delete {
-                    use std::fs::remove_file;
-
-                    remove_file(&rom)?;
-                }
-            }
-            Ok(())
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn redump_create<P>(xml: &[P], sqlite_db: Option<&Path>) -> Result<(), Error>
-where
-    P: AsRef<Path>,
-{
-    let files: Vec<PathBuf> = xml.iter().map(|p| p.as_ref().to_path_buf()).collect();
-
-    if let Some(db_file) = sqlite_db {
-        let mut db = open_db(db_file)?;
-        let trans = db.transaction()?;
-
-        redump::create_tables(&trans)
-            .and_then(|()| redump::clear_tables(&trans))
-            .and_then(|()| files.iter().try_for_each(|p| redump::add_file(&p, &trans)))
-            .and_then(|()| trans.commit().map_err(Error::SQL))?;
-
-        println!("* Wrote \"{}\"", db_file.display());
-    }
-
-    let mut verify = redump::VerifyDb::default();
-    let mut split = redump::SplitDb::default();
-
-    for file in files.iter() {
-        let mut xml_data = String::new();
-
-        File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
-        let tree = Document::parse(&xml_data)?;
-        let root = tree.root_element();
-
-        verify.add_xml(&root);
-        split.add_xml(&root);
-    }
-
-    write_cache(CACHE_REDUMP_VERIFY, &verify)?;
-    write_cache(CACHE_REDUMP_SPLIT, &split)?;
-
-    Ok(())
-}
-
-fn redump_verify<P>(software: &[P]) -> Result<(), Error>
-where
-    P: AsRef<Path>,
-{
-    let files: Vec<PathBuf> = software.iter().map(|p| p.as_ref().to_path_buf()).collect();
-
-    let db = read_cache(CACHE_REDUMP_VERIFY)?;
-
-    files
-        .par_iter()
-        .for_each(|path| match redump::verify(&db, &path) {
-            Ok(result) => println!("{} : {}", result, path.display()),
-            Err(err) => eprintln!("* {} : {}", path.display(), err),
-        });
-
-    Ok(())
-}
-
-fn redump_split<P>(root: &Path, bin_paths: &[P], delete: bool) -> Result<(), Error>
-where
-    P: AsRef<Path>,
-{
-    let db: redump::SplitDb = read_cache(CACHE_REDUMP_SPLIT)?;
-
-    bin_paths.iter().try_for_each(|bin_path| {
-        let mut bin_data = Vec::new();
-        File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
-
-        if let Some(exact_match) = db
-            .possible_matches(bin_data.len() as u64)
-            .and_then(|matches| matches.iter().find(|m| m.matches(&bin_data)))
-        {
-            exact_match.extract(&root, &bin_data)?;
-            if delete {
-                use std::fs::remove_file;
-
-                remove_file(bin_path)?;
-            }
-        }
-        Ok(())
-    })
 }
 
 pub enum VerifyMismatch {
