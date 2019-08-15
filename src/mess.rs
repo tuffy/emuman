@@ -340,7 +340,7 @@ fn add_data_area(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusq
         stmt.execute_named(named_params! {
             ":part_id": part_id,
             ":name": node.attribute("name"),
-            ":size": node.attribute("size").map(|s| parse_int(s).expect("invalid data area size")),
+            ":size": node.attribute("size").map(|s| parse_int(s).map(|i| i as i64).expect("invalid data area size")),
             ":width": node.attribute("width"),
             ":endianness": node.attribute("endianness")
         })
@@ -364,10 +364,10 @@ fn add_rom(db: &Transaction, data_area_id: i64, node: &Node) -> Result<(), rusql
         named_params! {
             ":data_area_id": data_area_id,
             ":name": node.attribute("name"),
-            ":size": node.attribute("size").map(|s| parse_int(s).expect("invalid ROM size integer")),
+            ":size": node.attribute("size").map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM size integer")),
             ":crc": node.attribute("crc"),
             ":sha1": node.attribute("sha1"),
-            ":offset": node.attribute("offset").map(|s| parse_int(s).expect("invalid ROM offset integer")),
+            ":offset": node.attribute("offset").map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM offset integer")),
             ":value": node.attribute("value"),
             ":status": node.attribute("status"),
             ":loadflag": node.attribute("loadflag")
@@ -418,7 +418,7 @@ fn add_dipswitch(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusq
             ":part_id": part_id,
             ":name": node.attribute("name"),
             ":tag": node.attribute("tag"),
-            ":mask": node.attribute("mask").map(|s| parse_int(s).expect("invalid dipswitch mask integer"))
+            ":mask": node.attribute("mask").map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch mask integer"))
         })
     })?;
 
@@ -437,7 +437,7 @@ fn add_dipvalue(db: &Transaction, dipswitch_id: i64, node: &Node) -> Result<(), 
         stmt.execute_named(named_params! {
             ":dipswitch_id": dipswitch_id,
             ":name": node.attribute("name"),
-            ":value": node.attribute("value").map(|s| parse_int(s).expect("invalid dipswitch value")),
+            ":value": node.attribute("value").map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch value")),
             ":default": node.attribute("default").unwrap_or("no")
         })
     })

@@ -6,17 +6,17 @@ use std::io;
 use std::path::Path;
 
 #[inline]
-pub fn parse_int(s: &str) -> Result<i64, ParseIntError> {
+pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
     use std::str::FromStr;
 
     // MAME's use of integer values is a horror show
     let s = s.trim();
 
-    i64::from_str(s)
-        .or_else(|_| i64::from_str_radix(s, 16))
+    u64::from_str(s)
+        .or_else(|_| u64::from_str_radix(s, 16))
         .or_else(|e| {
             if s.starts_with("0x") {
-                i64::from_str_radix(&s[2..], 16)
+                u64::from_str_radix(&s[2..], 16)
             } else {
                 dbg!(s);
                 Err(e)
@@ -26,14 +26,14 @@ pub fn parse_int(s: &str) -> Result<i64, ParseIntError> {
 
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RomId {
-    pub size: i64,
+    pub size: u64,
     pub sha1: String,
 }
 
 impl RomId {
     pub fn from_path(path: &Path) -> Result<Self, io::Error> {
         let mut f = File::open(path)?;
-        let size = f.metadata().map(|m| m.len())? as i64;
+        let size = f.metadata().map(|m| m.len())?;
         let sha1 = calculate_sha1(&mut f)?;
         Ok(RomId { size, sha1 })
     }
