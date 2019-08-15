@@ -33,6 +33,7 @@ pub enum Error {
     SQL(rusqlite::Error),
     CBOR(serde_cbor::Error),
     NoSuchSoftwareList(String),
+    NoSuchSoftware(String),
 }
 
 impl From<std::io::Error> for Error {
@@ -67,6 +68,7 @@ impl std::error::Error for Error {
             Error::SQL(err) => err.description(),
             Error::CBOR(err) => err.description(),
             Error::NoSuchSoftwareList(_) => "no such software list",
+            Error::NoSuchSoftware(_) => "no such software",
         }
     }
 
@@ -76,7 +78,7 @@ impl std::error::Error for Error {
             Error::XML(err) => Some(err),
             Error::SQL(err) => Some(err),
             Error::CBOR(err) => Some(err),
-            Error::NoSuchSoftwareList(_) => None,
+            Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) => None,
         }
     }
 }
@@ -89,6 +91,7 @@ impl fmt::Display for Error {
             Error::SQL(err) => err.fmt(f),
             Error::CBOR(err) => err.fmt(f),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
+            Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
         }
     }
 }
@@ -160,6 +163,7 @@ impl OptMameAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db: mame::AddDb = read_cache(CACHE_MAME_ADD)?;
         db.retain_machines(&self.machines.iter().cloned().collect());
+        db.validate_all(&self.machines)?;
 
         let roms = find_roms(&self.input, &db);
 
@@ -183,16 +187,20 @@ impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
         use std::sync::Mutex;
 
+        let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
+
         let machines: HashSet<String> = if !self.machines.is_empty() {
-            self.machines.clone().into_iter().collect()
+            // only validate user-specified machines
+            let machines = self.machines.clone().into_iter().collect();
+            romdb.validate_all(&machines)?;
+            machines
         } else {
+            // ignore stuff that's on disk but not valid machines
             self.root
                 .read_dir()?
                 .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
                 .collect()
         };
-
-        let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
 
         let (devices, games): (Vec<String>, Vec<String>) =
             machines.into_iter().partition(|m| romdb.is_device(m));
@@ -412,7 +420,9 @@ impl OptMessAdd {
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let software: HashSet<String> = if !self.software.is_empty() {
-            self.software.clone().into_iter().collect()
+            let software = self.software.clone().into_iter().collect();
+            db.validate_all(&software)?;
+            software
         } else {
             read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_all_software(&self.software_list)
         };
@@ -447,7 +457,9 @@ impl OptMessVerify {
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let software: HashSet<String> = if !self.software.is_empty() {
-            self.software.clone().into_iter().collect()
+            let software = self.software.clone().into_iter().collect();
+            db.validate_all(&software)?;
+            software
         } else {
             self.root
                 .read_dir()?
@@ -580,7 +592,8 @@ impl OptMessSplit {
     fn execute(self) -> Result<(), Error> {
         let db: mess::SplitDb = read_cache(CACHE_MESS_SPLIT)?;
 
-        let db = db.into_software_list(&self.software_list)
+        let db = db
+            .into_software_list(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         self.roms.par_iter().try_for_each(|rom| {
@@ -939,5 +952,29 @@ fn find_roms<D: AddRomDb>(root: &Path, db: &D) -> Vec<PathBuf> {
                     .map(|e| e.into_path())
             })
             .collect()
+    }
+}
+
+pub trait SoftwareExists {
+    fn exists(&self, software: &str) -> bool;
+
+    #[inline]
+    fn validate(&self, software: &str) -> Result<(), Error> {
+        if self.exists(software) {
+            Ok(())
+        } else {
+            Err(Error::NoSuchSoftware(software.to_string()))
+        }
+    }
+
+    #[inline]
+    fn validate_all<S, I>(&self, software: I) -> Result<(), Error>
+    where
+        S: AsRef<str>,
+        I: IntoIterator<Item = S>,
+    {
+        software
+            .into_iter()
+            .try_for_each(|s| self.validate(s.as_ref()))
     }
 }

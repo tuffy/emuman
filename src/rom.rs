@@ -76,7 +76,7 @@ pub struct SoftwareDisk {
     pub disk: String,
 }
 
-fn calculate_sha1(f: &mut io::Read) -> Result<String, io::Error> {
+fn calculate_sha1(f: &mut dyn io::Read) -> Result<String, io::Error> {
     use sha1::Sha1;
 
     let mut sha1 = Sha1::new();

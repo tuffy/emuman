@@ -2,7 +2,7 @@ use super::{
     no_parens, no_slashes,
     report::{ReportRow, SortBy, Status, SummaryReportRow},
     rom::{chd_sha1, disk_to_chd, node_to_disk, parse_int, RomId, SoftwareDisk, SoftwareRom},
-    AddRomDb, Error, VerifyMismatch, VerifyResult,
+    AddRomDb, Error, SoftwareExists, VerifyMismatch, VerifyResult,
 };
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
@@ -553,6 +553,13 @@ impl SoftwareListAddDb {
     }
 }
 
+impl SoftwareExists for SoftwareListAddDb {
+    #[inline]
+    fn exists(&self, software: &str) -> bool {
+        self.software_rom_sizes.contains_key(software)
+    }
+}
+
 impl AddRomDb for SoftwareListAddDb {
     #[inline]
     fn has_disks(&self) -> bool {
@@ -829,6 +836,13 @@ impl SoftwareListDb {
     #[inline]
     fn into_all_software(self) -> HashSet<String> {
         self.software
+    }
+}
+
+impl SoftwareExists for SoftwareListDb {
+    #[inline]
+    fn exists(&self, software: &str) -> bool {
+        self.software.contains(software)
     }
 }
 
