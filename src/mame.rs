@@ -2,7 +2,7 @@ use super::{
     no_parens, no_slashes,
     report::{ReportRow, SortBy, Status},
     rom::{chd_sha1, disk_to_chd, node_to_disk, RomId, SoftwareDisk, SoftwareRom},
-    Error, VerifyMismatch, VerifyResult,
+    AddRomDb, Error, VerifyMismatch, VerifyResult,
 };
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, params, Transaction};
@@ -968,24 +968,33 @@ fn add_ram_option(db: &Transaction, machine_id: i64, ram: &Node) -> Result<(), E
 pub struct AddDb {
     roms: HashMap<RomId, Vec<SoftwareRom>>,
     disks: HashMap<String, Vec<SoftwareDisk>>,
+    machine_rom_sizes: HashMap<String, HashSet<u64>>,
+    machines_with_disks: HashSet<String>,
 }
 
 impl AddDb {
     pub fn from_xml(tree: &Document) -> Self {
         let mut roms = HashMap::new();
         let mut disks = HashMap::new();
+        let mut machine_rom_sizes = HashMap::new();
+        let mut machines_with_disks = HashSet::new();
         let root = tree.root_element();
 
         for machine in root.children().filter(|c| c.tag_name().name() == "machine") {
             let name = machine.attribute("name").unwrap();
             for child in machine.children() {
                 if let Some(romid) = RomId::from_node(&child) {
+                    machine_rom_sizes
+                        .entry(name.to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(romid.size);
+
                     roms.entry(romid)
                         .or_insert_with(Vec::new)
                         .push(SoftwareRom {
                             game: name.to_string(),
                             rom: child.attribute("name").unwrap().to_string(),
-                        })
+                        });
                 } else if let Some(sha1) = node_to_disk(&child) {
                     disks
                         .entry(sha1)
@@ -993,12 +1002,19 @@ impl AddDb {
                         .push(SoftwareDisk {
                             game: name.to_string(),
                             disk: disk_to_chd(child.attribute("name").unwrap()),
-                        })
+                        });
+
+                    machines_with_disks.insert(name.to_string());
                 }
             }
         }
 
-        AddDb { roms, disks }
+        AddDb {
+            roms,
+            disks,
+            machine_rom_sizes,
+            machines_with_disks,
+        }
     }
 
     pub fn retain_machines(&mut self, machines: &HashSet<String>) {
@@ -1006,10 +1022,31 @@ impl AddDb {
             .values_mut()
             .for_each(|v| v.retain(|r| machines.contains(&r.game)));
         self.roms.retain(|_, v| !v.is_empty());
+
         self.disks
             .values_mut()
             .for_each(|v| v.retain(|r| machines.contains(&r.game)));
         self.disks.retain(|_, v| !v.is_empty());
+
+        self.machine_rom_sizes
+            .retain(|machine, _| machines.contains(machine));
+
+        self.machines_with_disks
+            .retain(|machine| machines.contains(machine));
+    }
+}
+
+impl AddRomDb for AddDb {
+    #[inline]
+    fn has_disks(&self) -> bool {
+        !self.machines_with_disks.is_empty()
+    }
+
+    fn all_rom_sizes(&self) -> HashSet<u64> {
+        self.machine_rom_sizes
+            .values()
+            .flat_map(|h| h.iter().copied())
+            .collect()
     }
 }
 

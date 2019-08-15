@@ -32,6 +32,7 @@ pub enum Error {
     XML(roxmltree::Error),
     SQL(rusqlite::Error),
     CBOR(serde_cbor::Error),
+    NoSuchSoftwareList(String),
 }
 
 impl From<std::io::Error> for Error {
@@ -65,6 +66,7 @@ impl std::error::Error for Error {
             Error::XML(err) => err.description(),
             Error::SQL(err) => err.description(),
             Error::CBOR(err) => err.description(),
+            Error::NoSuchSoftwareList(_) => "no such software list",
         }
     }
 
@@ -74,6 +76,7 @@ impl std::error::Error for Error {
             Error::XML(err) => Some(err),
             Error::SQL(err) => Some(err),
             Error::CBOR(err) => Some(err),
+            Error::NoSuchSoftwareList(_) => None,
         }
     }
 }
@@ -85,6 +88,7 @@ impl fmt::Display for Error {
             Error::XML(err) => err.fmt(f),
             Error::SQL(err) => err.fmt(f),
             Error::CBOR(err) => err.fmt(f),
+            Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
         }
     }
 }
@@ -154,19 +158,10 @@ struct OptMameAdd {
 
 impl OptMameAdd {
     fn execute(self) -> Result<(), Error> {
-        use walkdir::WalkDir;
-
-        let roms: Vec<PathBuf> = WalkDir::new(&self.input)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| e.file_type().is_file())
-                    .map(|e| e.into_path())
-            })
-            .collect();
-
         let mut db: mame::AddDb = read_cache(CACHE_MAME_ADD)?;
-        db.retain_machines(&self.machines.clone().into_iter().collect());
+        db.retain_machines(&self.machines.iter().cloned().collect());
+
+        let roms = find_roms(&self.input, &db);
 
         roms.par_iter()
             .try_for_each(|rom| mame::copy(&db, &self.output, rom, self.dry_run))
@@ -412,16 +407,9 @@ struct OptMessAdd {
 
 impl OptMessAdd {
     fn execute(self) -> Result<(), Error> {
-        use walkdir::WalkDir;
-
-        let roms: Vec<PathBuf> = WalkDir::new(&self.input)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| e.file_type().is_file())
-                    .map(|e| e.into_path())
-            })
-            .collect();
+        let mut db = read_cache::<mess::AddDb>(CACHE_MESS_ADD)?
+            .into_software_list(&self.software_list)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let software: HashSet<String> = if !self.software.is_empty() {
             self.software.clone().into_iter().collect()
@@ -429,17 +417,13 @@ impl OptMessAdd {
             read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_all_software(&self.software_list)
         };
 
-        if let Some(mut db) =
-            read_cache::<mess::AddDb>(CACHE_MESS_ADD)?.into_software_list(&self.software_list)
-        {
-            db.retain_software(&software);
+        db.retain_software(&software);
 
-            roms.par_iter()
-                .try_for_each(|rom| mess::copy(&db, &self.output, rom, self.dry_run))
-                .map_err(Error::IO)
-        } else {
-            Ok(())
-        }
+        let roms = find_roms(&self.input, &db);
+
+        roms.par_iter()
+            .try_for_each(|rom| mess::copy(&db, &self.output, rom, self.dry_run))
+            .map_err(Error::IO)
     }
 }
 
@@ -458,6 +442,10 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?
+            .into_software_list(&self.software_list)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+
         let software: HashSet<String> = if !self.software.is_empty() {
             self.software.clone().into_iter().collect()
         } else {
@@ -465,13 +453,6 @@ impl OptMessVerify {
                 .read_dir()?
                 .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
                 .collect()
-        };
-
-        let db = match read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?
-            .into_software_list(&self.software_list)
-        {
-            Some(db) => db,
-            None => return Ok(()), // no software to check
         };
 
         software.par_iter().for_each(|software| {
@@ -520,8 +501,8 @@ impl OptMessList {
 
         if let Some(software_list) = self.software_list {
             mess::list(
-                &db,
-                &software_list,
+                &db.into_software_list(&software_list)
+                    .ok_or_else(|| Error::NoSuchSoftwareList(software_list.clone()))?,
                 self.search.as_ref().map(|s| s.deref()),
                 self.sort,
                 self.simple,
@@ -566,8 +547,8 @@ impl OptMessReport {
             .collect();
 
         mess::report(
-            &db,
-            &self.software_list,
+            &db.into_software_list(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?,
             &software,
             self.search.as_ref().map(|s| s.deref()),
             self.sort,
@@ -599,31 +580,30 @@ impl OptMessSplit {
     fn execute(self) -> Result<(), Error> {
         let db: mess::SplitDb = read_cache(CACHE_MESS_SPLIT)?;
 
-        if let Some(db) = db.into_software_list(&self.software_list) {
-            self.roms.par_iter().try_for_each(|rom| {
-                let mut rom_data = Vec::new();
-                File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
+        let db = db.into_software_list(&self.software_list)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-                if mess::is_ines_format(&rom_data) {
-                    mess::remove_ines_header(&mut rom_data);
+        self.roms.par_iter().try_for_each(|rom| {
+            let mut rom_data = Vec::new();
+            File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
+
+            if mess::is_ines_format(&rom_data) {
+                mess::remove_ines_header(&mut rom_data);
+            }
+
+            if let Some(exact_match) = db
+                .get(&(rom_data.len() as u64))
+                .and_then(|matches| matches.iter().find(|m| m.matches(&rom_data)))
+            {
+                exact_match.extract(&self.root, &rom_data)?;
+                if self.delete {
+                    use std::fs::remove_file;
+
+                    remove_file(&rom)?;
                 }
-
-                if let Some(exact_match) = db
-                    .get(&(rom_data.len() as u64))
-                    .and_then(|matches| matches.iter().find(|m| m.matches(&rom_data)))
-                {
-                    exact_match.extract(&self.root, &rom_data)?;
-                    if self.delete {
-                        use std::fs::remove_file;
-
-                        remove_file(&rom)?;
-                    }
-                }
-                Ok(())
-            })
-        } else {
+            }
             Ok(())
-        }
+        })
     }
 }
 
@@ -917,5 +897,47 @@ pub fn no_slashes(s: &str) -> &str {
         s[0..index].trim_end()
     } else {
         s
+    }
+}
+
+pub trait AddRomDb {
+    fn has_disks(&self) -> bool;
+    fn all_rom_sizes(&self) -> HashSet<u64>;
+}
+
+fn find_roms<D: AddRomDb>(root: &Path, db: &D) -> Vec<PathBuf> {
+    use walkdir::WalkDir;
+
+    let rom_sizes = db.all_rom_sizes();
+
+    if db.has_disks() {
+        WalkDir::new(root)
+            .into_iter()
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| {
+                        e.metadata()
+                            .map(|m| {
+                                m.is_file()
+                                    && (rom_sizes.contains(&m.len()) || rom::is_chd(e.path()))
+                            })
+                            .unwrap_or(false)
+                    })
+                    .map(|e| e.into_path())
+            })
+            .collect()
+    } else {
+        WalkDir::new(root)
+            .into_iter()
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| {
+                        e.metadata()
+                            .map(|m| m.is_file() && rom_sizes.contains(&m.len()))
+                            .unwrap_or(false)
+                    })
+                    .map(|e| e.into_path())
+            })
+            .collect()
     }
 }

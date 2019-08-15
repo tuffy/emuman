@@ -2,7 +2,7 @@ use super::{
     no_parens, no_slashes,
     report::{ReportRow, SortBy, Status, SummaryReportRow},
     rom::{chd_sha1, disk_to_chd, node_to_disk, parse_int, RomId, SoftwareDisk, SoftwareRom},
-    Error, VerifyMismatch, VerifyResult,
+    AddRomDb, Error, VerifyMismatch, VerifyResult,
 };
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
@@ -465,12 +465,16 @@ impl AddDb {
 pub struct SoftwareListAddDb {
     roms: HashMap<RomId, Vec<SoftwareRom>>,
     disks: HashMap<String, Vec<SoftwareDisk>>,
+    software_rom_sizes: HashMap<String, HashSet<u64>>,
+    software_with_disks: HashSet<String>,
 }
 
 impl SoftwareListAddDb {
     pub fn from_xml(node: &Node) -> Self {
         let mut roms = HashMap::new();
         let mut disks = HashMap::new();
+        let mut software_rom_sizes = HashMap::new();
+        let mut software_with_disks = HashSet::new();
 
         for software in node
             .children()
@@ -487,6 +491,11 @@ impl SoftwareListAddDb {
                         "dataarea" => {
                             for c in child.children() {
                                 if let Some(romid) = RomId::from_node(&c) {
+                                    software_rom_sizes
+                                        .entry(software_name.to_string())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(romid.size);
+
                                     roms.entry(romid)
                                         .or_insert_with(Vec::new)
                                         .push(SoftwareRom {
@@ -505,7 +514,9 @@ impl SoftwareListAddDb {
                                         .push(SoftwareDisk {
                                             game: software_name.to_string(),
                                             disk: disk_to_chd(c.attribute("name").unwrap()),
-                                        })
+                                        });
+
+                                    software_with_disks.insert(software_name.to_string());
                                 }
                             }
                         }
@@ -515,7 +526,12 @@ impl SoftwareListAddDb {
             }
         }
 
-        SoftwareListAddDb { roms, disks }
+        SoftwareListAddDb {
+            roms,
+            disks,
+            software_rom_sizes,
+            software_with_disks,
+        }
     }
 
     pub fn retain_software(&mut self, software: &HashSet<String>) {
@@ -523,10 +539,31 @@ impl SoftwareListAddDb {
             .values_mut()
             .for_each(|v| v.retain(|r| software.contains(&r.game)));
         self.roms.retain(|_, v| !v.is_empty());
+
+        self.software_rom_sizes
+            .retain(|game, _| software.contains(game));
+
         self.disks
             .values_mut()
             .for_each(|v| v.retain(|r| software.contains(&r.game)));
         self.disks.retain(|_, v| !v.is_empty());
+
+        self.software_with_disks
+            .retain(|game| software.contains(game));
+    }
+}
+
+impl AddRomDb for SoftwareListAddDb {
+    #[inline]
+    fn has_disks(&self) -> bool {
+        !self.software_with_disks.is_empty()
+    }
+
+    fn all_rom_sizes(&self) -> HashSet<u64> {
+        self.software_rom_sizes
+            .values()
+            .flat_map(|h| h.iter().copied())
+            .collect()
     }
 }
 
@@ -626,8 +663,14 @@ impl ReportDb {
         );
     }
 
+    #[inline]
     pub fn sort_software(&mut self) {
         self.all.sort_by(|x, y| x.description.cmp(&y.description));
+    }
+
+    #[inline]
+    pub fn into_software_list(mut self, software_list: &str) -> Option<HashMap<String, ReportRow>> {
+        self.software_list.remove(software_list)
     }
 }
 
@@ -644,19 +687,19 @@ pub fn list_all(db: &ReportDb) {
     table.printstd();
 }
 
-pub fn list(db: &ReportDb, software_list: &str, search: Option<&str>, sort: SortBy, simple: bool) {
+pub fn list(
+    all_software: &HashMap<String, ReportRow>,
+    search: Option<&str>,
+    sort: SortBy,
+    simple: bool,
+) {
     let mut results: Vec<&ReportRow> = if let Some(search) = search {
-        db.software_list
-            .get(software_list)
-            .iter()
-            .flat_map(|h| h.values().filter(|r| r.matches(search)))
+        all_software
+            .values()
+            .filter(|r| r.matches(search))
             .collect()
     } else {
-        db.software_list
-            .get(software_list)
-            .iter()
-            .flat_map(|h| h.values())
-            .collect()
+        all_software.values().collect()
     };
 
     results.sort_unstable_by(|x, y| x.sort_by(y, sort));
@@ -665,20 +708,15 @@ pub fn list(db: &ReportDb, software_list: &str, search: Option<&str>, sort: Sort
 }
 
 pub fn report(
-    db: &ReportDb,
-    software_list: &str,
-    software: &HashSet<String>,
+    all_software: &HashMap<String, ReportRow>,
+    my_software: &HashSet<String>,
     search: Option<&str>,
     sort: SortBy,
     simple: bool,
 ) {
-    let mut results: Vec<&ReportRow> = software
+    let mut results: Vec<&ReportRow> = my_software
         .iter()
-        .filter_map(|software| {
-            db.software_list
-                .get(software_list)
-                .and_then(|soft_db| soft_db.get(software))
-        })
+        .filter_map(|s| all_software.get(s))
         .collect();
 
     if let Some(search) = search {
