@@ -180,7 +180,7 @@ impl OptMameAdd {
 
         let roms = find_roms(&self.input, &db);
 
-        roms.par_iter()
+        roms.iter()
             .try_for_each(|rom| mame::copy(&db, &self.output, rom, self.dry_run))
             .map_err(Error::IO)
     }
@@ -445,7 +445,7 @@ impl OptMessAdd {
 
         let roms = find_roms(&self.input, &db);
 
-        roms.par_iter()
+        roms.iter()
             .try_for_each(|rom| mess::copy(&db, &self.output, rom, self.dry_run))
             .map_err(Error::IO)
     }
@@ -939,37 +939,49 @@ fn find_roms<D: AddRomDb>(root: &Path, db: &D) -> Vec<PathBuf> {
     use walkdir::WalkDir;
 
     let rom_sizes = db.all_rom_sizes();
+    let has_disks = db.has_disks();
+    let mut checked_files = HashSet::new();
 
-    if db.has_disks() {
-        WalkDir::new(root)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| {
-                        e.metadata()
-                            .map(|m| {
-                                m.is_file()
-                                    && (rom_sizes.contains(&m.len()) || rom::is_chd(e.path()))
-                            })
-                            .unwrap_or(false)
-                    })
-                    .map(|e| e.into_path())
-            })
-            .collect()
-    } else {
-        WalkDir::new(root)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| {
-                        e.metadata()
-                            .map(|m| m.is_file() && rom_sizes.contains(&m.len()))
-                            .unwrap_or(false)
-                    })
-                    .map(|e| e.into_path())
-            })
-            .collect()
+    WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| {
+            e.ok()
+                .map(|e| e.into_path())
+                .filter(|p| is_possible_rom(p, &rom_sizes, &mut checked_files, has_disks))
+                .map(|p| p.to_path_buf())
+        })
+        .collect()
+}
+
+fn is_possible_rom(
+    path: &Path,
+    rom_sizes: &HashSet<u64>,
+    checked_files: &mut HashSet<(u64, u64)>,
+    has_disks: bool,
+) -> bool {
+    use std::ffi::OsStr;
+    use std::os::unix::fs::MetadataExt;
+
+    // CHDs aren't any particular size,
+    // so we'll have to check them all by SHA1
+    if has_disks && path.extension() == Some(OsStr::new("chd")) {
+        return true;
     }
+
+    let metadata = match path.metadata() {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+
+    if !metadata.is_file() {
+        return false;
+    }
+
+    if !rom_sizes.contains(&metadata.len()) {
+        return false;
+    }
+
+    checked_files.insert((metadata.dev(), metadata.ino()))
 }
 
 pub trait SoftwareExists {
