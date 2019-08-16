@@ -111,10 +111,13 @@ pub fn copy(source: &Path, target: &Path, dry_run: bool) -> Result<(), std::io::
 
 #[inline]
 pub fn is_chd(chd_path: &Path) -> bool {
-    match chd_sha1(chd_path) {
-        Ok(Some(_)) => true,
-        _ => false,
-    }
+    use std::io::Read;
+
+    let mut tag = [0; 8];
+    File::open(chd_path)
+        .and_then(|mut f| f.read_exact(&mut tag))
+        .map(|_| &tag == b"MComprHD")
+        .unwrap_or(false)
 }
 
 pub fn chd_sha1(chd_path: &Path) -> Result<Option<String>, std::io::Error> {

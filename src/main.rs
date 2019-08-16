@@ -16,6 +16,10 @@ mod redump;
 mod report;
 mod rom;
 
+static MAME: &str = "mame";
+static MESS: &str = "mess";
+static REDUMP: &str = "redump";
+
 static CACHE_MAME_ADD: &str = "mame-add.db";
 static CACHE_MAME_VERIFY: &str = "mame-verify.db";
 static CACHE_MAME_REPORT: &str = "mame-report.db";
@@ -34,6 +38,7 @@ pub enum Error {
     CBOR(serde_cbor::Error),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
+    MissingCache(&'static str),
 }
 
 impl From<std::io::Error> for Error {
@@ -69,6 +74,7 @@ impl std::error::Error for Error {
             Error::CBOR(err) => err.description(),
             Error::NoSuchSoftwareList(_) => "no such software list",
             Error::NoSuchSoftware(_) => "no such software",
+            Error::MissingCache(_) => "missing cache file",
         }
     }
 
@@ -78,7 +84,9 @@ impl std::error::Error for Error {
             Error::XML(err) => Some(err),
             Error::SQL(err) => Some(err),
             Error::CBOR(err) => Some(err),
-            Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) => None,
+            Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) | Error::MissingCache(_) => {
+                None
+            }
         }
     }
 }
@@ -92,6 +100,11 @@ impl fmt::Display for Error {
             Error::CBOR(err) => err.fmt(f),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
+            Error::MissingCache(s) => write!(
+                f,
+                "missing cache files, please run \"emuman {} create\" to populate",
+                s
+            ),
         }
     }
 }
@@ -161,7 +174,7 @@ struct OptMameAdd {
 
 impl OptMameAdd {
     fn execute(self) -> Result<(), Error> {
-        let mut db: mame::AddDb = read_cache(CACHE_MAME_ADD)?;
+        let mut db: mame::AddDb = read_cache(MAME, CACHE_MAME_ADD)?;
         db.retain_machines(&self.machines.iter().cloned().collect());
         db.validate_all(&self.machines)?;
 
@@ -187,7 +200,7 @@ impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
         use std::sync::Mutex;
 
-        let romdb: mame::VerifyDb = read_cache(CACHE_MAME_VERIFY)?;
+        let romdb: mame::VerifyDb = read_cache(MAME, CACHE_MAME_VERIFY)?;
 
         let machines: HashSet<String> = if !self.machines.is_empty() {
             // only validate user-specified machines
@@ -253,7 +266,7 @@ struct OptMameList {
 impl OptMameList {
     fn execute(self) -> Result<(), Error> {
         mame::list(
-            &read_cache(CACHE_MAME_REPORT)?,
+            &read_cache(MAME, CACHE_MAME_REPORT)?,
             self.search.as_ref().map(|s| s.deref()),
             self.sort,
             self.simple,
@@ -289,7 +302,7 @@ impl OptMameReport {
             .collect();
 
         mame::report(
-            &read_cache(CACHE_MAME_REPORT)?,
+            &read_cache(MAME, CACHE_MAME_REPORT)?,
             &machines,
             self.search.as_ref().map(|s| s.deref()),
             self.sort,
@@ -415,7 +428,7 @@ struct OptMessAdd {
 
 impl OptMessAdd {
     fn execute(self) -> Result<(), Error> {
-        let mut db = read_cache::<mess::AddDb>(CACHE_MESS_ADD)?
+        let mut db = read_cache::<mess::AddDb>(MESS, CACHE_MESS_ADD)?
             .into_software_list(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
@@ -424,7 +437,8 @@ impl OptMessAdd {
             db.validate_all(&software)?;
             software
         } else {
-            read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?.into_all_software(&self.software_list)
+            read_cache::<mess::VerifyDb>(MESS, CACHE_MESS_VERIFY)?
+                .into_all_software(&self.software_list)
         };
 
         db.retain_software(&software);
@@ -452,7 +466,7 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<mess::VerifyDb>(CACHE_MESS_VERIFY)?
+        let db = read_cache::<mess::VerifyDb>(MESS, CACHE_MESS_VERIFY)?
             .into_software_list(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
@@ -509,7 +523,7 @@ struct OptMessList {
 
 impl OptMessList {
     fn execute(self) -> Result<(), Error> {
-        let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
+        let db: mess::ReportDb = read_cache(MESS, CACHE_MESS_REPORT)?;
 
         if let Some(software_list) = self.software_list {
             mess::list(
@@ -550,7 +564,7 @@ struct OptMessReport {
 
 impl OptMessReport {
     fn execute(self) -> Result<(), Error> {
-        let db: mess::ReportDb = read_cache(CACHE_MESS_REPORT)?;
+        let db: mess::ReportDb = read_cache(MESS, CACHE_MESS_REPORT)?;
 
         let software: HashSet<String> = self
             .root
@@ -590,7 +604,7 @@ struct OptMessSplit {
 
 impl OptMessSplit {
     fn execute(self) -> Result<(), Error> {
-        let db: mess::SplitDb = read_cache(CACHE_MESS_SPLIT)?;
+        let db: mess::SplitDb = read_cache(MESS, CACHE_MESS_SPLIT)?;
 
         let db = db
             .into_software_list(&self.software_list)
@@ -719,7 +733,7 @@ struct OptRedumpVerify {
 
 impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache(CACHE_REDUMP_VERIFY)?;
+        let db = read_cache(REDUMP, CACHE_REDUMP_VERIFY)?;
 
         self.software
             .par_iter()
@@ -749,7 +763,7 @@ struct OptRedumpSplit {
 
 impl OptRedumpSplit {
     fn execute(self) -> Result<(), Error> {
-        let db: redump::SplitDb = read_cache(CACHE_REDUMP_SPLIT)?;
+        let db: redump::SplitDb = read_cache(REDUMP, CACHE_REDUMP_SPLIT)?;
 
         self.bins.iter().try_for_each(|bin_path| {
             let mut bin_data = Vec::new();
@@ -853,7 +867,7 @@ where
     Ok(())
 }
 
-fn read_cache<D>(db_file: &str) -> Result<D, Error>
+fn read_cache<D>(utility: &'static str, db_file: &str) -> Result<D, Error>
 where
     D: DeserializeOwned,
 {
@@ -861,7 +875,10 @@ where
     use std::io::BufReader;
 
     let dirs = ProjectDirs::from("", "", "EmuMan").expect("no valid home directory");
-    let f = BufReader::new(File::open(dirs.data_local_dir().join(db_file))?);
+    let f = BufReader::new(
+        File::open(dirs.data_local_dir().join(db_file))
+            .map_err(|_| Error::MissingCache(utility))?,
+    );
     serde_cbor::from_reader(f).map_err(Error::CBOR)
 }
 
