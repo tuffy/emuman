@@ -50,11 +50,52 @@ impl RomId {
     }
 }
 
-pub fn node_to_disk(node: &Node) -> Option<String> {
-    if node.tag_name().name() == "disk" {
-        node.attribute("sha1").map(|s| s.to_string())
-    } else {
-        None
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DiskId {
+    pub sha1: String,
+}
+
+impl DiskId {
+    pub fn from_path(path: &Path) -> Result<Option<Self>, io::Error> {
+        use bitstream_io::{BigEndian, BitReader};
+
+        let mut r = BitReader::endian(File::open(path)?, BigEndian);
+        let mut tag = [0; 8];
+        let mut sha1 = [0; 20];
+
+        r.read_bytes(&mut tag)?;
+        if &tag != b"MComprHD" {
+            return Ok(None);
+        }
+        r.skip(32)?; // unused length
+        let version: u32 = r.read(32)?;
+
+        match version {
+            3 => {
+                r.skip(32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32)?;
+            }
+            4 => {
+                r.skip(32 + 32 + 32 + 64 + 64 + 32)?;
+            }
+            5 => {
+                r.skip(32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20)?;
+            }
+            _ => return Ok(None),
+        }
+        r.read_bytes(&mut sha1)?;
+        Ok(Some(DiskId {
+            sha1: sha1.iter().map(|b| format!("{:02x}", b)).collect(),
+        }))
+    }
+
+    pub fn from_node(node: &Node) -> Option<Self> {
+        if node.tag_name().name() == "disk" {
+            node.attribute("sha1").map(|s| DiskId {
+                sha1: s.to_string(),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -107,34 +148,4 @@ pub fn copy(source: &Path, target: &Path, dry_run: bool) -> Result<(), std::io::
         println!("{} -> {}", source.display(), target.display());
         Ok(())
     }
-}
-
-pub fn chd_sha1(chd_path: &Path) -> Result<Option<String>, std::io::Error> {
-    use bitstream_io::{BigEndian, BitReader};
-
-    let mut r = BitReader::endian(File::open(chd_path)?, BigEndian);
-    let mut tag = [0; 8];
-    let mut sha1 = [0; 20];
-
-    r.read_bytes(&mut tag)?;
-    if &tag != b"MComprHD" {
-        return Ok(None);
-    }
-    r.skip(32)?; // unused length
-    let version: u32 = r.read(32)?;
-
-    match version {
-        3 => {
-            r.skip(32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32)?;
-        }
-        4 => {
-            r.skip(32 + 32 + 32 + 64 + 64 + 32)?;
-        }
-        5 => {
-            r.skip(32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20)?;
-        }
-        _ => return Ok(None),
-    }
-    r.read_bytes(&mut sha1)?;
-    Ok(Some(sha1.iter().map(|b| format!("{:02x}", b)).collect()))
 }

@@ -180,6 +180,16 @@ impl OptMameAdd {
 
         let roms = find_roms(&self.input, &db);
 
+        // FIXME - split this into two stages,
+        // first make a catalog of ROMs/disks to be added
+        // (filtered to be unique, and relevant)
+        // then populate games from those ROMs/disks
+        // so that there isn't any possibility
+        // of race conditions during the add
+
+        // FIXME - get catalog of ROMs/disks on disk, in parallel
+        // FIXME - assign needed ROMs/disks to games, in parallel
+
         roms.iter()
             .try_for_each(|rom| mame::copy(&db, &self.output, rom, self.dry_run))
             .map_err(Error::IO)

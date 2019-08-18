@@ -1,7 +1,7 @@
 use super::{
     no_parens, no_slashes,
     report::{ReportRow, SortBy, Status, SummaryReportRow},
-    rom::{chd_sha1, disk_to_chd, node_to_disk, parse_int, RomId, SoftwareDisk, SoftwareRom},
+    rom::{disk_to_chd, parse_int, DiskId, RomId, SoftwareDisk, SoftwareRom},
     AddRomDb, Error, SoftwareExists, VerifyMismatch, VerifyResult,
 };
 use roxmltree::{Document, Node};
@@ -464,7 +464,7 @@ impl AddDb {
 #[derive(Serialize, Deserialize)]
 pub struct SoftwareListAddDb {
     roms: HashMap<RomId, Vec<SoftwareRom>>,
-    disks: HashMap<String, Vec<SoftwareDisk>>,
+    disks: HashMap<DiskId, Vec<SoftwareDisk>>,
     software_rom_sizes: HashMap<String, HashSet<u64>>,
     software_with_disks: HashSet<String>,
 }
@@ -507,14 +507,13 @@ impl SoftwareListAddDb {
                         }
                         "diskarea" => {
                             for c in child.children() {
-                                if let Some(sha1) = node_to_disk(&c) {
-                                    disks
-                                        .entry(sha1)
-                                        .or_insert_with(Vec::new)
-                                        .push(SoftwareDisk {
+                                if let Some(diskid) = DiskId::from_node(&c) {
+                                    disks.entry(diskid).or_insert_with(Vec::new).push(
+                                        SoftwareDisk {
                                             game: software_name.to_string(),
                                             disk: disk_to_chd(c.attribute("name").unwrap()),
-                                        });
+                                        },
+                                    );
 
                                     software_with_disks.insert(software_name.to_string());
                                 }
@@ -582,8 +581,8 @@ pub fn copy(
 ) -> Result<(), io::Error> {
     use super::rom::copy;
 
-    if let Ok(Some(disk_sha1)) = chd_sha1(rom) {
-        if let Some(matches) = db.disks.get(&disk_sha1) {
+    if let Ok(Some(disk_id)) = DiskId::from_path(rom) {
+        if let Some(matches) = db.disks.get(&disk_id) {
             for SoftwareDisk {
                 game: software_name,
                 disk: disk_name,

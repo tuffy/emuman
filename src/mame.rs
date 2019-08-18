@@ -1,7 +1,7 @@
 use super::{
     no_parens, no_slashes,
     report::{ReportRow, SortBy, Status},
-    rom::{chd_sha1, disk_to_chd, node_to_disk, RomId, SoftwareDisk, SoftwareRom},
+    rom::{disk_to_chd, DiskId, RomId, SoftwareDisk, SoftwareRom},
     AddRomDb, Error, SoftwareExists, VerifyMismatch, VerifyResult,
 };
 use roxmltree::{Document, Node};
@@ -967,7 +967,7 @@ fn add_ram_option(db: &Transaction, machine_id: i64, ram: &Node) -> Result<(), E
 #[derive(Serialize, Deserialize)]
 pub struct AddDb {
     roms: HashMap<RomId, Vec<SoftwareRom>>,
-    disks: HashMap<String, Vec<SoftwareDisk>>,
+    disks: HashMap<DiskId, Vec<SoftwareDisk>>,
     machine_rom_sizes: HashMap<String, HashSet<u64>>,
     machines_with_disks: HashSet<String>,
 }
@@ -995,9 +995,9 @@ impl AddDb {
                             game: name.to_string(),
                             rom: child.attribute("name").unwrap().to_string(),
                         });
-                } else if let Some(sha1) = node_to_disk(&child) {
+                } else if let Some(diskid) = DiskId::from_node(&child) {
                     disks
-                        .entry(sha1)
+                        .entry(diskid)
                         .or_insert_with(Vec::new)
                         .push(SoftwareDisk {
                             game: name.to_string(),
@@ -1060,8 +1060,8 @@ impl AddRomDb for AddDb {
 pub fn copy(db: &AddDb, root: &Path, rom: &Path, dry_run: bool) -> Result<(), io::Error> {
     use super::rom::copy;
 
-    if let Ok(Some(sha1)) = chd_sha1(rom) {
-        if let Some(matches) = db.disks.get(&sha1) {
+    if let Ok(Some(disk_id)) = DiskId::from_path(rom) {
+        if let Some(matches) = db.disks.get(&disk_id) {
             for SoftwareDisk {
                 game: machine_name,
                 disk: disk_name,
@@ -1178,12 +1178,12 @@ pub fn verify_rom(
 fn verify_disk(
     machine_root: &Path,
     disk_name: &str,
-    sha1: &str,
+    disk_id: &DiskId,
     files_on_disk: &mut HashMap<String, PathBuf>,
 ) -> Result<Option<VerifyMismatch>, Error> {
     if let Some(disk_path) = files_on_disk.remove(disk_name) {
-        if let Some(disk_sha1) = chd_sha1(&disk_path)? {
-            if sha1 == disk_sha1 {
+        if let Some(path_disk_id) = DiskId::from_path(&disk_path)? {
+            if disk_id == &path_disk_id {
                 Ok(None)
             } else {
                 // CHD is valid, but SHA1 doesn't match
@@ -1203,7 +1203,7 @@ fn verify_disk(
 pub struct VerifyDb {
     machines: HashSet<String>,
     roms: HashMap<String, HashMap<String, RomId>>,
-    disks: HashMap<String, HashMap<String, String>>,
+    disks: HashMap<String, HashMap<String, DiskId>>,
     devices: HashMap<String, Vec<String>>,
     device_refs: HashSet<String>,
 }
@@ -1246,10 +1246,10 @@ impl VerifyDb {
             self.roms.insert(name.to_string(), roms);
         }
 
-        let disks: HashMap<String, String> = machine
+        let disks: HashMap<String, DiskId> = machine
             .children()
             .filter_map(|c| {
-                node_to_disk(&c).map(|d| (disk_to_chd(c.attribute("name").unwrap()), d))
+                DiskId::from_node(&c).map(|d| (disk_to_chd(c.attribute("name").unwrap()), d))
             })
             .collect();
 
