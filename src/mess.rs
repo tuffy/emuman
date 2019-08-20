@@ -1,15 +1,13 @@
 use super::{
-    no_parens, no_slashes,
-    report::{ReportRow, SortBy, Status, SummaryReportRow},
-    rom::{disk_to_chd, parse_int, DiskId, RomId, SoftwareDisk, SoftwareRom},
-    AddRomDb, Error, SoftwareExists, VerifyMismatch, VerifyResult,
+    game::{Game, GameDb, Part, Status},
+    split::{SplitDb, SplitGame, SplitPart},
+    Error,
 };
+use core::num::ParseIntError;
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
-use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::path::Path;
 
 const CREATE_SOFTWARE_LIST: &str = "CREATE TABLE IF NOT EXISTS SoftwareList (
     softwarelist_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -444,589 +442,168 @@ fn add_dipvalue(db: &Transaction, dipswitch_id: i64, node: &Node) -> Result<(), 
     .map(|_| ())
 }
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct AddDb(HashMap<String, SoftwareListAddDb>);
+pub type MessDb = BTreeMap<String, GameDb>;
 
-impl AddDb {
-    pub fn add_xml(&mut self, node: &Node) {
-        self.0.insert(
-            node.attribute("name").unwrap().to_string(),
-            SoftwareListAddDb::from_xml(node),
+pub fn xml_to_game_db(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb) {
+    let root = tree.root_element();
+    let mut db = GameDb::default();
+    let software_list_name = root.attribute("name").unwrap().to_string();
+    if let Some(description) = root.attribute("description") {
+        db.description = description.to_string();
+    }
+
+    for software in root
+        .children()
+        .filter(|c| c.tag_name().name() == "software")
+    {
+        db.games.insert(
+            software.attribute("name").unwrap().to_string(),
+            xml_to_game(&software),
         );
+
+        let (size, game) = xml_to_split(&software);
+        if game.tracks.len() > 1 {
+            split_db
+                .games
+                .entry(size)
+                .or_insert_with(Vec::new)
+                .push(game);
+        }
     }
 
-    #[inline]
-    pub fn into_software_list(mut self, software_list: &str) -> Option<SoftwareListAddDb> {
-        self.0.remove(software_list)
-    }
+    (software_list_name, db)
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SoftwareListAddDb {
-    roms: HashMap<RomId, Vec<SoftwareRom>>,
-    disks: HashMap<DiskId, Vec<SoftwareDisk>>,
-    software_rom_sizes: HashMap<String, HashSet<u64>>,
-    software_with_disks: HashSet<String>,
-}
-
-impl SoftwareListAddDb {
-    pub fn from_xml(node: &Node) -> Self {
-        let mut roms = HashMap::new();
-        let mut disks = HashMap::new();
-        let mut software_rom_sizes = HashMap::new();
-        let mut software_with_disks = HashSet::new();
-
-        for software in node
-            .children()
-            .filter(|c| c.tag_name().name() == "software")
-        {
-            let software_name = software.attribute("name").unwrap();
-
-            for part in software
-                .children()
-                .filter(|c| c.tag_name().name() == "part")
-            {
-                for child in part.children() {
-                    match child.tag_name().name() {
-                        "dataarea" => {
-                            for c in child.children() {
-                                if let Some(romid) = RomId::from_node(&c) {
-                                    software_rom_sizes
-                                        .entry(software_name.to_string())
-                                        .or_insert_with(HashSet::new)
-                                        .insert(romid.size);
-
-                                    roms.entry(romid)
-                                        .or_insert_with(Vec::new)
-                                        .push(SoftwareRom {
-                                            game: software_name.to_string(),
-                                            rom: c.attribute("name").unwrap().to_string(),
-                                        });
-                                }
-                            }
-                        }
-                        "diskarea" => {
-                            for c in child.children() {
-                                if let Some(diskid) = DiskId::from_node(&c) {
-                                    disks.entry(diskid).or_insert_with(Vec::new).push(
-                                        SoftwareDisk {
-                                            game: software_name.to_string(),
-                                            disk: disk_to_chd(c.attribute("name").unwrap()),
-                                        },
-                                    );
-
-                                    software_with_disks.insert(software_name.to_string());
-                                }
-                            }
-                        }
-                        _ => { /*ignore other entries*/ }
-                    }
-                }
+fn xml_to_game(node: &Node) -> Game {
+    fn node_to_rom(node: &Node) -> Option<(String, Part)> {
+        if node.tag_name().name() == "rom" {
+            if let Some(sha1) = node.attribute("sha1") {
+                Some((
+                    node.attribute("name").unwrap().to_string(),
+                    Part::rom_from_sha1(sha1.to_string()),
+                ))
+            } else {
+                None
             }
-        }
-
-        SoftwareListAddDb {
-            roms,
-            disks,
-            software_rom_sizes,
-            software_with_disks,
-        }
-    }
-
-    pub fn retain_software(&mut self, software: &HashSet<String>) {
-        self.roms
-            .values_mut()
-            .for_each(|v| v.retain(|r| software.contains(&r.game)));
-        self.roms.retain(|_, v| !v.is_empty());
-
-        self.software_rom_sizes
-            .retain(|game, _| software.contains(game));
-
-        self.disks
-            .values_mut()
-            .for_each(|v| v.retain(|r| software.contains(&r.game)));
-        self.disks.retain(|_, v| !v.is_empty());
-
-        self.software_with_disks
-            .retain(|game| software.contains(game));
-    }
-}
-
-impl SoftwareExists for SoftwareListAddDb {
-    #[inline]
-    fn exists(&self, software: &str) -> bool {
-        self.software_rom_sizes.contains_key(software)
-    }
-}
-
-impl AddRomDb for SoftwareListAddDb {
-    #[inline]
-    fn has_disks(&self) -> bool {
-        !self.software_with_disks.is_empty()
-    }
-
-    fn all_rom_sizes(&self) -> HashSet<u64> {
-        self.software_rom_sizes
-            .values()
-            .flat_map(|h| h.iter().copied())
-            .collect()
-    }
-}
-
-pub fn copy(
-    db: &SoftwareListAddDb,
-    root: &Path,
-    rom: &Path,
-    dry_run: bool,
-) -> Result<(), io::Error> {
-    use super::rom::copy;
-
-    if let Ok(Some(disk_id)) = DiskId::from_path(rom) {
-        if let Some(matches) = db.disks.get(&disk_id) {
-            for SoftwareDisk {
-                game: software_name,
-                disk: disk_name,
-            } in matches
-            {
-                let mut target = root.join(software_name);
-                target.push(disk_name);
-                copy(rom, &target, dry_run)?;
-            }
-        }
-    } else {
-        let rom_id = RomId::from_path(rom)?;
-        if let Some(matches) = db.roms.get(&rom_id) {
-            for SoftwareRom {
-                game: software_name,
-                rom: rom_name,
-            } in matches
-            {
-                let mut target = root.join(software_name);
-                target.push(rom_name);
-                copy(rom, &target, dry_run)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
-    if node.tag_name().name() == "software" {
-        Some(ReportRow {
-            name: node.attribute("name").unwrap().to_string(),
-            description: node
-                .children()
-                .find(|c| c.tag_name().name() == "description")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            manufacturer: node
-                .children()
-                .find(|c| c.tag_name().name() == "publisher")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            year: node
-                .children()
-                .find(|c| c.tag_name().name() == "year")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            status: match node.attribute("supported") {
-                Some("no") => Status::NotWorking,
-                Some("partial") => Status::Partial,
-                _ => Status::Working,
-            },
-        })
-    } else {
-        None
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct ReportDb {
-    all: Vec<SummaryReportRow>,
-    software_list: HashMap<String, HashMap<String, ReportRow>>,
-}
-
-impl ReportDb {
-    pub fn add_xml(&mut self, node: &Node) {
-        let name = node.attribute("name").unwrap();
-
-        self.all.push(SummaryReportRow {
-            name: name.to_string(),
-            description: node.attribute("description").unwrap().to_string(),
-        });
-
-        self.software_list.insert(
-            name.to_string(),
-            node.children()
-                .filter_map(|c| {
-                    node_to_reportrow(&c).map(|r| (c.attribute("name").unwrap().to_string(), r))
-                })
-                .collect(),
-        );
-    }
-
-    #[inline]
-    pub fn sort_software(&mut self) {
-        self.all.sort_by(|x, y| x.description.cmp(&y.description));
-    }
-
-    #[inline]
-    pub fn into_software_list(mut self, software_list: &str) -> Option<HashMap<String, ReportRow>> {
-        self.software_list.remove(software_list)
-    }
-}
-
-pub fn list_all(db: &ReportDb) {
-    use prettytable::{cell, format, row, Table};
-    let mut table = Table::new();
-
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-
-    for row in db.all.iter() {
-        table.add_row(row![row.description, row.name]);
-    }
-
-    table.printstd();
-}
-
-pub fn list(
-    all_software: &HashMap<String, ReportRow>,
-    search: Option<&str>,
-    sort: SortBy,
-    simple: bool,
-) {
-    let mut results: Vec<&ReportRow> = if let Some(search) = search {
-        all_software
-            .values()
-            .filter(|r| r.matches(search))
-            .collect()
-    } else {
-        all_software.values().collect()
-    };
-
-    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
-    display_report(&results, simple);
-}
-
-pub fn report(
-    all_software: &HashMap<String, ReportRow>,
-    my_software: &HashSet<String>,
-    search: Option<&str>,
-    sort: SortBy,
-    simple: bool,
-) {
-    let mut results: Vec<&ReportRow> = my_software
-        .iter()
-        .filter_map(|s| all_software.get(s))
-        .collect();
-
-    if let Some(search) = search {
-        results.retain(|r| r.matches(search));
-    }
-
-    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
-    display_report(&results, simple);
-}
-
-fn display_report(results: &[&ReportRow], simple: bool) {
-    use prettytable::{cell, format, row, Table};
-
-    let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-
-    for machine in results {
-        let description = if simple {
-            no_slashes(no_parens(&machine.description))
-        } else {
-            &machine.description
-        };
-
-        let manufacturer = if simple {
-            no_parens(&machine.manufacturer)
-        } else {
-            &machine.manufacturer
-        };
-
-        let year = &machine.year;
-
-        let name = &machine.name;
-
-        table.add_row(match machine.status {
-            Status::Working => row![description, manufacturer, year, name],
-            Status::Partial => row![FM => description, manufacturer, year, name],
-            Status::NotWorking => row![FR => description, manufacturer, year, name],
-        });
-    }
-    table.printstd();
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct VerifyDb(HashMap<String, SoftwareListDb>);
-
-impl VerifyDb {
-    #[inline]
-    pub fn add_xml(&mut self, node: &Node) {
-        self.0.insert(
-            node.attribute("name").unwrap().to_string(),
-            SoftwareListDb::from_xml(&node),
-        );
-    }
-
-    #[inline]
-    pub fn into_software_list(mut self, software_list: &str) -> Option<SoftwareListDb> {
-        self.0.remove(software_list)
-    }
-
-    pub fn into_all_software(mut self, software_list: &str) -> HashSet<String> {
-        self.0
-            .remove(software_list)
-            .map(|l| l.into_all_software())
-            .unwrap_or_else(HashSet::new)
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct SoftwareListDb {
-    software: HashSet<String>,
-    roms: HashMap<String, HashMap<String, RomId>>,
-}
-
-impl SoftwareListDb {
-    fn from_xml(node: &Node) -> Self {
-        let mut db = SoftwareListDb::default();
-
-        node.children()
-            .filter(|c| c.tag_name().name() == "software")
-            .for_each(|c| db.add_software(&c));
-
-        db
-    }
-
-    fn add_software(&mut self, software: &Node) {
-        let name = software.attribute("name").unwrap();
-
-        self.software.insert(name.to_string());
-        self.roms.insert(
-            name.to_string(),
-            software
-                .children()
-                .filter(|part| part.tag_name().name() == "part")
-                .flat_map(|parts| {
-                    parts
-                        .children()
-                        .filter(|dataarea| dataarea.tag_name().name() == "dataarea")
-                        .flat_map(|dataarea| {
-                            dataarea.children().filter_map(|rom| {
-                                RomId::from_node(&rom)
-                                    .map(|r| (rom.attribute("name").unwrap().to_string(), r))
-                            })
-                        })
-                })
-                .collect(),
-        );
-    }
-
-    #[inline]
-    fn into_all_software(self) -> HashSet<String> {
-        self.software
-    }
-}
-
-impl SoftwareExists for SoftwareListDb {
-    #[inline]
-    fn exists(&self, software: &str) -> bool {
-        self.software.contains(software)
-    }
-}
-
-pub fn verify(db: &SoftwareListDb, root: &Path, software: &str) -> Result<VerifyResult, Error> {
-    use super::mame::verify_rom;
-    let mut matches = HashSet::new();
-    matches.insert(software.to_string());
-
-    if !db.software.contains(software) {
-        return Ok(VerifyResult::NoMachine);
-    }
-
-    let software_roms = match db.roms.get(software) {
-        Some(m) => m,
-        None => return Ok(VerifyResult::nothing_to_check(software)),
-    };
-
-    let software_root = root.join(software);
-    let mut mismatches = Vec::new();
-
-    // first check the software's ROMs
-    let mut files_on_disk: HashMap<String, PathBuf> = software_root
-        .read_dir()
-        .map(|entries| {
-            entries
-                .filter_map(|re| {
-                    re.ok()
-                        .map(|e| (e.file_name().to_string_lossy().into(), e.path()))
-                })
-                .collect()
-        })
-        .unwrap_or_else(|_| HashMap::new());
-
-    for (rom_name, rom_id) in software_roms {
-        if let Some(mismatch) = verify_rom(&software_root, rom_name, rom_id, &mut files_on_disk)? {
-            mismatches.push(mismatch);
-        }
-    }
-
-    // mark any leftover files in disk as extras
-    mismatches.extend(
-        files_on_disk
-            .into_iter()
-            .map(|(_, pb)| VerifyMismatch::Extra(pb)),
-    );
-
-    Ok(if mismatches.is_empty() {
-        VerifyResult::nothing_to_check(software)
-    } else {
-        VerifyResult::Bad(mismatches)
-    })
-}
-
-#[derive(Default, Serialize, Deserialize, Debug)]
-pub struct SplitDb(HashMap<String, HashMap<u64, Vec<SplitSoftware>>>);
-
-impl SplitDb {
-    #[inline]
-    pub fn add_xml(&mut self, node: &Node) {
-        self.0.insert(
-            node.attribute("name").unwrap().to_string(),
-            SplitDb::add_software(node),
-        );
-    }
-
-    fn add_software(node: &Node) -> HashMap<u64, Vec<SplitSoftware>> {
-        let mut software_list = HashMap::default();
-
-        for (total_size, software) in node.children().filter_map(|c| SplitSoftware::from_node(&c)) {
-            if software.has_multiple_roms() {
-                software_list
-                    .entry(total_size)
-                    .or_insert_with(Vec::new)
-                    .push(software);
-            }
-        }
-
-        software_list
-    }
-
-    #[inline]
-    pub fn into_software_list(
-        mut self,
-        software_list: &str,
-    ) -> Option<HashMap<u64, Vec<SplitSoftware>>> {
-        self.0.remove(software_list)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SplitSoftware {
-    name: String,
-    roms: Vec<SplitRom>,
-}
-
-impl SplitSoftware {
-    #[inline]
-    fn has_multiple_roms(&self) -> bool {
-        self.roms.len() > 1
-    }
-
-    fn from_node(software: &Node) -> Option<(u64, Self)> {
-        if software.tag_name().name() == "software" {
-            let name = software.attribute("name").unwrap().to_string();
-            let mut roms = Vec::new();
-            let mut offset = 0;
-
-            for rom in software
-                .children()
-                .filter(|part| part.tag_name().name() == "part")
-                .flat_map(|parts| {
-                    parts
-                        .children()
-                        .filter(|dataarea| dataarea.tag_name().name() == "dataarea")
-                        .flat_map(|dataarea| {
-                            dataarea
-                                .children()
-                                .filter(|rom| rom.tag_name().name() == "rom")
-                        })
-                })
-            {
-                if let Some(sha1) = rom.attribute("sha1") {
-                    let size = parse_int(rom.attribute("size").unwrap()).unwrap() as usize;
-                    roms.push(SplitRom {
-                        name: rom.attribute("name").unwrap().to_string(),
-                        start: offset,
-                        end: offset + size as usize,
-                        sha1: sha1.to_string(),
-                    });
-                    offset += size;
-                }
-            }
-
-            Some((offset as u64, SplitSoftware { name, roms }))
         } else {
             None
         }
     }
 
-    #[inline]
-    pub fn matches(&self, data: &[u8]) -> bool {
-        self.roms.iter().all(|t| t.matches(data))
-    }
-
-    #[inline]
-    pub fn extract(&self, root: &Path, data: &[u8]) -> Result<(), io::Error> {
-        use std::fs::create_dir_all;
-
-        let game_root = root.join(&self.name);
-        create_dir_all(&game_root)?;
-        self.roms
-            .iter()
-            .try_for_each(|t| t.extract(&game_root, data))
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SplitRom {
-    name: String,
-    start: usize,
-    end: usize,
-    sha1: String,
-}
-
-impl SplitRom {
-    #[inline]
-    fn matches(&self, data: &[u8]) -> bool {
-        use sha1::Sha1;
-
-        Sha1::from(&data[self.start..self.end]).hexdigest() == self.sha1
-    }
-
-    fn extract(&self, root: &Path, data: &[u8]) -> Result<(), io::Error> {
-        use std::fs::File;
-        use std::io::Write;
-
-        let path = root.join(&self.name);
-        match File::create(&path).and_then(|mut f| f.write_all(&data[self.start..self.end])) {
-            Ok(()) => {
-                println!("* {}", path.display());
-                Ok(())
+    fn node_to_disk(node: &Node) -> Option<(String, Part)> {
+        if node.tag_name().name() == "disk" {
+            if let Some(sha1) = node.attribute("sha1") {
+                Some((
+                    Part::name_to_chd(node.attribute("name").unwrap()),
+                    Part::disk_from_sha1(sha1.to_string()),
+                ))
+            } else {
+                None
             }
-            Err(err) => Err(err),
+        } else {
+            None
         }
     }
+
+    let mut game = Game {
+        name: node.attribute("name").unwrap().to_string(),
+        status: match node.attribute("supported") {
+            Some("partial") => Status::Partial,
+            Some("no") => Status::NotWorking,
+            _ => Status::Working,
+        },
+        ..Game::default()
+    };
+
+    for child in node.children() {
+        match child.tag_name().name() {
+            "description" => {
+                game.description = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "year" => {
+                game.year = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "publisher" => {
+                game.creator = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "part" => {
+                for child in child.children() {
+                    match child.tag_name().name() {
+                        "dataarea" => {
+                            game.parts
+                                .extend(child.children().filter_map(|n| node_to_rom(&n)));
+                        }
+                        "diskarea" => {
+                            game.parts
+                                .extend(child.children().filter_map(|n| node_to_disk(&n)));
+                        }
+                        _ => { /* ignore other child types */ }
+                    }
+                }
+            }
+            _ => { /*ignore other child types*/ }
+        }
+    }
+
+    game
+}
+
+fn xml_to_split(node: &Node) -> (u64, SplitGame) {
+    let mut offset = 0;
+    let mut game = SplitGame {
+        name: node.attribute("name").unwrap().to_string(),
+        ..SplitGame::default()
+    };
+
+    for rom in node
+        .children()
+        .filter(|part| part.tag_name().name() == "part")
+        .flat_map(|parts| {
+            parts
+                .children()
+                .filter(|dataarea| dataarea.tag_name().name() == "dataarea")
+                .flat_map(|dataarea| {
+                    dataarea
+                        .children()
+                        .filter(|rom| rom.tag_name().name() == "rom")
+                })
+        })
+    {
+        if let Some(sha1) = rom.attribute("sha1") {
+            let size = parse_int(rom.attribute("size").unwrap()).unwrap() as usize;
+            game.tracks.push(SplitPart {
+                name: rom.attribute("name").unwrap().to_string(),
+                start: offset,
+                end: offset + size as usize,
+                sha1: sha1.to_string(),
+            });
+            offset += size;
+        }
+    }
+
+    (offset as u64, game)
+}
+
+pub fn list_all(db: &MessDb) {
+    use prettytable::{cell, format, row, Table};
+    let mut table = Table::new();
+
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+
+    for (name, game_db) in db.iter() {
+        table.add_row(row![game_db.description, name]);
+    }
+
+    table.printstd();
 }
 
 #[inline]
@@ -1037,4 +614,23 @@ pub fn is_ines_format(data: &[u8]) -> bool {
 #[inline]
 pub fn remove_ines_header(data: &mut Vec<u8>) {
     let _ = data.drain(0..16);
+}
+
+#[inline]
+pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
+    use std::str::FromStr;
+
+    // MAME's use of integer values is a horror show
+    let s = s.trim();
+
+    u64::from_str(s)
+        .or_else(|_| u64::from_str_radix(s, 16))
+        .or_else(|e| {
+            if s.starts_with("0x") {
+                u64::from_str_radix(&s[2..], 16)
+            } else {
+                dbg!(s);
+                Err(e)
+            }
+        })
 }

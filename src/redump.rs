@@ -1,11 +1,11 @@
-use super::rom::RomId;
-use super::Error;
+use super::{
+    game::{Game, GameDb, Part, SortBy},
+    split::{SplitDb, SplitGame, SplitPart},
+    Error,
+};
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
-use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
-use std::io;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 const CREATE_DATAFILE: &str = "CREATE TABLE IF NOT EXISTS Datafile (
@@ -154,142 +154,124 @@ fn add_rom(db: &Transaction, game_id: i64, node: &Node) -> Result<(), rusqlite::
     .map(|_| ())
 }
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct VerifyDb {
-    roms: HashMap<String, Vec<RomId>>,
-}
+pub type RedumpDb = BTreeMap<String, GameDb>;
 
-impl VerifyDb {
-    pub fn add_xml(&mut self, node: &Node) {
-        for game in node.children().filter(|c| c.tag_name().name() == "game") {
-            for child in game.children() {
-                if let Some(rom_id) = RomId::from_node(&child) {
-                    self.roms
-                        .entry(child.attribute("name").unwrap().to_string())
-                        .or_insert_with(Vec::new)
-                        .push(rom_id);
-                }
-            }
-        }
-    }
-}
-
-pub enum VerifyResult {
-    Ok,
-    Bad,
-    NotFound,
-}
-
-impl fmt::Display for VerifyResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            VerifyResult::Ok => write!(f, "OK"),
-            VerifyResult::Bad => write!(f, "BAD"),
-            VerifyResult::NotFound => write!(f, "NOT FOUND"),
-        }
-    }
-}
-
-pub fn verify(db: &VerifyDb, rom: &Path) -> Result<VerifyResult, io::Error> {
-    let name = match rom.file_name().and_then(|f| f.to_str()) {
-        Some(n) => n,
-        None => return Ok(VerifyResult::NotFound),
+pub fn add_xml_file(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb) {
+    let root = tree.root_element();
+    let header = root
+        .children()
+        .find(|c| c.tag_name().name() == "header")
+        .unwrap();
+    let name = header
+        .children()
+        .find(|c| c.tag_name().name() == "name")
+        .and_then(|s| s.text().map(|s| s.to_string()))
+        .unwrap_or_else(String::default);
+    let description = header
+        .children()
+        .find(|c| c.tag_name().name() == "description")
+        .and_then(|s| s.text().map(|s| s.to_string()))
+        .unwrap_or_else(String::default);
+    let mut game_db = GameDb {
+        description,
+        ..GameDb::default()
     };
 
-    if let Some(matches) = db.roms.get(name) {
-        let rom_id = RomId::from_path(rom)?;
+    for game in root.children().filter(|c| c.tag_name().name() == "game") {
+        game_db.games.insert(
+            game.attribute("name").unwrap().to_string(),
+            xml_to_game(&game),
+        );
 
-        if matches.iter().any(|match_id| &rom_id == match_id) {
-            Ok(VerifyResult::Ok)
-        } else {
-            Ok(VerifyResult::Bad)
+        let (total_size, split) = xml_to_split(&game);
+        if split.tracks.len() > 1 {
+            split_db
+                .games
+                .entry(total_size)
+                .or_insert_with(Vec::new)
+                .push(split);
         }
+    }
+
+    (name, game_db)
+}
+
+fn xml_to_game(node: &Node) -> Game {
+    let mut game = Game {
+        name: node.attribute("name").unwrap().to_string(),
+        description: node
+            .children()
+            .find(|c| c.tag_name().name() == "description")
+            .and_then(|c| c.text().map(|s| s.to_string()))
+            .unwrap_or_else(String::default),
+        ..Game::default()
+    };
+
+    for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
+        game.parts.insert(
+            rom.attribute("name").unwrap().to_string(),
+            Part::rom_from_sha1(rom.attribute("sha1").unwrap().to_string()),
+        );
+    }
+
+    game
+}
+
+fn xml_to_split(node: &Node) -> (u64, SplitGame) {
+    let mut offset = 0;
+    let mut game = SplitGame {
+        name: node.attribute("name").unwrap().to_string(),
+        ..SplitGame::default()
+    };
+
+    for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
+        use std::str::FromStr;
+
+        let name = rom.attribute("name").unwrap();
+        if name.ends_with(".bin") {
+            let size = usize::from_str(rom.attribute("size").unwrap()).unwrap();
+            game.tracks.push(SplitPart {
+                name: name.to_string(),
+                start: offset,
+                end: offset + size,
+                sha1: rom.attribute("sha1").unwrap().to_string(),
+            });
+            offset += size;
+        }
+    }
+
+    (offset as u64, game)
+}
+
+pub fn list_all(db: &RedumpDb) {
+    use prettytable::{cell, format, row, Table};
+    let mut table = Table::new();
+
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+
+    for (name, game_db) in db.iter() {
+        table.add_row(row![game_db.description, name]);
+    }
+
+    table.printstd();
+}
+
+pub fn list(db: &GameDb, search: Option<&str>) {
+    use prettytable::{cell, format, row, Table};
+
+    let mut results: Vec<&Game> = if let Some(search) = search {
+        db.games.values().filter(|g| g.matches(search)).collect()
     } else {
-        Ok(VerifyResult::NotFound)
-    }
-}
+        db.games.values().collect()
+    };
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct SplitDb(HashMap<u64, Vec<SplitGame>>);
+    results.sort_unstable_by(|x, y| x.sort_by(y, SortBy::Description));
 
-impl SplitDb {
-    pub fn add_xml(&mut self, node: &Node) {
-        for c in node.children().filter(|c| c.tag_name().name() == "game") {
-            let (k, v) = SplitGame::from_xml(&c);
-            self.0.entry(k).or_insert_with(Vec::new).push(v);
-        }
+    let mut table = Table::new();
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    for game in results {
+        table.add_row(row![game.description]);
     }
 
-    #[inline]
-    pub fn possible_matches(&self, bin_size: u64) -> Option<&[SplitGame]> {
-        self.0.get(&bin_size).map(|v| v.as_slice())
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SplitGame(Vec<SplitTrack>);
-
-impl SplitGame {
-    fn from_xml(node: &Node) -> (u64, Self) {
-        let mut offset = 0;
-        let mut tracks = Vec::new();
-
-        for child in node.children().filter(|c| {
-            c.attribute("name")
-                .map(|n| n.ends_with(".bin"))
-                .unwrap_or(false)
-        }) {
-            if let Some(rom_id) = RomId::from_node(&child) {
-                tracks.push(SplitTrack {
-                    name: child.attribute("name").unwrap().to_string(),
-                    start: offset,
-                    end: offset + rom_id.size as usize,
-                    sha1: rom_id.sha1,
-                });
-                offset += rom_id.size as usize;
-            }
-        }
-
-        (offset as u64, SplitGame(tracks))
-    }
-
-    pub fn matches(&self, data: &[u8]) -> bool {
-        use rayon::prelude::*;
-        self.0.par_iter().all(|t| t.matches(data))
-    }
-
-    pub fn extract(&self, root: &Path, data: &[u8]) -> Result<(), io::Error> {
-        use rayon::prelude::*;
-        self.0.par_iter().try_for_each(|t| t.extract(root, data))
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SplitTrack {
-    name: String,
-    start: usize,
-    end: usize,
-    sha1: String,
-}
-
-impl SplitTrack {
-    fn matches(&self, data: &[u8]) -> bool {
-        use sha1::Sha1;
-
-        Sha1::from(&data[self.start..self.end]).hexdigest() == self.sha1
-    }
-
-    fn extract(&self, root: &Path, data: &[u8]) -> Result<(), io::Error> {
-        use std::fs::File;
-        use std::io::Write;
-
-        let path = root.join(&self.name);
-        match File::create(&path).and_then(|mut f| f.write_all(&data[self.start..self.end])) {
-            Ok(()) => {
-                println!("* {}", path.display());
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
+    table.printstd();
 }

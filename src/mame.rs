@@ -1,15 +1,9 @@
 use super::{
-    no_parens, no_slashes,
-    report::{ReportRow, SortBy, Status},
-    rom::{disk_to_chd, DiskId, RomId, SoftwareDisk, SoftwareRom},
-    AddRomDb, Error, SoftwareExists, VerifyMismatch, VerifyResult,
+    game::{Game, GameDb, Part, Status},
+    Error,
 };
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, params, Transaction};
-use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const CREATE_MACHINE: &str = "CREATE TABLE IF NOT EXISTS Machine (
@@ -964,438 +958,75 @@ fn add_ram_option(db: &Transaction, machine_id: i64, ram: &Node) -> Result<(), E
         .map(|_| ())
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct AddDb {
-    roms: HashMap<RomId, Vec<SoftwareRom>>,
-    disks: HashMap<DiskId, Vec<SoftwareDisk>>,
-    machine_rom_sizes: HashMap<String, HashSet<u64>>,
-    machines_with_disks: HashSet<String>,
+pub fn xml_to_game_db(tree: &Document) -> GameDb {
+    let root = tree.root_element();
+    let mut db = GameDb::default();
+
+    for machine in root.children().filter(|c| c.tag_name().name() == "machine") {
+        db.games.insert(
+            machine.attribute("name").unwrap().to_string(),
+            xml_to_game(&machine),
+        );
+    }
+
+    db
 }
 
-impl AddDb {
-    pub fn from_xml(tree: &Document) -> Self {
-        let mut roms = HashMap::new();
-        let mut disks = HashMap::new();
-        let mut machine_rom_sizes = HashMap::new();
-        let mut machines_with_disks = HashSet::new();
-        let root = tree.root_element();
+fn xml_to_game(node: &Node) -> Game {
+    let mut game = Game {
+        name: node.attribute("name").unwrap().to_string(),
+        is_device: node.attribute("isbios") == Some("yes")
+            || node.attribute("isdevice") == Some("yes"),
+        ..Game::default()
+    };
 
-        for machine in root.children().filter(|c| c.tag_name().name() == "machine") {
-            let name = machine.attribute("name").unwrap();
-            for child in machine.children() {
-                if let Some(romid) = RomId::from_node(&child) {
-                    machine_rom_sizes
-                        .entry(name.to_string())
-                        .or_insert_with(HashSet::new)
-                        .insert(romid.size);
-
-                    roms.entry(romid)
-                        .or_insert_with(Vec::new)
-                        .push(SoftwareRom {
-                            game: name.to_string(),
-                            rom: child.attribute("name").unwrap().to_string(),
-                        });
-                } else if let Some(diskid) = DiskId::from_node(&child) {
-                    disks
-                        .entry(diskid)
-                        .or_insert_with(Vec::new)
-                        .push(SoftwareDisk {
-                            game: name.to_string(),
-                            disk: disk_to_chd(child.attribute("name").unwrap()),
-                        });
-
-                    machines_with_disks.insert(name.to_string());
+    for child in node.children() {
+        match child.tag_name().name() {
+            "description" => {
+                game.description = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "manufacturer" => {
+                game.creator = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "year" => {
+                game.year = child
+                    .text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::default)
+            }
+            "rom" => {
+                if let Some(sha1) = child.attribute("sha1") {
+                    game.parts.insert(
+                        child.attribute("name").unwrap().to_string(),
+                        Part::rom_from_sha1(sha1.to_string()),
+                    );
                 }
             }
-        }
-
-        AddDb {
-            roms,
-            disks,
-            machine_rom_sizes,
-            machines_with_disks,
-        }
-    }
-
-    pub fn retain_machines(&mut self, machines: &HashSet<String>) {
-        self.roms
-            .values_mut()
-            .for_each(|v| v.retain(|r| machines.contains(&r.game)));
-        self.roms.retain(|_, v| !v.is_empty());
-
-        self.disks
-            .values_mut()
-            .for_each(|v| v.retain(|r| machines.contains(&r.game)));
-        self.disks.retain(|_, v| !v.is_empty());
-
-        self.machine_rom_sizes
-            .retain(|machine, _| machines.contains(machine));
-
-        self.machines_with_disks
-            .retain(|machine| machines.contains(machine));
-    }
-}
-
-impl SoftwareExists for AddDb {
-    #[inline]
-    fn exists(&self, software: &str) -> bool {
-        self.machine_rom_sizes.contains_key(software)
-    }
-}
-
-impl AddRomDb for AddDb {
-    #[inline]
-    fn has_disks(&self) -> bool {
-        !self.machines_with_disks.is_empty()
-    }
-
-    fn all_rom_sizes(&self) -> HashSet<u64> {
-        self.machine_rom_sizes
-            .values()
-            .flat_map(|h| h.iter().copied())
-            .collect()
-    }
-}
-
-pub fn copy(db: &AddDb, root: &Path, rom: &Path, dry_run: bool) -> Result<(), io::Error> {
-    use super::rom::copy;
-
-    if let Ok(Some(disk_id)) = DiskId::from_path(rom) {
-        if let Some(matches) = db.disks.get(&disk_id) {
-            for SoftwareDisk {
-                game: machine_name,
-                disk: disk_name,
-            } in matches
-            {
-                let mut target = root.join(machine_name);
-                target.push(disk_name);
-                target.set_extension("chd");
-                copy(rom, &target, dry_run)?;
+            "disk" => {
+                if let Some(sha1) = child.attribute("sha1") {
+                    game.parts.insert(
+                        Part::name_to_chd(child.attribute("name").unwrap()),
+                        Part::disk_from_sha1(sha1.to_string()),
+                    );
+                }
             }
-        }
-    } else {
-        let rom_id = RomId::from_path(rom)?;
-        if let Some(matches) = db.roms.get(&rom_id) {
-            for SoftwareRom {
-                game: machine_name,
-                rom: rom_name,
-            } in matches
-            {
-                let mut target = root.join(machine_name);
-                target.push(rom_name);
-                copy(rom, &target, dry_run)?;
+            "driver" => {
+                match child.attribute("status").unwrap() {
+                    "good" => game.status = Status::Working,
+                    "imperfect" => game.status = Status::Partial,
+                    "preliminary" => game.status = Status::NotWorking,
+                    _ => { /* do nothing*/ }
+                }
             }
+            _ => { /* ignore other elements*/ }
         }
     }
 
-    Ok(())
-}
-
-pub fn verify(db: &VerifyDb, root: &Path, machine: &str) -> Result<VerifyResult, Error> {
-    if !db.machines.contains(machine) {
-        return Ok(VerifyResult::NoMachine);
-    }
-    let machine_roms = match db.roms.get(machine) {
-        Some(m) => m,
-        None => return Ok(VerifyResult::nothing_to_check(machine)),
-    };
-
-    let mut matches = HashSet::new();
-    matches.insert(machine.to_string());
-    let machine_root = root.join(machine);
-    let mut mismatches = Vec::new();
-
-    // first check the machine's ROMs
-    let mut files_on_disk: HashMap<String, PathBuf> = machine_root
-        .read_dir()
-        .map(|entries| {
-            entries
-                .filter_map(|re| {
-                    re.ok()
-                        .map(|e| (e.file_name().to_string_lossy().into(), e.path()))
-                })
-                .collect()
-        })
-        .unwrap_or_else(|_| HashMap::new());
-
-    for (rom_name, rom_id) in machine_roms {
-        if let Some(mismatch) = verify_rom(&machine_root, rom_name, rom_id, &mut files_on_disk)? {
-            mismatches.push(mismatch);
-        }
-    }
-
-    // then check the machine's disks (if any)
-    for (disk_name, sha1) in db.disks.get(machine).iter().flat_map(|d| d.iter()) {
-        if let Some(mismatch) = verify_disk(&machine_root, disk_name, sha1, &mut files_on_disk)? {
-            mismatches.push(mismatch);
-        }
-    }
-
-    // finally, recursively check the machine's devices (if any)
-    for device in db.devices.get(machine).iter().flat_map(|d| d.iter()) {
-        match verify(db, root, device) {
-            Ok(VerifyResult::Ok(sub_matches)) => matches.extend(sub_matches.into_iter()),
-            Ok(VerifyResult::Bad(device_mismatches)) => mismatches.extend(device_mismatches),
-            Ok(VerifyResult::NoMachine) => eprintln!(
-                "WARNING: {} references non-existent device {}",
-                machine, device
-            ),
-            Err(err) => return Err(err),
-        }
-    }
-
-    // mark any leftover files on disk as extras
-    mismatches.extend(
-        files_on_disk
-            .into_iter()
-            .map(|(_, pb)| VerifyMismatch::Extra(pb)),
-    );
-
-    Ok(if mismatches.is_empty() {
-        VerifyResult::Ok(matches)
-    } else {
-        VerifyResult::Bad(mismatches)
-    })
-}
-
-pub fn verify_rom(
-    machine_root: &Path,
-    rom_name: &str,
-    rom_id: &RomId,
-    files_on_disk: &mut HashMap<String, PathBuf>,
-) -> Result<Option<VerifyMismatch>, Error> {
-    if let Some(disk_rom_path) = files_on_disk.remove(rom_name) {
-        if rom_id == &RomId::from_path(&disk_rom_path)? {
-            Ok(None)
-        } else {
-            Ok(Some(VerifyMismatch::Bad(disk_rom_path)))
-        }
-    } else {
-        Ok(Some(VerifyMismatch::Missing(machine_root.join(rom_name))))
-    }
-}
-
-fn verify_disk(
-    machine_root: &Path,
-    disk_name: &str,
-    disk_id: &DiskId,
-    files_on_disk: &mut HashMap<String, PathBuf>,
-) -> Result<Option<VerifyMismatch>, Error> {
-    if let Some(disk_path) = files_on_disk.remove(disk_name) {
-        if let Some(path_disk_id) = DiskId::from_path(&disk_path)? {
-            if disk_id == &path_disk_id {
-                Ok(None)
-            } else {
-                // CHD is valid, but SHA1 doesn't match
-                Ok(Some(VerifyMismatch::Bad(disk_path)))
-            }
-        } else {
-            // file isn't a valid or supported CHD
-            Ok(Some(VerifyMismatch::Bad(disk_path)))
-        }
-    } else {
-        // expected CHD not found on disk
-        Ok(Some(VerifyMismatch::Missing(machine_root.join(disk_name))))
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct VerifyDb {
-    machines: HashSet<String>,
-    roms: HashMap<String, HashMap<String, RomId>>,
-    disks: HashMap<String, HashMap<String, DiskId>>,
-    devices: HashMap<String, Vec<String>>,
-    device_refs: HashSet<String>,
-}
-
-impl VerifyDb {
-    pub fn from_xml(tree: &Document) -> Self {
-        let mut db = VerifyDb::default();
-        let root = tree.root_element();
-
-        for machine in root.children().filter(|c| c.tag_name().name() == "machine") {
-            db.add_machine(&machine);
-        }
-
-        db
-    }
-
-    fn add_machine(&mut self, machine: &Node) {
-        fn node_to_device(node: &Node) -> Option<String> {
-            if node.tag_name().name() == "device_ref" {
-                node.attribute("name").map(|s| s.to_string())
-            } else {
-                None
-            }
-        }
-
-        let name: &str = machine
-            .attribute("name")
-            .expect("missing required name field");
-
-        self.machines.insert(name.to_string());
-
-        let roms: HashMap<String, RomId> = machine
-            .children()
-            .filter_map(|c| {
-                RomId::from_node(&c).map(|r| (c.attribute("name").unwrap().to_string(), r))
-            })
-            .collect();
-
-        if !roms.is_empty() {
-            self.roms.insert(name.to_string(), roms);
-        }
-
-        let disks: HashMap<String, DiskId> = machine
-            .children()
-            .filter_map(|c| {
-                DiskId::from_node(&c).map(|d| (disk_to_chd(c.attribute("name").unwrap()), d))
-            })
-            .collect();
-
-        if !disks.is_empty() {
-            self.disks.insert(name.to_string(), disks);
-        }
-
-        let devices: Vec<String> = machine
-            .children()
-            .filter_map(|c| node_to_device(&c))
-            .collect();
-
-        if !devices.is_empty() {
-            self.device_refs
-                .extend(devices.iter().map(|s| s.to_string()));
-            self.devices.insert(name.to_string(), devices);
-        }
-    }
-
-    #[inline]
-    pub fn is_device(&self, machine: &str) -> bool {
-        self.device_refs.contains(machine)
-    }
-}
-
-impl SoftwareExists for VerifyDb {
-    #[inline]
-    fn exists(&self, software: &str) -> bool {
-        self.machines.contains(software)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ReportDb(HashMap<String, ReportRow>);
-
-impl ReportDb {
-    pub fn from_xml(tree: &Document) -> Self {
-        let root = tree.root_element();
-
-        ReportDb(
-            root.children()
-                .filter_map(|c| {
-                    node_to_reportrow(&c).map(|r| (c.attribute("name").unwrap().to_string(), r))
-                })
-                .collect(),
-        )
-    }
-
-    #[inline]
-    fn get(&self, machine: &str) -> Option<&ReportRow> {
-        self.0.get(machine)
-    }
-}
-
-fn node_to_reportrow(node: &Node) -> Option<ReportRow> {
-    if (node.tag_name().name() == "machine")
-        && (node.attribute("isbios") != Some("yes"))
-        && (node.attribute("isdevice") != Some("yes"))
-    {
-        Some(ReportRow {
-            name: node.attribute("name").unwrap().to_string(),
-            description: node
-                .children()
-                .find(|c| c.tag_name().name() == "description")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            manufacturer: node
-                .children()
-                .find(|c| c.tag_name().name() == "manufacturer")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            year: node
-                .children()
-                .find(|c| c.tag_name().name() == "year")
-                .and_then(|c| c.text())
-                .unwrap_or("")
-                .to_string(),
-            status: match node
-                .children()
-                .find(|c| c.tag_name().name() == "driver")
-                .and_then(|c| c.attribute("status"))
-            {
-                Some("good") => Status::Working,
-                Some("imperfect") => Status::Partial,
-                _ => Status::NotWorking,
-            },
-        })
-    } else {
-        None
-    }
-}
-
-pub fn list(db: &ReportDb, search: Option<&str>, sort: SortBy, simple: bool) {
-    let mut results: Vec<&ReportRow> = if let Some(search) = search {
-        db.0.values().filter(|r| r.matches(search)).collect()
-    } else {
-        db.0.values().collect()
-    };
-    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
-    display_report(&results, simple)
-}
-
-pub fn report(
-    db: &ReportDb,
-    machines: &HashSet<String>,
-    search: Option<&str>,
-    sort: SortBy,
-    simple: bool,
-) {
-    let mut results: Vec<&ReportRow> = machines.iter().filter_map(|m| db.get(m)).collect();
-    if let Some(search) = search {
-        results.retain(|r| r.matches(search));
-    }
-    results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
-    display_report(&results, simple)
-}
-
-fn display_report(results: &[&ReportRow], simple: bool) {
-    use prettytable::{cell, format, row, Table};
-
-    let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    for machine in results {
-        let description = if simple {
-            no_slashes(no_parens(&machine.description))
-        } else {
-            &machine.description
-        };
-        let manufacturer = if simple {
-            no_parens(&machine.manufacturer)
-        } else {
-            &machine.manufacturer
-        };
-        let year = &machine.year;
-        let name = &machine.name;
-
-        table.add_row(match machine.status {
-            Status::Working => row![description, manufacturer, year, name],
-            Status::Partial => row![FM => description, manufacturer, year, name],
-            Status::NotWorking => row![FR => description, manufacturer, year, name],
-        });
-    }
-
-    table.printstd();
+    game
 }
