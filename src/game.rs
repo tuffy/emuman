@@ -369,14 +369,10 @@ impl Part {
     }
 
     fn verify(&self, part_path: PathBuf) -> Option<VerifyFailure> {
-        if part_path.exists() {
-            match Part::from_path(&part_path) {
-                Ok(ref disk_part) if self == disk_part => None,
-                Ok(_) => Some(VerifyFailure::Bad(part_path)),
-                Err(err) => Some(VerifyFailure::Error(part_path, err)),
-            }
-        } else {
-            Some(VerifyFailure::Missing(part_path))
+        match Part::from_path(&part_path) {
+            Ok(ref disk_part) if self == disk_part => None,
+            Ok(_) => Some(VerifyFailure::Bad(part_path)),
+            Err(err) => Some(VerifyFailure::Error(part_path, err)),
         }
     }
 }
