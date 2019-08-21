@@ -273,7 +273,7 @@ pub enum VerifyFailure {
     Missing(PathBuf),
     Extra(PathBuf),
     Bad(PathBuf),
-    Error(PathBuf, Error),
+    Error(PathBuf, std::io::Error),
 }
 
 impl fmt::Display for VerifyFailure {
@@ -311,7 +311,7 @@ impl Part {
         d
     }
 
-    pub fn from_path(path: &Path) -> Result<Self, Error> {
+    pub fn from_path(path: &Path) -> Result<Self, std::io::Error> {
         use std::fs::File;
         use std::io::{BufReader, Seek, SeekFrom};
 
@@ -327,7 +327,7 @@ impl Part {
         }
     }
 
-    fn disk_from_reader<R: BufRead>(mut r: R) -> Result<Option<Self>, Error> {
+    fn disk_from_reader<R: BufRead>(mut r: R) -> Result<Option<Self>, std::io::Error> {
         fn skip<R: BufRead>(mut r: R, mut to_skip: usize) -> Result<(), std::io::Error> {
             while to_skip > 0 {
                 let buf = r.fill_buf()?;
@@ -366,7 +366,7 @@ impl Part {
         }))
     }
 
-    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, Error> {
+    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, std::io::Error> {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
@@ -379,7 +379,7 @@ impl Part {
                     })
                 }
                 Ok(bytes) => sha1.update(&buf[0..bytes]),
-                Err(err) => return Err(Error::IO(err)),
+                Err(err) => return Err(err),
             }
         }
     }
