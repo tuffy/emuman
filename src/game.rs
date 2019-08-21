@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -310,30 +311,33 @@ impl Part {
         d
     }
 
-    #[inline]
     pub fn from_path(path: &Path) -> Result<Self, Error> {
-        match Part::disk_from_path(path) {
+        use std::fs::File;
+        use std::io::{BufReader, Seek, SeekFrom};
+
+        let mut r = BufReader::new(File::open(path)?);
+
+        match Part::disk_from_reader(&mut r) {
             Ok(Some(disk)) => Ok(disk),
-            Ok(None) => Part::rom_from_path(path),
+            Ok(None) => {
+                r.seek(SeekFrom::Start(0))?;
+                Part::rom_from_reader(r)
+            }
             Err(err) => Err(err),
         }
     }
 
-    fn disk_from_path(path: &Path) -> Result<Option<Self>, Error> {
-        use std::fs::File;
-        use std::io::{BufRead, BufReader, Read};
-
-        fn skip<R: BufRead>(mut reader: R, mut to_skip: usize) -> Result<(), std::io::Error> {
+    fn disk_from_reader<R: BufRead>(mut r: R) -> Result<Option<Self>, Error> {
+        fn skip<R: BufRead>(mut r: R, mut to_skip: usize) -> Result<(), std::io::Error> {
             while to_skip > 0 {
-                let buf = reader.fill_buf()?;
+                let buf = r.fill_buf()?;
                 let consumed = buf.len().min(to_skip);
-                reader.consume(consumed);
+                r.consume(consumed);
                 to_skip -= consumed;
             }
             Ok(())
         }
 
-        let mut r = BufReader::new(File::open(path)?);
         let mut tag = [0; 8];
 
         if r.read_exact(&mut tag).is_err() || &tag != b"MComprHD" {
@@ -362,17 +366,13 @@ impl Part {
         }))
     }
 
-    fn rom_from_path(path: &Path) -> Result<Self, Error> {
+    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, Error> {
         use sha1::Sha1;
-        use std::fs::File;
-        use std::io::Read;
-
-        let mut f = File::open(path)?;
 
         let mut sha1 = Sha1::new();
         let mut buf = [0; 4096];
         loop {
-            match f.read(&mut buf) {
+            match r.read(&mut buf) {
                 Ok(0) => {
                     return Ok(Part::ROM {
                         sha1: sha1.hexdigest(),
