@@ -1024,6 +1024,9 @@ fn xml_to_game(node: &Node) -> Game {
                     _ => { /* do nothing*/ }
                 }
             }
+            "device_ref" => game
+                .devices
+                .push(child.attribute("name").unwrap().to_string()),
             _ => { /* ignore other elements*/ }
         }
     }

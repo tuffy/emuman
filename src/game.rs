@@ -61,9 +61,11 @@ impl GameDb {
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
         if let Some(game) = self.games.get(game_name) {
             let mut results = game.verify(&root.join(game_name));
-            for device in &game.devices {
-                results.extend(self.verify_game(root, device).into_iter());
-            }
+            results.extend(
+                game.devices
+                    .iter()
+                    .flat_map(|device| self.verify_game(root, device)),
+            );
             results
         } else {
             Vec::new()
