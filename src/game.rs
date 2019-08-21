@@ -202,6 +202,8 @@ impl Game {
 
     fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
         use std::fs::read_dir;
+        use rayon::prelude::*;
+        use std::sync::Mutex;
 
         let mut failures = Vec::new();
 
@@ -219,17 +221,21 @@ impl Game {
         }
 
         // verify all game parts
-        for (name, part) in self.parts.iter() {
-            if let Some(pathbuf) = files_on_disk.remove(name) {
+        let files_on_disk = Mutex::new(files_on_disk);
+        let failures = Mutex::new(failures);
+        self.parts.par_iter().for_each(|(name, part)| {
+            if let Some(pathbuf) = files_on_disk.lock().unwrap().remove(name) {
                 if let Some(failure) = part.verify(pathbuf) {
-                    failures.push(failure);
+                    failures.lock().unwrap().push(failure);
                 }
             } else {
-                failures.push(VerifyFailure::Missing(game_root.join(name)));
+                failures.lock().unwrap().push(VerifyFailure::Missing(game_root.join(name)));
             }
-        }
+        });
 
         // mark any leftover files on disk as extras
+        let files_on_disk = files_on_disk.into_inner().unwrap();
+        let mut failures = failures.into_inner().unwrap();
         failures.extend(
             files_on_disk
                 .into_iter()
