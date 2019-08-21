@@ -142,9 +142,7 @@ impl OptMameCreate {
             println!("* Wrote \"{}\"", db_file.display());
         }
 
-        write_cache(CACHE_MAME, mame::xml_to_game_db(&xml))?;
-
-        Ok(())
+        write_cache(CACHE_MAME, mame::xml_to_game_db(&xml))
     }
 }
 
@@ -164,13 +162,13 @@ struct OptMameList {
 
 impl OptMameList {
     fn execute(self) -> Result<(), Error> {
-        read_cache::<game::GameDb>(MAME, CACHE_MAME).map(|db| {
-            db.list(
-                self.search.as_ref().map(|t| t.deref()),
-                self.sort,
-                self.simple,
-            )
-        })
+        let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
+        db.list(
+            self.search.as_ref().map(|t| t.deref()),
+            self.sort,
+            self.simple,
+        );
+        Ok(())
     }
 }
 
@@ -200,14 +198,14 @@ impl OptMameReport {
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
 
-        read_cache::<game::GameDb>(MAME, CACHE_MAME).map(|db| {
-            db.report(
-                &machines,
-                self.search.as_ref().map(|t| t.deref()),
-                self.sort,
-                self.simple,
-            )
-        })
+        let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
+        db.report(
+            &machines,
+            self.search.as_ref().map(|t| t.deref()),
+            self.sort,
+            self.simple,
+        );
+        Ok(())
     }
 }
 
@@ -276,10 +274,15 @@ impl OptMameAdd {
         }
 
         let roms = game::get_rom_sources(&self.input);
+        let copy = if self.dry_run {
+            game::dry_run
+        } else {
+            game::copy
+        };
 
         self.machines
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, self.dry_run))
+            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
     }
 }
 
@@ -436,19 +439,18 @@ impl OptMessReport {
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
 
-        read_cache::<mess::MessDb>(MESS, CACHE_MESS)
-            .and_then(|mut db| {
-                db.remove(&self.software_list)
-                    .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
-            })
-            .map(|db| {
-                db.report(
-                    &software,
-                    self.search.as_ref().map(|s| s.deref()),
-                    self.sort,
-                    self.simple,
-                )
-            })
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS).and_then(|mut db| {
+            db.remove(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
+        })?;
+
+        db.report(
+            &software,
+            self.search.as_ref().map(|s| s.deref()),
+            self.sort,
+            self.simple,
+        );
+        Ok(())
     }
 }
 
@@ -525,10 +527,15 @@ impl OptMessAdd {
         }
 
         let roms = game::get_rom_sources(&self.input);
+        let copy = if self.dry_run {
+            game::dry_run
+        } else {
+            game::copy
+        };
 
         self.software
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, self.dry_run))
+            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
     }
 }
 
@@ -768,10 +775,15 @@ impl OptRedumpAdd {
         }
 
         let roms = game::get_rom_sources(&self.input);
+        let copy = if self.dry_run {
+            game::dry_run
+        } else {
+            game::copy
+        };
 
         self.software
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, self.dry_run))
+            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
     }
 }
 

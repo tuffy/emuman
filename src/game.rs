@@ -241,14 +241,14 @@ impl Game {
         &self,
         rom_sources: &HashMap<Part, PathBuf>,
         target: &Path,
-        dry_run: bool,
+        copy: fn(&Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
         let target_dir = target.join(&self.name);
         self.parts
             .iter()
             .try_for_each(|(rom_name, part)| {
                 if let Some(source) = rom_sources.get(&part) {
-                    copy(source, &target_dir.join(rom_name), dry_run)
+                    copy(source, &target_dir.join(rom_name))
                 } else {
                     Ok(())
                 }
@@ -416,17 +416,20 @@ pub fn get_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
         .collect()
 }
 
-pub fn copy(source: &Path, target: &Path, dry_run: bool) -> Result<(), std::io::Error> {
-    if target.exists() {
-        Ok(())
-    } else {
-        if !dry_run {
-            use std::fs::{copy, create_dir_all, hard_link};
+pub fn copy(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    if !target.exists() {
+        use std::fs::{copy, create_dir_all, hard_link};
 
-            create_dir_all(target.parent().unwrap())?;
-            hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
-        }
+        create_dir_all(target.parent().unwrap())?;
+        hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
         println!("{} -> {}", source.display(), target.display());
-        Ok(())
     }
+    Ok(())
+}
+
+pub fn dry_run(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    if !target.exists() {
+        println!("{} -> {}", source.display(), target.display());
+    }
+    Ok(())
 }
