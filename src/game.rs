@@ -420,14 +420,10 @@ pub fn copy(source: &Path, target: &Path, dry_run: bool) -> Result<(), std::io::
     if target.exists() {
         Ok(())
     } else {
-        let target_dir = target.parent().expect("target has no valid parent");
         if !dry_run {
             use std::fs::{copy, create_dir_all, hard_link};
 
-            if !target_dir.is_dir() {
-                create_dir_all(target_dir)?;
-            }
-
+            create_dir_all(target.parent().unwrap())?;
             hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
         }
         println!("{} -> {}", source.display(), target.display());
