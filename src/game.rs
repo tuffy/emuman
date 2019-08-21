@@ -201,8 +201,8 @@ impl Game {
     }
 
     fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
-        use std::fs::read_dir;
         use rayon::prelude::*;
+        use std::fs::read_dir;
         use std::sync::Mutex;
 
         let mut failures = Vec::new();
@@ -229,7 +229,10 @@ impl Game {
                     failures.lock().unwrap().push(failure);
                 }
             } else {
-                failures.lock().unwrap().push(VerifyFailure::Missing(game_root.join(name)));
+                failures
+                    .lock()
+                    .unwrap()
+                    .push(VerifyFailure::Missing(game_root.join(name)));
             }
         });
 
@@ -317,38 +320,43 @@ impl Part {
     }
 
     fn disk_from_path(path: &Path) -> Result<Option<Self>, Error> {
-        use bitstream_io::{BigEndian, BitReader};
         use std::fs::File;
+        use std::io::{BufRead, BufReader, Read};
 
-        let mut r = BitReader::endian(File::open(path)?, BigEndian);
-        let mut tag = [0; 8];
-        let mut sha1 = [0; 20];
-
-        if r.read_bytes(&mut tag).is_err() {
-            // non-CHD files might be less than 8 bytes
-            return Ok(None);
+        fn skip<R: BufRead>(mut reader: R, mut to_skip: usize) -> Result<(), std::io::Error> {
+            while to_skip > 0 {
+                let buf = reader.fill_buf()?;
+                let consumed = buf.len().min(to_skip);
+                reader.consume(consumed);
+                to_skip -= consumed;
+            }
+            Ok(())
         }
-        if &tag != b"MComprHD" {
+
+        let mut r = BufReader::new(File::open(path)?);
+        let mut tag = [0; 8];
+
+        if r.read_exact(&mut tag).is_err() || &tag != b"MComprHD" {
+            // non-CHD files might be less than 8 bytes
             return Ok(None);
         }
 
         // at this point we'll treat the file as a CHD
-        r.skip(32)?; // unused length
-        let version: u32 = r.read(32)?;
+        skip(&mut r, 4)?; // unused length field
+        let mut version = [0; 4];
+        r.read_exact(&mut version)?;
+        let version = u32::from_be_bytes(version);
 
-        match version {
-            3 => {
-                r.skip(32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32)?;
-            }
-            4 => {
-                r.skip(32 + 32 + 32 + 64 + 64 + 32)?;
-            }
-            5 => {
-                r.skip(32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20)?;
-            }
+        let bytes_to_skip = match version {
+            3 => (32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32) / 8,
+            4 => (32 + 32 + 32 + 64 + 64 + 32) / 8,
+            5 => (32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20) / 8,
             _ => return Ok(None),
-        }
-        r.read_bytes(&mut sha1)?;
+        };
+        skip(&mut r, bytes_to_skip)?;
+
+        let mut sha1 = [0; 20];
+        r.read_exact(&mut sha1)?;
         Ok(Some(Part::Disk {
             sha1: sha1.iter().map(|b| format!("{:02x}", b)).collect(),
         }))
