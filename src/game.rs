@@ -1,5 +1,4 @@
 use super::Error;
-use core::cmp::Ordering;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -83,8 +82,7 @@ impl GameDb {
             self.games.values().filter(|g| !g.is_device).collect()
         };
 
-        results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
+        Game::sort_report(&mut results, sort);
         GameDb::display_report(&results, simple)
     }
 
@@ -103,8 +101,7 @@ impl GameDb {
             results.retain(|g| g.matches(search));
         }
 
-        results.sort_unstable_by(|x, y| x.sort_by(y, sort));
-
+        Game::sort_report(&mut results, sort);
         GameDb::display_report(&results, simple)
     }
 
@@ -189,15 +186,31 @@ impl Game {
             || (self.year == search)
     }
 
-    pub fn sort_by(&self, other: &Game, sort: SortBy) -> Ordering {
-        self.sort_key(sort).cmp(&other.sort_key(sort))
+    pub fn sort_key(&self, sort: SortBy) -> &str {
+        match sort {
+            SortBy::Description => &self.description,
+            SortBy::Creator => &self.creator,
+            SortBy::Year => &self.year,
+        }
     }
 
-    fn sort_key(&self, sort: SortBy) -> (&str, &str, &str) {
+    pub fn sort_report(games: &mut Vec<&Game>, sort: SortBy) {
         match sort {
-            SortBy::Description => (&self.description, &self.creator, &self.year),
-            SortBy::Creator => (&self.creator, &self.description, &self.year),
-            SortBy::Year => (&self.year, &self.description, &self.creator),
+            SortBy::Description => {
+                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Year));
+                games.sort_by_key(|x| x.sort_key(SortBy::Creator));
+                games.sort_by_key(|x| x.sort_key(SortBy::Description));
+            }
+            SortBy::Creator => {
+                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Year));
+                games.sort_by_key(|x| x.sort_key(SortBy::Description));
+                games.sort_by_key(|x| x.sort_key(SortBy::Creator));
+            }
+            SortBy::Year => {
+                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Creator));
+                games.sort_by_key(|x| x.sort_key(SortBy::Description));
+                games.sort_by_key(|x| x.sort_key(SortBy::Year));
+            }
         }
     }
 
@@ -330,8 +343,7 @@ impl Part {
     fn disk_from_reader<R: BufRead>(mut r: R) -> Result<Option<Self>, std::io::Error> {
         fn skip<R: BufRead>(mut r: R, mut to_skip: usize) -> Result<(), std::io::Error> {
             while to_skip > 0 {
-                let buf = r.fill_buf()?;
-                let consumed = buf.len().min(to_skip);
+                let consumed = r.fill_buf()?.len().min(to_skip);
                 r.consume(consumed);
                 to_skip -= consumed;
             }

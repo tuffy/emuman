@@ -265,7 +265,7 @@ pub fn list(db: &GameDb, search: Option<&str>) {
         db.games.values().collect()
     };
 
-    results.sort_unstable_by(|x, y| x.sort_by(y, SortBy::Description));
+    Game::sort_report(&mut results, SortBy::Description);
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
