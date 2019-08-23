@@ -4,8 +4,30 @@ This is a ROM manager primarily for MAME that's based
 around storing ROM files in non-merged, uncompressed sets.
 That means instead of storing all the ROM files for `mrdo`
 in a `mrdo.zip` file, we will create a `mrdo` directory
-and place all its ROM files in that directory without the use of
-zip files at all.  One directory per machine, and one file per ROM.
+and place all its ROM files in that directory, like:
+
+    mrdo/
+      a4-01.bin
+      c4-02.bin
+      e4-03.bin
+      f10--1.bin
+      f4-04.bin
+      h5-05.bin
+      j10--4.bin
+      j2-u001.bin
+      k5-06.bin
+      n8-07.bin
+      r8-08.bin
+      s8-09.bin
+      t02--3.bin
+      u02--2.bin
+      u8-10.bin
+
+One directory per machine, and one file per ROM.
+
+MAME is extremly lenient about how its ROM files are stored,
+and will accept this layout just as easily as it will accept
+a directory full of `.zip` files.
 
 ## The Advantages
 
@@ -21,13 +43,40 @@ don't use more space than they would if they were stuffed into zip files.
 But even if I didn't, ROMs don't use a lot of space to begin with
 compared to MAME's CHD files.
 
-## What About BIOS Files?
+## What About Shared Files?
 
-Although having the same `uni-bios_3_3.rom` in 50 different places
-wouldn't take up a lot of space in absolute terms, it's still
-not very efficient.  Therefore, this manager uses hard links
-so that the same file may be in many directories, while
-being stored on disk only once.
+Even though ROMs don't use a lot of space, storing multiple
+copies of the same files is still needlessly wasteful.
+This manager uses hard links by default, so identical files
+used by different machines will be shared via hard links
+and stored on disk only once.  Using `mrdo` and `mrdofix` as
+an example:
+
+    mrdo/             mrdofix/
+      a4-01.bin
+      c4-02.bin
+      e4-03.bin
+                        d1
+                        d10
+                        d2
+                        d9
+                        dofix.d3
+                        dofix.d4
+      f10--1.bin  <=>   f10--1.bin
+      f4-04.bin
+      h5-05.bin   <=>   h5-05.bin
+      j10--4.bin  <=>   j10--4.bin
+      j2-u001.bin <=>   j2-u001.bin
+      k5-06.bin   <=>   k5-06.bin
+      n8-07.bin   <=>   n8-07.bin
+      r8-08.bin   <=>   r8-08.bin
+      s8-09.bin
+      t02--3.bin  <=>   t02--3.bin
+      u02--2.bin  <=>   u02--2.bin
+      u8-10.bin
+
+Ten of these ROM files are identical between the two versions,
+so we'll simply hard-link them together (indicated by the `<=>`).
 
 # Getting Started
 
@@ -78,7 +127,7 @@ Simply using
 will generate a list of all machines supported by MAME
 as a table and sent to standard output.
 
-Machines highlighted in magenta are those MAME considers
+Machines highlighted in yellow are those MAME considers
 to be partially working.  Machines highlighted in red are those
 that MAME considers to be preliminary and probably don't work
 at all.
@@ -91,8 +140,8 @@ to restrict the list to things you want, like
 The search parameter looks for a subset of the description
 (e.g. `emuman mame list "Mr. Do"` searches for all
 games with `Mr. Do` in their descriptions), a subset of
-the manufacturer (e.g. `emuman mame list Atari` searches
-for all games with `Atari` in their manufacturer string),
+the creator (e.g. `emuman mame list Atari` searches
+for all games with `Atari` in their creator string),
 the game's name prefix (e.g. `emuman mame list mrdo` searches
 for all games whose name starts with `mrdo`), and the game's
 release year (e.g. `emuman mame list 1982` searches for
@@ -102,11 +151,11 @@ The same parameter is applied to all fields simultaneously
 and all matching hits are returned.
 
 In addition, the `--sort` parameter enables you to
-sort output by description (the default), manufacturer
+sort output by description (the default), creator
 or release year.
 
 The `--simple` parameter cuts down a lot of extra information
-from the description and manufacturer fields which may not be useful.
+from the description and creator fields which may not be useful.
 
 ## Adding New ROMs for Machines
 
@@ -168,9 +217,6 @@ Machines will be reported as OK only if their directories
 contain all the correct ROMs with the correct names and nothing else.
 Missing files or incorrect files will be reported as BAD,
 as will machine directories with extra files that need to be removed.
-
-Unused device machines will also be reported separately.
-No sense keeping the ROMs for a device that none of your games use.
 
 ## Generating a Report
 

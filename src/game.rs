@@ -144,7 +144,7 @@ impl GameDb {
 
             table.add_row(match game.status {
                 Status::Working => row![description, creator, year, name],
-                Status::Partial => row![FM => description, creator, year, name],
+                Status::Partial => row![FY => description, creator, year, name],
                 Status::NotWorking => row![FR => description, creator, year, name],
             });
         }
