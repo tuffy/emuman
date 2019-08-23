@@ -3,6 +3,7 @@ use roxmltree::Document;
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
@@ -105,6 +106,36 @@ impl fmt::Display for Error {
     }
 }
 
+#[inline]
+fn mame_roms_dir(option: &Option<OsString>) -> PathBuf {
+    option_or_env(option, "EMUMAN_ROMS_MAME")
+}
+
+#[inline]
+fn mess_roms_dir(option: &Option<OsString>, software_list: &str) -> PathBuf {
+    let mut s = "EMUMAN_ROMS_".to_string();
+    s.push_str(software_list);
+    option_or_env(option, &s)
+}
+
+#[inline]
+fn input_roms_dir(option: &Option<OsString>) -> PathBuf {
+    option_or_env(option, "EMUMAN_INPUT")
+}
+
+fn option_or_env(option: &Option<OsString>, env_name: &str) -> PathBuf {
+    use std::env::var_os;
+    use std::ffi::OsStr;
+
+    if let Some(directory) = option {
+        directory.into()
+    } else if let Some(directory) = var_os(env_name) {
+        directory.into()
+    } else {
+        PathBuf::from(OsStr::new("."))
+    }
+}
+
 #[derive(StructOpt)]
 struct OptMameCreate {
     /// SQLite database
@@ -178,9 +209,9 @@ struct OptMameReport {
     #[structopt(short = "s", long = "sort", default_value = "description")]
     sort: game::SortBy,
 
-    /// root directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// display simple report with less information
     #[structopt(short = "S", long = "simple")]
@@ -192,8 +223,7 @@ struct OptMameReport {
 
 impl OptMameReport {
     fn execute(self) -> Result<(), Error> {
-        let machines: HashSet<String> = self
-            .root
+        let machines: HashSet<String> = mame_roms_dir(&self.roms)
             .read_dir()?
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
@@ -211,9 +241,9 @@ impl OptMameReport {
 
 #[derive(StructOpt)]
 struct OptMameVerify {
-    /// root directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// machine to verify
     machines: Vec<String>,
@@ -222,6 +252,7 @@ struct OptMameVerify {
 impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
+        let roms = mame_roms_dir(&self.roms);
 
         let games: HashSet<String> = if !self.machines.is_empty() {
             // only validate user-specified machines
@@ -230,8 +261,7 @@ impl OptMameVerify {
             machines
         } else {
             // ignore stuff that's on disk but not valid machines
-            self.root
-                .read_dir()?
+            roms.read_dir()?
                 .filter_map(|e| {
                     e.ok()
                         .and_then(|e| e.file_name().into_string().ok())
@@ -240,7 +270,7 @@ impl OptMameVerify {
                 .collect()
         };
 
-        db.verify(&self.root, &games);
+        db.verify(&roms, &games);
 
         Ok(())
     }
@@ -249,12 +279,12 @@ impl OptMameVerify {
 #[derive(StructOpt)]
 struct OptMameAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[structopt(short = "i", long = "input", parse(from_os_str))]
+    input: Option<OsString>,
 
-    /// output directory
-    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-    output: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// don't actually add ROMs
     #[structopt(long = "dry-run")]
@@ -273,7 +303,8 @@ impl OptMameAdd {
             db.validate_games(&self.machines)?;
         }
 
-        let roms = game::get_rom_sources(&self.input);
+        let roms = game::get_rom_sources(&input_roms_dir(&self.input));
+        let output = mame_roms_dir(&self.roms);
         let copy = if self.dry_run {
             game::dry_run
         } else {
@@ -282,7 +313,7 @@ impl OptMameAdd {
 
         self.machines
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
+            .try_for_each(|game| db.games[game].add(&roms, &output, copy))
     }
 }
 
@@ -416,9 +447,9 @@ struct OptMessReport {
     #[structopt(short = "s", long = "sort", default_value = "description")]
     sort: game::SortBy,
 
-    /// root directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// software list to use
     software_list: String,
@@ -433,16 +464,15 @@ struct OptMessReport {
 
 impl OptMessReport {
     fn execute(self) -> Result<(), Error> {
-        let software: HashSet<String> = self
-            .root
-            .read_dir()?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect();
-
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS).and_then(|mut db| {
             db.remove(&self.software_list)
                 .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
         })?;
+
+        let software: HashSet<String> = mess_roms_dir(&self.roms, &self.software_list)
+            .read_dir()?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect();
 
         db.report(
             &software,
@@ -456,9 +486,9 @@ impl OptMessReport {
 
 #[derive(StructOpt)]
 struct OptMessVerify {
-    /// root directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// software list to use
     software_list: String,
@@ -472,14 +502,14 @@ impl OptMessVerify {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+        let roms = mess_roms_dir(&self.roms, &self.software_list);
 
         let software: HashSet<String> = if !self.software.is_empty() {
             let software = self.software.clone().into_iter().collect();
             db.validate_games(&software)?;
             software
         } else {
-            self.root
-                .read_dir()?
+            roms.read_dir()?
                 .filter_map(|e| {
                     e.ok()
                         .and_then(|e| e.file_name().into_string().ok())
@@ -488,7 +518,7 @@ impl OptMessVerify {
                 .collect()
         };
 
-        db.verify(&self.root, &software);
+        db.verify(&roms, &software);
 
         Ok(())
     }
@@ -497,12 +527,12 @@ impl OptMessVerify {
 #[derive(StructOpt)]
 struct OptMessAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[structopt(short = "i", long = "input", parse(from_os_str))]
+    input: Option<OsString>,
 
-    /// output directory
-    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-    output: PathBuf,
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str))]
+    roms: Option<OsString>,
 
     /// don't actually add ROMs
     #[structopt(long = "dry-run")]
@@ -526,7 +556,8 @@ impl OptMessAdd {
             db.validate_games(&self.software)?;
         }
 
-        let roms = game::get_rom_sources(&self.input);
+        let roms = game::get_rom_sources(&input_roms_dir(&self.input));
+        let output = mess_roms_dir(&self.roms, &self.software_list);
         let copy = if self.dry_run {
             game::dry_run
         } else {
@@ -535,15 +566,15 @@ impl OptMessAdd {
 
         self.software
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
+            .try_for_each(|game| db.games[game].add(&roms, &output, copy))
     }
 }
 
 #[derive(StructOpt)]
 struct OptMessSplit {
-    /// directory to place split ROM pieces
-    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    /// target directory for split ROMs
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    output: PathBuf,
 
     /// delete input ROM once split
     #[structopt(long = "delete")]
@@ -573,7 +604,7 @@ impl OptMessSplit {
                 .iter()
                 .find(|m| m.matches(&rom_data))
             {
-                exact_match.extract(&self.root, &rom_data)?;
+                exact_match.extract(&self.output, &rom_data)?;
                 if self.delete {
                     use std::fs::remove_file;
 
