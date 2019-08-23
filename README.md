@@ -25,7 +25,7 @@ and place all its ROM files in that directory, like:
 
 One directory per machine, and one file per ROM.
 
-MAME is extremly lenient about how its ROM files are stored,
+MAME is extremely lenient about how its ROM files are stored,
 and will accept this layout just as easily as it will accept
 a directory full of `.zip` files.
 
@@ -160,11 +160,13 @@ from the description and creator fields which may not be useful.
 ## Adding New ROMs for Machines
 
 Given a source directory of raw unzipped ROMs and a target
-directory, you can add all the ROMS for a given machine using
+directory, you can add all the ROMs for a given machine using
 
     emuman mame add -i inputdir -o outputdir machine
 
 Specifying multiple machines to add is okay.
+If no machines are specified, `emuman` will try to add as many ROMs
+as possible from the input directory to the output directory.
 If no directories are specified, the current working directory is used.
 If no machines are specified, `emuman` tries to add
 ROMs to as many machines as possible.
@@ -251,7 +253,7 @@ Adding them is simple
 
 One can get a quick report of all supported software lists using
 
-    emuman mess report
+    emuman mess list
 
 The software list names will be used in all the other `mess` options.
 
@@ -263,7 +265,7 @@ Simply using
 
 will generate a report of all software lists.  Or, using
 
-    emuman mess list some_list
+    emuman mess list softlist
 
 will generate a report of all software for the given software list.
 Since adding software requires knowing its name in MESS,
@@ -278,9 +280,11 @@ Given a source directory of raw unzipped ROMs, a target directory,
 and a software list, you can add all the ROMs for a given piece
 of software using
 
-    emuman mess add -i inputdir -o outputdir list software
+    emuman mess add -i inputdir -o outputdir softlist software
 
 Specifying multiple pieces of software to add is okay.
+If no software is specified, `emuman` will try to add as many ROMs
+as possible from the input directory to the output directory.
 If no directories are specified, the current working directory is used.
 If no software is specified, `emuman` tries to add
 ROMs to as many pieces of software as possible.
@@ -289,7 +293,7 @@ ROMs to as many pieces of software as possible.
 
 Given a directory with your software, a software list can be verified using
 
-    emuman mess verify -d outputdir list software
+    emuman mess verify -d outputdir softlist software
 
 If no directory is specified, the current working directory is used.
 If no software is specified, `emuman` tries to verify as
@@ -307,7 +311,7 @@ as will software directories with extra files that need to be removed.
 Given a directory with your added ROM sets and a software list,
 a simple report can be generated with
 
-    emuman mess report -d outputdir list
+    emuman mess report -d outputdir softlist
 
 This report will be formatted as a table and sent to standard output.
 It can also be sorted and filtered the same way as MAME's
@@ -319,31 +323,83 @@ Sometimes ROMs from other sources comes in a combined state,
 which is at odds with MAME's "one file per ROM" policy.
 The split option divides a ROM into its component parts, if possible.
 
-    emuman mess split -o outputdir list rom
+    emuman mess split -o outputdir rom
 
-Many ROMs can be recombined by simply concatenating them together
-(with `cat`), with the notable exception of NES ROMs
-which lose their 16 byte iNES header during the conversion.
+Because combined ROMs are identfied by size and hash,
+specifying a software list is unnecessary.
+
+To reverse the process, many ROMs can be recombined by
+simply concatenating them together (with `cat`),
+with the notable exception of NES ROMs which lose their 16 byte
+iNES header during the conversion.
 
 # Redump
 
 Though not MAME-specific, `emuman` also includes some helper
 utilities for managing Redump-verified disc images.
+These utilities work very much like the ones for MESS.
 
 ## Populating the Database
 
-After downloading the desired `.dat` files, populate the database with
+After downloading the desired `.dat` files from the Redump website,
+populate the database with
 
     emuman redump create *.dat
 
-## Verifying a Disc Image
+The `dat` files will be given names to be used in subsequent options,
+and those names can be queried with:
 
-All the tracks for a given CD image can be verified with
+## Generating a List of Software
 
-    emuman redump verify *.bin *.cue
+Use
 
-The verification results will be displayed to standard output
-for easy filtering.
+    emuman redump list
+
+to generate a report of all software lists.
+All the known software for a given list can be queried with:
+
+    emuman redump list softlist
+
+Note that unlike MESS, Redump software list names contain
+spaces (like "Sega - Saturn") and will need to be quoted
+appropriately in a shell.
+
+And, as in MESS, software lists can be filtered with a search term.
+
+However, because Redump has a less information about its rips,
+trying to filter by creator or year won't work.
+This is also why Redump has no `report` option;
+there simply isn't anything else to report that a simple
+directory listing wouldn't provide.
+
+## Adding New Tracks for Software
+
+Given a source directory containing raw `.cue` and `.bin` files,
+all the tracks for a given piece of software can be added
+using
+
+    emuman redump add -i inputdir -o outputdir softlist software
+
+Specifying multiple pieces of software to add is okay.
+If no software is specified, `emuman` will try to add as many tracks
+as possible from the input directory to the output directory.
+
+## Verifying a Disc Tracks
+
+All the tracks for a given software list can be verified with
+
+    emuman redump verify softlist -d outputdir software
+
+If no directory is specified, the current working directory is used.
+If no software is specified, `emuman` tries to verify as
+many pieces of software as it finds in the root of the output directory.
+The report will be send to standard output for easy filtering,
+but will *not* be generated in any particular order.
+
+As with MAME, software will be reported as OK only if their directories
+contain all the correct tracks with the correct names and nothing else.
+Missing files or incorrect files will be reported as BAD,
+as will software directories with extra files that need to be removed.
 
 ## Splitting a Disc Image
 
@@ -352,7 +408,7 @@ Sometimes a disc image comes as a single `.bin` file
 If you would like to turn this file into a set of
 Redump-verified tracks, it can be split with
 
-    emuman redump split file.bin
+    emuman redump split -o outputdir file.bin
 
-Multiple `.bin` files can be specified at once,
-as can an output directory.
+Because combined disk images are identfied by size and hash,
+specifying a software list is unnecessary.
