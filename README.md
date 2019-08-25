@@ -52,31 +52,31 @@ used by different machines will be shared via hard links
 and stored on disk only once.  Using `mrdo` and `mrdofix` as
 an example:
 
-    mrdo/             mrdofix/
+    mrdo/           mrdofix/
       a4-01.bin
       c4-02.bin
       e4-03.bin
-                        d1
-                        d10
-                        d2
-                        d9
-                        dofix.d3
-                        dofix.d4
-      f10--1.bin  <=>   f10--1.bin
+                      d1
+                      d10
+                      d2
+                      d9
+                      dofix.d3
+                      dofix.d4
+      f10--1.bin  ⇔   f10--1.bin
       f4-04.bin
-      h5-05.bin   <=>   h5-05.bin
-      j10--4.bin  <=>   j10--4.bin
-      j2-u001.bin <=>   j2-u001.bin
-      k5-06.bin   <=>   k5-06.bin
-      n8-07.bin   <=>   n8-07.bin
-      r8-08.bin   <=>   r8-08.bin
+      h5-05.bin   ⇔   h5-05.bin
+      j10--4.bin  ⇔   j10--4.bin
+      j2-u001.bin ⇔   j2-u001.bin
+      k5-06.bin   ⇔   k5-06.bin
+      n8-07.bin   ⇔   n8-07.bin
+      r8-08.bin   ⇔   r8-08.bin
       s8-09.bin
-      t02--3.bin  <=>   t02--3.bin
-      u02--2.bin  <=>   u02--2.bin
+      t02--3.bin  ⇔   t02--3.bin
+      u02--2.bin  ⇔   u02--2.bin
       u8-10.bin
 
 Ten of these ROM files are identical between the two versions,
-so we'll simply hard-link them together (indicated by the `<=>`).
+so we'll simply hard-link them together (indicated by the `⇔`).
 
 # Getting Started
 
