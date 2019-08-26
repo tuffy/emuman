@@ -866,15 +866,15 @@ impl OptRedump {
 /// Emulation Database Manager
 #[derive(StructOpt)]
 enum Opt {
-    /// MAME management
+    /// arcade software management
     #[structopt(name = "mame")]
     Mame(OptMame),
 
-    /// MESS management
+    /// console and portable software management
     #[structopt(name = "mess")]
     Mess(OptMess),
 
-    /// Redump management
+    /// disc image software management
     #[structopt(name = "redump")]
     Redump(OptRedump),
 }

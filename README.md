@@ -162,7 +162,7 @@ from the description and creator fields which may not be useful.
 Given a source directory of raw unzipped ROMs and a target
 directory, you can add all the ROMs for a given machine using
 
-    emuman mame add -i inputdir -o outputdir machine
+    emuman mame add -i inputdir -r outputdir machine
 
 Specifying multiple machines to add is okay.
 If no machines are specified, `emuman` will try to add as many ROMs
@@ -207,7 +207,7 @@ the files have been extracted.
 
 Given a directory with your added ROM sets, machines can be verified using
 
-    emuman mame verify -d outputdir machine
+    emuman mame verify -r outputdir machine
 
 If no directory is specified, the current working directory is used.
 If no machines are specified, `emuman` tries to verify as
@@ -225,7 +225,7 @@ as will machine directories with extra files that need to be removed.
 Given a directory with your added ROM sets, a simple report
 can be generated with
 
-    emuman mame report -d outputdir
+    emuman mame report -r outputdir
 
 This report will be formatted as a table and sent to standard output.
 The report can be given a search term just as the `list` parameter,
@@ -280,7 +280,7 @@ Given a source directory of raw unzipped ROMs, a target directory,
 and a software list, you can add all the ROMs for a given piece
 of software using
 
-    emuman mess add -i inputdir -o outputdir softlist software
+    emuman mess add -i inputdir -r outputdir softlist software
 
 Specifying multiple pieces of software to add is okay.
 If no software is specified, `emuman` will try to add as many ROMs
@@ -293,7 +293,7 @@ ROMs to as many pieces of software as possible.
 
 Given a directory with your software, a software list can be verified using
 
-    emuman mess verify -d outputdir softlist software
+    emuman mess verify -r outputdir softlist software
 
 If no directory is specified, the current working directory is used.
 If no software is specified, `emuman` tries to verify as
@@ -311,7 +311,7 @@ as will software directories with extra files that need to be removed.
 Given a directory with your added ROM sets and a software list,
 a simple report can be generated with
 
-    emuman mess report -d outputdir softlist
+    emuman mess report -r outputdir softlist
 
 This report will be formatted as a table and sent to standard output.
 It can also be sorted and filtered the same way as MAME's
@@ -323,7 +323,7 @@ Sometimes ROMs from other sources comes in a combined state,
 which is at odds with MAME's "one file per ROM" policy.
 The split option divides a ROM into its component parts, if possible.
 
-    emuman mess split -o outputdir rom
+    emuman mess split -r outputdir rom
 
 Because combined ROMs are identfied by size and hash,
 specifying a software list is unnecessary.
@@ -378,7 +378,7 @@ Given a source directory containing raw `.cue` and `.bin` files,
 all the tracks for a given piece of software can be added
 using
 
-    emuman redump add -i inputdir -o outputdir softlist software
+    emuman redump add -i inputdir -r outputdir softlist software
 
 Specifying multiple pieces of software to add is okay.
 If no software is specified, `emuman` will try to add as many tracks
@@ -388,7 +388,7 @@ as possible from the input directory to the output directory.
 
 All the tracks for a given software list can be verified with
 
-    emuman redump verify softlist -d outputdir software
+    emuman redump verify softlist -r outputdir software
 
 If no directory is specified, the current working directory is used.
 If no software is specified, `emuman` tries to verify as
@@ -408,7 +408,7 @@ Sometimes a disc image comes as a single `.bin` file
 If you would like to turn this file into a set of
 Redump-verified tracks, it can be split with
 
-    emuman redump split -o outputdir file.bin
+    emuman redump split -r outputdir file.bin
 
 Because combined disk images are identfied by size and hash,
 specifying a software list is unnecessary.
