@@ -1,9 +1,10 @@
 [package]
 name = "emuman"
 description = "Utility to managing emulator ROM files."
-version = "0.9.8"
+version = "0.9.9"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
+repository = "https://github.com/tuffy/emuman"
 edition = "2018"
 
 [dependencies]
