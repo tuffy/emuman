@@ -251,10 +251,11 @@ impl Game {
         });
 
         // mark any leftover files on disk as extras
-        let files_on_disk = files_on_disk.into_inner().unwrap();
         let mut failures = failures.into_inner().unwrap();
         failures.extend(
             files_on_disk
+                .into_inner()
+                .unwrap()
                 .into_iter()
                 .map(|(_, pathbuf)| VerifyFailure::Extra(pathbuf)),
         );
@@ -358,12 +359,13 @@ impl Part {
         }
 
         // at this point we'll treat the file as a CHD
+
         skip(&mut r, 4)?; // unused length field
+
         let mut version = [0; 4];
         r.read_exact(&mut version)?;
-        let version = u32::from_be_bytes(version);
 
-        let bytes_to_skip = match version {
+        let bytes_to_skip = match u32::from_be_bytes(version) {
             3 => (32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32) / 8,
             4 => (32 + 32 + 32 + 64 + 64 + 32) / 8,
             5 => (32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20) / 8,

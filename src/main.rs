@@ -19,11 +19,11 @@ static MAME: &str = "mame";
 static MESS: &str = "mess";
 static REDUMP: &str = "redump";
 
-static CACHE_MAME: &str = "mame.db";
-static CACHE_MESS: &str = "mess.db";
-static CACHE_REDUMP: &str = "redump.db";
-static CACHE_MESS_SPLIT: &str = "mess-split.db";
-static CACHE_REDUMP_SPLIT: &str = "redump-split.db";
+static CACHE_MAME: &str = "mame.cbor";
+static CACHE_MESS: &str = "mess.cbor";
+static CACHE_REDUMP: &str = "redump.cbor";
+static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
+static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
 
 #[derive(Debug)]
 pub enum Error {
@@ -251,7 +251,7 @@ struct OptMameAdd {
     #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
-    /// ROMs directory
+    /// output directory
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
@@ -395,7 +395,7 @@ impl OptMessList {
         if let Some(software_list) = self.software_list {
             let db = db
                 .remove(&software_list)
-                .ok_or_else(|| Error::NoSuchSoftwareList(software_list.to_string()))?;
+                .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
             db.list(
                 self.search.as_ref().map(|t| t.deref()),
                 self.sort,
@@ -499,7 +499,7 @@ struct OptMessAdd {
     #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
-    /// ROMs directory
+    /// output directory
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
@@ -689,7 +689,7 @@ impl OptRedumpList {
         if let Some(software_list) = self.software_list {
             let db = db
                 .remove(&software_list)
-                .ok_or_else(|| Error::NoSuchSoftwareList(software_list.to_string()))?;
+                .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
             redump::list(&db, self.search.as_ref().map(|t| t.deref()))
         } else {
             redump::list_all(&db)
@@ -702,7 +702,7 @@ impl OptRedumpList {
 #[derive(StructOpt)]
 struct OptRedumpVerify {
     /// root directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
     /// software list to use
@@ -748,7 +748,7 @@ struct OptRedumpAdd {
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
 
     /// don't actually add tracks
@@ -789,7 +789,7 @@ impl OptRedumpAdd {
 #[derive(StructOpt)]
 struct OptRedumpSplit {
     /// directory to place output tracks
-    #[structopt(short = "o", long = "output", parse(from_os_str), default_value = ".")]
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
     /// delete input .bin once split

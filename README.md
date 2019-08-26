@@ -25,9 +25,9 @@ and place all its ROM files in that directory, like:
 
 One directory per machine, and one file per ROM.
 
-MAME is extremely lenient about how its ROM files are stored,
-and will accept this layout just as easily as it will accept
-a directory full of `.zip` files.
+MAME is extremely lenient about how its ROM files are stored
+and will accept a directory full of machine subdirectories
+just as easily as it will accept a directory full of machine `.zip` files.
 
 ## The Advantages
 
@@ -168,8 +168,6 @@ Specifying multiple machines to add is okay.
 If no machines are specified, `emuman` will try to add as many ROMs
 as possible from the input directory to the output directory.
 If no directories are specified, the current working directory is used.
-If no machines are specified, `emuman` tries to add
-ROMs to as many machines as possible.
 
 If the input directory and output directory are on the same
 filesystem, `emuman` will add ROMs using hard links
