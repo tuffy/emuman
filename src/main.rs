@@ -266,13 +266,14 @@ struct OptMameAdd {
 impl OptMameAdd {
     fn execute(mut self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
-        if self.machines.is_empty() {
-            self.machines = db.all_games();
-        } else {
-            db.validate_games(&self.machines)?;
-        }
 
-        let roms = game::get_rom_sources(&self.input);
+        let roms = if self.machines.is_empty() {
+            self.machines = db.all_games();
+            game::all_rom_sources(&self.input)
+        } else {
+            game::get_rom_sources(&self.input, db.required_parts(&self.machines)?)
+        };
+
         let copy = if self.dry_run {
             game::dry_run
         } else {
@@ -519,13 +520,14 @@ impl OptMessAdd {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
-        if self.software.is_empty() {
-            self.software = db.all_games();
-        } else {
-            db.validate_games(&self.software)?;
-        }
 
-        let roms = game::get_rom_sources(&self.input);
+        let roms = if self.software.is_empty() {
+            self.software = db.all_games();
+            game::all_rom_sources(&self.input)
+        } else {
+            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
+        };
+
         let copy = if self.dry_run {
             game::dry_run
         } else {
@@ -767,13 +769,14 @@ impl OptRedumpAdd {
         let db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
-        if self.software.is_empty() {
-            self.software = db.all_games();
-        } else {
-            db.validate_games(&self.software)?;
-        }
 
-        let roms = game::get_rom_sources(&self.input);
+        let roms = if self.software.is_empty() {
+            self.software = db.all_games();
+            game::all_rom_sources(&self.input)
+        } else {
+            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
+        };
+
         let copy = if self.dry_run {
             game::dry_run
         } else {

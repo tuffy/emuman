@@ -37,6 +37,22 @@ impl GameDb {
         })
     }
 
+    pub fn required_parts<I>(&self, games: I) -> Result<HashSet<Part>, Error>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
+        let mut parts = HashSet::new();
+        for game in games.into_iter() {
+            if let Some(game) = self.games.get(game.as_ref()) {
+                parts.extend(game.parts.values().cloned());
+            } else {
+                return Err(Error::NoSuchSoftware(game.as_ref().to_string()));
+            }
+        }
+        Ok(parts)
+    }
+
     pub fn verify(&self, root: &Path, games: &HashSet<String>) {
         use rayon::prelude::*;
 
@@ -301,7 +317,7 @@ impl fmt::Display for VerifyFailure {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
     ROM { sha1: String },
     Disk { sha1: String },
@@ -427,22 +443,39 @@ impl FromStr for SortBy {
     }
 }
 
-pub fn get_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
-    use rayon::prelude::*;
+fn subdir_files(root: &Path) -> Vec<PathBuf> {
     use walkdir::WalkDir;
 
-    let files: Vec<PathBuf> = WalkDir::new(root)
+    WalkDir::new(root)
         .into_iter()
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
                 .map(|e| e.into_path())
         })
-        .collect();
+        .collect()
+}
 
-    files
+pub fn all_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
+    use rayon::prelude::*;
+
+    subdir_files(root)
         .into_par_iter()
         .filter_map(|path| Part::from_path(&path).ok().map(|part| (part, path)))
+        .collect()
+}
+
+pub fn get_rom_sources(root: &Path, required: HashSet<Part>) -> HashMap<Part, PathBuf> {
+    use rayon::prelude::*;
+
+    subdir_files(root)
+        .into_par_iter()
+        .filter_map(|path| {
+            Part::from_path(&path)
+                .ok()
+                .filter(|part| required.contains(part))
+                .map(|part| (part, path))
+        })
         .collect()
 }
 

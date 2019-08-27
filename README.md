@@ -247,7 +247,7 @@ MAME's source code contains a `hash` directory
 containing many XML files, one per software list.
 Adding them is simple
 
-    emuman mess create hash/*.xml
+    emuman mess create hash/a2600.xml hash/nes.xml ...
 
 One can get a quick report of all supported software lists using
 
