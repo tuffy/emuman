@@ -239,7 +239,9 @@ impl OptMameVerify {
                 .collect()
         };
 
-        db.verify(&self.roms, &games);
+        let successes = db.verify(&self.roms, &games);
+
+        eprintln!("{} tested, {} OK", games.len(), successes);
 
         Ok(())
     }
@@ -488,7 +490,9 @@ impl OptMessVerify {
                 .collect()
         };
 
-        db.verify(&self.roms, &software);
+        let successes = db.verify(&self.roms, &software);
+
+        eprintln!("{} tested, {} OK", software.len(), successes);
 
         Ok(())
     }
@@ -737,7 +741,9 @@ impl OptRedumpVerify {
                 .collect()
         };
 
-        db.verify(&self.root, &games);
+        let successes = db.verify(&self.root, &games);
+
+        eprintln!("{} tested, {} OK", games.len(), successes);
 
         Ok(())
     }

@@ -53,25 +53,30 @@ impl GameDb {
         Ok(parts)
     }
 
-    pub fn verify(&self, root: &Path, games: &HashSet<String>) {
+    pub fn verify(&self, root: &Path, games: &HashSet<String>) -> usize {
         use rayon::prelude::*;
 
-        games.par_iter().for_each(|game| {
-            let failures = self.verify_game(root, game);
-            if failures.is_empty() {
-                println!("{} : OK", game);
-            } else {
-                use std::io::{stdout, Write};
+        games
+            .par_iter()
+            .map(|game| {
+                let failures = self.verify_game(root, game);
+                if failures.is_empty() {
+                    println!("{} : OK", game);
+                    1
+                } else {
+                    use std::io::{stdout, Write};
 
-                // ensure results are generated as a unit
-                let stdout = stdout();
-                let mut handle = stdout.lock();
-                writeln!(&mut handle, "{} : BAD", game).unwrap();
-                for failure in failures {
-                    writeln!(&mut handle, "  {}", failure).unwrap();
+                    // ensure results are generated as a unit
+                    let stdout = stdout();
+                    let mut handle = stdout.lock();
+                    writeln!(&mut handle, "{} : BAD", game).unwrap();
+                    for failure in failures {
+                        writeln!(&mut handle, "  {}", failure).unwrap();
+                    }
+                    0
                 }
-            }
-        });
+            })
+            .sum()
     }
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
