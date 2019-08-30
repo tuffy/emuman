@@ -78,6 +78,15 @@ an example:
 Ten of these ROM files are identical between the two versions,
 so we'll simply hard-link them together (indicated by the `⇔`).
 
+## What About Hard Link Limits?
+
+Even the most commonly shared ROMs are spread between
+less than 2,000 different machines, which will comfortably
+fit into the limit of most Linux filesystems - and those
+most common ROMs are very tiny and for drivers that don't even work.
+Shared ROMs for drivers that do work number less than 300 machines,
+which will fit on nearly every filesystem that supports hard links.
+
 # Getting Started
 
 Installation is a simple matter of:
