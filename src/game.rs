@@ -257,22 +257,21 @@ impl Game {
 
         // verify all game parts
         let files_on_disk = Mutex::new(files_on_disk);
-        let failures = Mutex::new(failures);
-        self.parts.par_iter().for_each(|(name, part)| {
-            if let Some(pathbuf) = files_on_disk.lock().unwrap().remove(name) {
-                if let Some(failure) = part.verify(pathbuf) {
-                    failures.lock().unwrap().push(failure);
-                }
-            } else {
-                failures
-                    .lock()
-                    .unwrap()
-                    .push(VerifyFailure::Missing(game_root.join(name)));
-            }
-        });
+        failures.extend(
+            self.parts
+                .par_iter()
+                .filter_map(|(name, part)| {
+                    if let Some(pathbuf) = files_on_disk.lock().unwrap().remove(name) {
+                        part.verify(pathbuf)
+                    } else {
+                        Some(VerifyFailure::Missing(game_root.join(name)))
+                    }
+                })
+                .collect::<Vec<VerifyFailure>>()
+                .into_iter(),
+        );
 
         // mark any leftover files on disk as extras
-        let mut failures = failures.into_inner().unwrap();
         failures.extend(
             files_on_disk
                 .into_inner()
