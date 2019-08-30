@@ -157,6 +157,19 @@ or release year.
 The `--simple` parameter cuts down a lot of extra information
 from the description and creator fields which may not be useful.
 
+## Generating a List of Specific Machines
+
+Using
+
+    emuman mame games name1 name2 ...
+
+will generate a list of the given games (by their short name),
+in the given order, formatted as a table (as in `list`, above)
+and sent to standard output.
+
+This isn't particularly helpful on its own, but may
+come in handy when combined with `ls` or scripts.
+
 ## Adding New ROMs for Machines
 
 Given a source directory of raw unzipped ROMs and a target
@@ -271,6 +284,20 @@ this is an easy way to find that name.
 
 The list can be filtered the same way as the MAME list,
 described above.
+
+## Generating a List of Specific Games
+
+Using
+
+    emuman mess games softlist name1 name2 ...
+
+will generate a list of the given games (by their short name)
+in the given software list, in the given order,
+formatted as a table (as in `list`, above)
+and sent to standard output.
+
+As with the MAME version this isn't particularly helpful on its own,
+but may come in handy when combined with `ls` or scripts.
 
 ## Adding New ROMs for a Software List
 

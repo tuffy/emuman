@@ -172,6 +172,24 @@ impl OptMameList {
 }
 
 #[derive(StructOpt)]
+struct OptMameGames {
+    /// display simple list with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+
+    /// games to search for, by short name
+    games: Vec<String>,
+}
+
+impl OptMameGames {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
+        db.games(&self.games, self.simple);
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
 struct OptMameReport {
     /// sorting order, use "description", "year" or "creator"
     #[structopt(short = "s", long = "sort", default_value = "description")]
@@ -299,6 +317,10 @@ enum OptMame {
     #[structopt(name = "list")]
     List(OptMameList),
 
+    /// list given games, in order
+    #[structopt(name = "games")]
+    Games(OptMameGames),
+
     /// generate report of sets in collection
     #[structopt(name = "report")]
     Report(OptMameReport),
@@ -317,6 +339,7 @@ impl OptMame {
         match self {
             OptMame::Create(o) => o.execute(),
             OptMame::List(o) => o.execute(),
+            OptMame::Games(o) => o.execute(),
             OptMame::Report(o) => o.execute(),
             OptMame::Verify(o) => o.execute(),
             OptMame::Add(o) => o.execute(),
@@ -408,6 +431,31 @@ impl OptMessList {
             mess::list_all(&db)
         }
 
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessGames {
+    /// display simple list with less information
+    #[structopt(short = "S", long = "simple")]
+    simple: bool,
+
+    /// software list to use
+    software_list: String,
+
+    /// games to search for, by short name
+    games: Vec<String>,
+}
+
+impl OptMessGames {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS).and_then(|mut db| {
+            db.remove(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
+        })?;
+
+        db.games(&self.games, self.simple);
         Ok(())
     }
 }
@@ -602,6 +650,10 @@ enum OptMess {
     #[structopt(name = "list")]
     List(OptMessList),
 
+    /// list given games, in order
+    #[structopt(name = "games")]
+    Games(OptMessGames),
+
     /// generate report of sets in collection
     #[structopt(name = "report")]
     Report(OptMessReport),
@@ -624,6 +676,7 @@ impl OptMess {
         match self {
             OptMess::Create(o) => o.execute(),
             OptMess::List(o) => o.execute(),
+            OptMess::Games(o) => o.execute(),
             OptMess::Report(o) => o.execute(),
             OptMess::Verify(o) => o.execute(),
             OptMess::Add(o) => o.execute(),

@@ -107,6 +107,20 @@ impl GameDb {
         GameDb::display_report(&results, simple)
     }
 
+    pub fn games<I>(&self, games: I, simple: bool)
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
+        GameDb::display_report(
+            &games
+                .into_iter()
+                .filter_map(|g| self.games.get(g.as_ref()).filter(|g| !g.is_device))
+                .collect::<Vec<&Game>>(),
+            simple,
+        )
+    }
+
     pub fn report(
         &self,
         games: &HashSet<String>,
