@@ -139,9 +139,11 @@ impl OptMameCreate {
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());
-        }
 
-        write_cache(CACHE_MAME, mame::xml_to_game_db(&xml))
+            Ok(())
+        } else {
+            write_cache(CACHE_MAME, mame::xml_to_game_db(&xml))
+        }
     }
 }
 
@@ -374,24 +376,24 @@ impl OptMessCreate {
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());
+        } else {
+            let mut db = MessDb::default();
+            let mut split_db = split::SplitDb::default();
+
+            for file in self.xml.iter() {
+                let mut xml_data = String::new();
+
+                File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
+
+                let tree = Document::parse(&xml_data)?;
+
+                let (name, game_db) = mess::xml_to_game_db(&mut split_db, &tree);
+                db.insert(name, game_db);
+            }
+
+            write_cache(CACHE_MESS, &db)?;
+            write_cache(CACHE_MESS_SPLIT, &split_db)?;
         }
-
-        let mut db = MessDb::default();
-        let mut split_db = split::SplitDb::default();
-
-        for file in self.xml.iter() {
-            let mut xml_data = String::new();
-
-            File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
-            let tree = Document::parse(&xml_data)?;
-
-            let (name, game_db) = mess::xml_to_game_db(&mut split_db, &tree);
-            db.insert(name, game_db);
-        }
-
-        write_cache(CACHE_MESS, &db)?;
-        write_cache(CACHE_MESS_SPLIT, &split_db)?;
 
         Ok(())
     }
@@ -710,23 +712,23 @@ impl OptRedumpCreate {
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());
+        } else {
+            let mut redump_db = redump::RedumpDb::default();
+            let mut split_db = split::SplitDb::default();
+
+            for file in self.xml.iter() {
+                let mut xml_data = String::new();
+
+                File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
+
+                let tree = Document::parse(&xml_data)?;
+                let (name, game_db) = redump::add_xml_file(&mut split_db, &tree);
+                redump_db.insert(name, game_db);
+            }
+
+            write_cache(CACHE_REDUMP, &redump_db)?;
+            write_cache(CACHE_REDUMP_SPLIT, &split_db)?;
         }
-
-        let mut redump_db = redump::RedumpDb::default();
-        let mut split_db = split::SplitDb::default();
-
-        for file in self.xml.iter() {
-            let mut xml_data = String::new();
-
-            File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
-            let tree = Document::parse(&xml_data)?;
-            let (name, game_db) = redump::add_xml_file(&mut split_db, &tree);
-            redump_db.insert(name, game_db);
-        }
-
-        write_cache(CACHE_REDUMP, &redump_db)?;
-        write_cache(CACHE_REDUMP_SPLIT, &split_db)?;
 
         Ok(())
     }

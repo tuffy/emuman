@@ -301,14 +301,14 @@ impl Game {
         &self,
         rom_sources: &HashMap<Part, PathBuf>,
         target: &Path,
-        copy: fn(&Path, &Path) -> Result<(), std::io::Error>,
+        copy: fn(&Part, &Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
         let target_dir = target.join(&self.name);
         self.parts
             .iter()
             .try_for_each(|(rom_name, part)| {
                 if let Some(source) = rom_sources.get(&part) {
-                    copy(source, &target_dir.join(rom_name))
+                    copy(&part, source, &target_dir.join(rom_name))
                 } else {
                     Ok(())
                 }
@@ -497,19 +497,25 @@ pub fn get_rom_sources(root: &Path, required: HashSet<Part>) -> HashMap<Part, Pa
         .collect()
 }
 
-pub fn copy(source: &Path, target: &Path) -> Result<(), std::io::Error> {
-    if !target.exists() {
-        use std::fs::{copy, create_dir_all, hard_link};
+pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    use std::fs::{copy, create_dir_all, hard_link, remove_file};
 
+    if !target.exists() {
         create_dir_all(target.parent().unwrap())?;
         hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
+        println!("{} -> {}", source.display(), target.display());
+    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target.to_path_buf()) {
+        remove_file(&target)?;
+        hard_link(source, &target).or_else(|_| copy(source, &target).map(|_| ()))?;
         println!("{} -> {}", source.display(), target.display());
     }
     Ok(())
 }
 
-pub fn dry_run(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+pub fn dry_run(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
     if !target.exists() {
+        println!("{} -> {}", source.display(), target.display());
+    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target.to_path_buf()) {
         println!("{} -> {}", source.display(), target.display());
     }
     Ok(())
