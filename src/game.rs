@@ -79,7 +79,7 @@ impl GameDb {
             .sum()
     }
 
-    fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
+    fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure<PathBuf>> {
         if let Some(game) = self.games.get(game_name) {
             let mut results = game.verify(&root.join(game_name));
             results.extend(
@@ -249,7 +249,7 @@ impl Game {
         }
     }
 
-    fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
+    fn verify(&self, game_root: &Path) -> Vec<VerifyFailure<PathBuf>> {
         use rayon::prelude::*;
         use std::fs::read_dir;
         use std::sync::Mutex;
@@ -281,7 +281,7 @@ impl Game {
                         Some(VerifyFailure::Missing(game_root.join(name)))
                     }
                 })
-                .collect::<Vec<VerifyFailure>>()
+                .collect::<Vec<VerifyFailure<PathBuf>>>()
                 .into_iter(),
         );
 
@@ -317,20 +317,22 @@ impl Game {
     }
 }
 
-pub enum VerifyFailure {
-    Missing(PathBuf),
-    Extra(PathBuf),
-    Bad(PathBuf),
-    Error(PathBuf, std::io::Error),
+pub enum VerifyFailure<P> {
+    Missing(P),
+    Extra(P),
+    Bad(P),
+    Error(P, std::io::Error),
 }
 
-impl fmt::Display for VerifyFailure {
+impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            VerifyFailure::Missing(pb) => write!(f, "MISSING : {}", pb.display()),
-            VerifyFailure::Extra(pb) => write!(f, "EXTRA : {}", pb.display()),
-            VerifyFailure::Bad(pb) => write!(f, "BAD : {}", pb.display()),
-            VerifyFailure::Error(pb, err) => write!(f, "ERROR : {} : {}", pb.display(), err),
+            VerifyFailure::Missing(pb) => write!(f, "MISSING : {}", pb.as_ref().display()),
+            VerifyFailure::Extra(pb) => write!(f, "EXTRA : {}", pb.as_ref().display()),
+            VerifyFailure::Bad(pb) => write!(f, "BAD : {}", pb.as_ref().display()),
+            VerifyFailure::Error(pb, err) => {
+                write!(f, "ERROR : {} : {}", pb.as_ref().display(), err)
+            }
         }
     }
 }
@@ -432,8 +434,8 @@ impl Part {
         }
     }
 
-    fn verify(&self, part_path: PathBuf) -> Option<VerifyFailure> {
-        match Part::from_path(&part_path) {
+    fn verify<P: AsRef<Path>>(&self, part_path: P) -> Option<VerifyFailure<P>> {
+        match Part::from_path(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => None,
             Ok(_) => Some(VerifyFailure::Bad(part_path)),
             Err(err) => Some(VerifyFailure::Error(part_path, err)),
@@ -504,9 +506,9 @@ pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Er
         create_dir_all(target.parent().unwrap())?;
         hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
         println!("{} -> {}", source.display(), target.display());
-    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target.to_path_buf()) {
-        remove_file(&target)?;
-        hard_link(source, &target).or_else(|_| copy(source, &target).map(|_| ()))?;
+    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target) {
+        remove_file(target)?;
+        hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
         println!("{} -> {}", source.display(), target.display());
     }
     Ok(())
