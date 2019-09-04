@@ -3,6 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{BufRead, Read};
+use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -19,7 +20,7 @@ impl GameDb {
     }
 
     #[inline]
-    pub fn all_games(&self) -> Vec<String> {
+    pub fn all_games<C: FromIterator<String>>(&self) -> C {
         self.games.keys().cloned().collect()
     }
 

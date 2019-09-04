@@ -234,6 +234,10 @@ struct OptMameVerify {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
+    /// verify all possible machines
+    #[structopt(long = "all")]
+    all: bool,
+
     /// machine to verify
     machines: Vec<String>,
 }
@@ -242,7 +246,9 @@ impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
 
-        let games: HashSet<String> = if !self.machines.is_empty() {
+        let games: HashSet<String> = if self.all {
+            db.all_games()
+        } else if !self.machines.is_empty() {
             // only validate user-specified machines
             let machines = self.machines.clone().into_iter().collect();
             db.validate_games(&machines)?;
@@ -512,6 +518,10 @@ struct OptMessVerify {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
+    /// verify all possible machines
+    #[structopt(long = "all")]
+    all: bool,
+
     /// software list to use
     software_list: String,
 
@@ -525,7 +535,9 @@ impl OptMessVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-        let software: HashSet<String> = if !self.software.is_empty() {
+        let software: HashSet<String> = if self.all {
+            db.all_games()
+        } else if !self.software.is_empty() {
             let software = self.software.clone().into_iter().collect();
             db.validate_games(&software)?;
             software
@@ -766,6 +778,10 @@ struct OptRedumpVerify {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
+    /// verify all possible software
+    #[structopt(long = "all")]
+    all: bool,
+
     /// software list to use
     software_list: String,
 
@@ -779,7 +795,9 @@ impl OptRedumpVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-        let games: HashSet<String> = if !self.software.is_empty() {
+        let games: HashSet<String> = if self.all {
+            db.all_games()
+        } else if !self.software.is_empty() {
             // only validate user-specified games
             let games = self.software.clone().into_iter().collect();
             db.validate_games(&games)?;
