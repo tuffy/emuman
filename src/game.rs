@@ -2,7 +2,7 @@ use super::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::io::{BufRead, Read};
+use std::io::BufRead;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -417,21 +417,21 @@ impl Part {
         }))
     }
 
-    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, std::io::Error> {
+    fn rom_from_reader<B: BufRead>(mut r: B) -> Result<Self, std::io::Error> {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
-        let mut buf = [0; 4096];
         loop {
-            match r.read(&mut buf) {
-                Ok(0) => {
-                    return Ok(Part::ROM {
-                        sha1: sha1.hexdigest(),
-                    })
-                }
-                Ok(bytes) => sha1.update(&buf[0..bytes]),
-                Err(err) => return Err(err),
-            }
+            let buf = r.fill_buf()?;
+            let len = if buf.is_empty() {
+                return Ok(Part::ROM {
+                    sha1: sha1.hexdigest(),
+                });
+            } else {
+                sha1.update(buf);
+                buf.len()
+            };
+            r.consume(len);
         }
     }
 
