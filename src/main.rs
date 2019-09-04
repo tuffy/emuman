@@ -238,13 +238,21 @@ struct OptMameVerify {
     #[structopt(long = "all")]
     all: bool,
 
+    /// verify only working machines
+    #[structopt(long = "working")]
+    working: bool,
+
     /// machine to verify
     machines: Vec<String>,
 }
 
 impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
-        let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
+        let mut db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
+
+        if self.working {
+            db.retain_working();
+        }
 
         let games: HashSet<String> = if self.all {
             db.all_games()
@@ -522,6 +530,10 @@ struct OptMessVerify {
     #[structopt(long = "all")]
     all: bool,
 
+    /// verify only working machines
+    #[structopt(long = "working")]
+    working: bool,
+
     /// software list to use
     software_list: String,
 
@@ -531,9 +543,13 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
+        let mut db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+
+        if self.working {
+            db.retain_working();
+        }
 
         let software: HashSet<String> = if self.all {
             db.all_games()

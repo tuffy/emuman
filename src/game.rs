@@ -24,6 +24,11 @@ impl GameDb {
         self.games.keys().cloned().collect()
     }
 
+    #[inline]
+    pub fn retain_working(&mut self) {
+        self.games.retain(|_, game| game.is_working())
+    }
+
     pub fn validate_games<I>(&self, games: I) -> Result<(), Error>
     where
         I: IntoIterator,
@@ -215,6 +220,14 @@ pub struct Game {
 }
 
 impl Game {
+    #[inline]
+    pub fn is_working(&self) -> bool {
+        match self.status {
+            Status::Working | Status::Partial => true,
+            Status::NotWorking => false,
+        }
+    }
+
     pub fn matches(&self, search: &str) -> bool {
         self.name.starts_with(search)
             || self.description.contains(search)
