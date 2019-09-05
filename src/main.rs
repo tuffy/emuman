@@ -242,6 +242,10 @@ struct OptMameVerify {
     #[structopt(long = "working")]
     working: bool,
 
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
+
     /// machine to verify
     machines: Vec<String>,
 }
@@ -273,7 +277,13 @@ impl OptMameVerify {
                 .collect()
         };
 
-        let successes = db.verify(&self.roms, &games);
+        let display = if self.failures {
+            game::display_bad_results
+        } else {
+            game::display_all_results
+        };
+
+        let successes = db.verify(&self.roms, &games, display);
 
         eprintln!("{} tested, {} OK", games.len(), successes);
 
@@ -534,6 +544,10 @@ struct OptMessVerify {
     #[structopt(long = "working")]
     working: bool,
 
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
+
     /// software list to use
     software_list: String,
 
@@ -568,7 +582,13 @@ impl OptMessVerify {
                 .collect()
         };
 
-        let successes = db.verify(&self.roms, &software);
+        let display = if self.failures {
+            game::display_bad_results
+        } else {
+            game::display_all_results
+        };
+
+        let successes = db.verify(&self.roms, &software, display);
 
         eprintln!("{} tested, {} OK", software.len(), successes);
 
@@ -798,6 +818,10 @@ struct OptRedumpVerify {
     #[structopt(long = "all")]
     all: bool,
 
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
+
     /// software list to use
     software_list: String,
 
@@ -830,7 +854,13 @@ impl OptRedumpVerify {
                 .collect()
         };
 
-        let successes = db.verify(&self.root, &games);
+        let display = if self.failures {
+            game::display_bad_results
+        } else {
+            game::display_all_results
+        };
+
+        let successes = db.verify(&self.root, &games, display);
 
         eprintln!("{} tested, {} OK", games.len(), successes);
 

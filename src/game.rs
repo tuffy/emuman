@@ -59,26 +59,22 @@ impl GameDb {
         Ok(parts)
     }
 
-    pub fn verify(&self, root: &Path, games: &HashSet<String>) -> usize {
+    pub fn verify(
+        &self,
+        root: &Path,
+        games: &HashSet<String>,
+        display: fn(&str, &[VerifyFailure<PathBuf>]),
+    ) -> usize {
         use rayon::prelude::*;
 
         games
             .par_iter()
             .map(|game| {
                 let failures = self.verify_game(root, game);
+                display(game, &failures);
                 if failures.is_empty() {
-                    println!("{} : OK", game);
                     1
                 } else {
-                    use std::io::{stdout, Write};
-
-                    // ensure results are generated as a unit
-                    let stdout = stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(&mut handle, "{} : BAD", game).unwrap();
-                    for failure in failures {
-                        writeln!(&mut handle, "  {}", failure).unwrap();
-                    }
                     0
                 }
             })
@@ -535,4 +531,34 @@ pub fn dry_run(part: &Part, source: &Path, target: &Path) -> Result<(), std::io:
         println!("{} -> {}", source.display(), target.display());
     }
     Ok(())
+}
+
+pub fn display_all_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
+    if failures.is_empty() {
+        println!("{} : OK", game);
+    } else {
+        use std::io::{stdout, Write};
+
+        // ensure results are generated as a unit
+        let stdout = stdout();
+        let mut handle = stdout.lock();
+        writeln!(&mut handle, "{} : BAD", game).unwrap();
+        for failure in failures {
+            writeln!(&mut handle, "  {}", failure).unwrap();
+        }
+    }
+}
+
+pub fn display_bad_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
+    if !failures.is_empty() {
+        use std::io::{stdout, Write};
+
+        // ensure results are generated as a unit
+        let stdout = stdout();
+        let mut handle = stdout.lock();
+        writeln!(&mut handle, "{} : BAD", game).unwrap();
+        for failure in failures {
+            writeln!(&mut handle, "  {}", failure).unwrap();
+        }
+    }
 }
