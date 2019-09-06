@@ -580,12 +580,12 @@ fn xml_to_split(node: &Node) -> (u64, SplitGame) {
     {
         if let Some(sha1) = rom.attribute("sha1") {
             let size = parse_int(rom.attribute("size").unwrap()).unwrap() as usize;
-            game.tracks.push(SplitPart {
-                name: rom.attribute("name").unwrap().to_string(),
-                start: offset,
-                end: offset + size as usize,
-                sha1: sha1.to_string(),
-            });
+            game.tracks.push(SplitPart::new(
+                rom.attribute("name").unwrap(),
+                offset,
+                offset + size as usize,
+                sha1,
+            ));
             offset += size;
         }
     }

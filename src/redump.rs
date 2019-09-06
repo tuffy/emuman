@@ -230,12 +230,12 @@ fn xml_to_split(node: &Node) -> (u64, SplitGame) {
         let name = rom.attribute("name").unwrap();
         if name.ends_with(".bin") {
             let size = usize::from_str(rom.attribute("size").unwrap()).unwrap();
-            game.tracks.push(SplitPart {
-                name: name.to_string(),
-                start: offset,
-                end: offset + size,
-                sha1: rom.attribute("sha1").unwrap().to_string(),
-            });
+            game.tracks.push(SplitPart::new(
+                name,
+                offset,
+                offset + size,
+                rom.attribute("sha1").unwrap(),
+            ));
             offset += size;
         }
     }

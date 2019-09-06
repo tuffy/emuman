@@ -349,19 +349,23 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    ROM { sha1: String },
-    Disk { sha1: String },
+    ROM { sha1: [u8; 20] },
+    Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
     pub fn rom_from_sha1(sha1: String) -> Self {
-        Part::ROM { sha1 }
+        Part::ROM {
+            sha1: parse_sha1(&sha1),
+        }
     }
 
     #[inline]
     pub fn disk_from_sha1(sha1: String) -> Self {
-        Part::Disk { sha1 }
+        Part::Disk {
+            sha1: parse_sha1(&sha1),
+        }
     }
 
     #[inline]
@@ -421,9 +425,7 @@ impl Part {
 
         let mut sha1 = [0; 20];
         r.read_exact(&mut sha1)?;
-        Ok(Some(Part::Disk {
-            sha1: sha1.iter().map(|b| format!("{:02x}", b)).collect(),
-        }))
+        Ok(Some(Part::Disk { sha1 }))
     }
 
     fn rom_from_reader<B: BufRead>(mut r: B) -> Result<Self, std::io::Error> {
@@ -434,7 +436,7 @@ impl Part {
             let buf = r.fill_buf()?;
             let len = if buf.is_empty() {
                 return Ok(Part::ROM {
-                    sha1: sha1.hexdigest(),
+                    sha1: sha1.digest().bytes(),
                 });
             } else {
                 sha1.update(buf);
@@ -451,6 +453,20 @@ impl Part {
             Err(err) => Some(VerifyFailure::Error(part_path, err)),
         }
     }
+}
+
+pub fn parse_sha1(mut hex: &str) -> [u8; 20] {
+    let mut bin = [0; 20];
+
+    assert_eq!(hex.len(), 40);
+    assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+
+    for c in bin.iter_mut() {
+        *c = u8::from_str_radix(&hex[0..2], 16).unwrap();
+        hex = &hex[2..];
+    }
+
+    bin
 }
 
 #[derive(Copy, Clone)]

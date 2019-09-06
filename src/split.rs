@@ -47,17 +47,28 @@ impl SplitGame {
 
 #[derive(Serialize, Deserialize)]
 pub struct SplitPart {
-    pub name: String,
-    pub start: usize,
-    pub end: usize,
-    pub sha1: String,
+    name: String,
+    start: usize,
+    end: usize,
+    sha1: [u8; 20],
 }
 
 impl SplitPart {
+    pub fn new(name: &str, start: usize, end: usize, sha1: &str) -> Self {
+        use crate::game::parse_sha1;
+
+        SplitPart {
+            name: name.to_string(),
+            start,
+            end,
+            sha1: parse_sha1(sha1),
+        }
+    }
+
     fn matches(&self, data: &[u8]) -> bool {
         use sha1::Sha1;
 
-        Sha1::from(&data[self.start..self.end]).hexdigest() == self.sha1
+        Sha1::from(&data[self.start..self.end]).digest().bytes() == self.sha1
     }
 
     fn extract(&self, root: &Path, data: &[u8]) -> Result<(), io::Error> {
