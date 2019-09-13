@@ -1,4 +1,5 @@
 use super::Error;
+use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -64,19 +65,16 @@ impl GameDb {
         root: &Path,
         games: &'a HashSet<String>,
     ) -> Vec<(&'a str, Vec<VerifyFailure<PathBuf>>)> {
-        use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+        use indicatif::ParallelProgressIterator;
         use rayon::prelude::*;
 
-        let bar = ProgressBar::new(games.len() as u64)
-            .with_style(ProgressStyle::default_bar().template("{wide_bar} {pos} / {len}"));
+        let pbar = ProgressBar::new(games.len() as u64).with_style(verify_style());
+        pbar.set_message("verifying games");
 
         games
             .par_iter()
-            .progress_with(bar)
-            .map(|game| {
-                let failures = self.verify_game(root, game);
-                (game.as_str(), failures)
-            })
+            .progress_with(pbar)
+            .map(|game| (game.as_str(), self.verify_game(root, game)))
             .collect()
     }
 
@@ -488,11 +486,23 @@ impl FromStr for SortBy {
     }
 }
 
-fn subdir_files(root: &Path) -> Vec<PathBuf> {
+#[inline]
+fn find_files_style() -> ProgressStyle {
+    ProgressStyle::default_spinner().template("{spinner} {wide_msg} {pos}")
+}
+
+#[inline]
+fn verify_style() -> ProgressStyle {
+    ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
+}
+
+fn subdir_files(root: &Path, progress: ProgressBar) -> Vec<PathBuf> {
+    use indicatif::ProgressIterator;
     use walkdir::WalkDir;
 
     WalkDir::new(root)
         .into_iter()
+        .progress_with(progress)
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
@@ -501,27 +511,47 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn all_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
+fn rom_sources<F>(root: &Path, check: F) -> HashMap<Part, PathBuf>
+where
+    F: Fn(PathBuf) -> Option<(Part, PathBuf)> + Sync + Send,
+{
+    use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    subdir_files(root)
+    let pbar = ProgressBar::new_spinner().with_style(find_files_style());
+    pbar.set_message("locating files");
+    pbar.set_draw_delta(100);
+
+    let files = subdir_files(root, pbar.clone());
+
+    pbar.set_message("cataloging files");
+    pbar.set_style(verify_style());
+    pbar.set_position(0);
+    pbar.set_length(files.len() as u64);
+    pbar.set_draw_delta(files.len() as u64 / 1000);
+
+    let results = files
         .into_par_iter()
-        .filter_map(|path| Part::from_path(&path).ok().map(|part| (part, path)))
-        .collect()
+        .progress_with(pbar.clone())
+        .filter_map(check)
+        .collect();
+
+    pbar.finish_and_clear();
+
+    results
+}
+
+pub fn all_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
+    rom_sources(root, |pb| Part::from_path(&pb).ok().map(|part| (part, pb)))
 }
 
 pub fn get_rom_sources(root: &Path, required: HashSet<Part>) -> HashMap<Part, PathBuf> {
-    use rayon::prelude::*;
-
-    subdir_files(root)
-        .into_par_iter()
-        .filter_map(|path| {
-            Part::from_path(&path)
-                .ok()
-                .filter(|part| required.contains(part))
-                .map(|part| (part, path))
-        })
-        .collect()
+    rom_sources(root, |pb| {
+        Part::from_path(&pb)
+            .ok()
+            .filter(|part| required.contains(part))
+            .map(|part| (part, pb))
+    })
 }
 
 pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
