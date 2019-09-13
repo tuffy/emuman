@@ -277,15 +277,7 @@ impl OptMameVerify {
                 .collect()
         };
 
-        let display = if self.failures {
-            game::display_bad_results
-        } else {
-            game::display_all_results
-        };
-
-        let successes = db.verify(&self.roms, &games, display);
-
-        eprintln!("{} tested, {} OK", games.len(), successes);
+        verify(&db, &self.roms, &games, self.failures);
 
         Ok(())
     }
@@ -582,15 +574,7 @@ impl OptMessVerify {
                 .collect()
         };
 
-        let display = if self.failures {
-            game::display_bad_results
-        } else {
-            game::display_all_results
-        };
-
-        let successes = db.verify(&self.roms, &software, display);
-
-        eprintln!("{} tested, {} OK", software.len(), successes);
+        verify(&db, &self.roms, &software, self.failures);
 
         Ok(())
     }
@@ -854,15 +838,7 @@ impl OptRedumpVerify {
                 .collect()
         };
 
-        let display = if self.failures {
-            game::display_bad_results
-        } else {
-            game::display_all_results
-        };
-
-        let successes = db.verify(&self.root, &games, display);
-
-        eprintln!("{} tested, {} OK", games.len(), successes);
+        verify(&db, &self.root, &games, self.failures);
 
         Ok(())
     }
@@ -1060,4 +1036,22 @@ where
             .map_err(|_| Error::MissingCache(utility))?,
     );
     serde_cbor::from_reader(f).map_err(Error::CBOR)
+}
+
+fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures: bool) {
+    let results = db.verify(root, games);
+
+    let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
+
+    let display = if only_failures {
+        game::display_bad_results
+    } else {
+        game::display_all_results
+    };
+
+    for (game, failures) in results.iter() {
+        display(game, failures);
+    }
+
+    eprintln!("{} tested, {} OK", games.len(), successes);
 }

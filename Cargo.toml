@@ -19,3 +19,4 @@ directories = "2.0"
 serde = "1.0"
 serde_derive = "1.0"
 serde_cbor = "0.10"
+indicatif = {version = "0.12", features=["with_rayon"]}

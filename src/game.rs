@@ -59,26 +59,25 @@ impl GameDb {
         Ok(parts)
     }
 
-    pub fn verify(
+    pub fn verify<'a>(
         &self,
         root: &Path,
-        games: &HashSet<String>,
-        display: fn(&str, &[VerifyFailure<PathBuf>]),
-    ) -> usize {
+        games: &'a HashSet<String>,
+    ) -> Vec<(&'a str, Vec<VerifyFailure<PathBuf>>)> {
+        use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
         use rayon::prelude::*;
+
+        let bar = ProgressBar::new(games.len() as u64)
+            .with_style(ProgressStyle::default_bar().template("{wide_bar} {pos} / {len}"));
 
         games
             .par_iter()
+            .progress_with(bar)
             .map(|game| {
                 let failures = self.verify_game(root, game);
-                display(game, &failures);
-                if failures.is_empty() {
-                    1
-                } else {
-                    0
-                }
+                (game.as_str(), failures)
             })
-            .sum()
+            .collect()
     }
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure<PathBuf>> {
