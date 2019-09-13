@@ -232,8 +232,8 @@ Given a directory with your added ROM sets, machines can be verified using
 If no directory is specified, the current working directory is used.
 If no machines are specified, `emuman` tries to verify as
 many machines as it finds in the root of the output directory.
-The report will be sent to standard output for easy filtering,
-but will *not* be generated in any particular order.
+The report will be sent to standard output for easy filtering
+and sorted by game name.
 
 Machines will be reported as OK only if their directories
 contain all the correct ROMs with the correct names and nothing else.
@@ -332,8 +332,8 @@ Given a directory with your software, a software list can be verified using
 If no directory is specified, the current working directory is used.
 If no software is specified, `emuman` tries to verify as
 many pieces of software as it finds in the root of the output directory.
-The report will be send to standard output for easy filtering,
-but will *not* be generated in any particular order.
+The report will be send to standard output for easy filtering
+and sorted by game name.
 
 As with MAME, software will be reported as OK only if their directories
 contain all the correct ROMs with the correct names and nothing else.
@@ -427,8 +427,8 @@ All the tracks for a given software list can be verified with
 If no directory is specified, the current working directory is used.
 If no software is specified, `emuman` tries to verify as
 many pieces of software as it finds in the root of the output directory.
-The report will be send to standard output for easy filtering,
-but will *not* be generated in any particular order.
+The report will be send to standard output for easy filtering
+and sorted by game name.
 
 As with MAME, software will be reported as OK only if their directories
 contain all the correct tracks with the correct names and nothing else.

@@ -71,11 +71,15 @@ impl GameDb {
         let pbar = ProgressBar::new(games.len() as u64).with_style(verify_style());
         pbar.set_message("verifying games");
 
-        games
+        let mut results = games
             .par_iter()
             .progress_with(pbar)
             .map(|game| (game.as_str(), self.verify_game(root, game)))
-            .collect()
+            .collect::<Vec<(&'a str, Vec<VerifyFailure<PathBuf>>)>>();
+
+        results.sort_unstable_by_key(|&(name, _)| name);
+
+        results
     }
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure<PathBuf>> {
