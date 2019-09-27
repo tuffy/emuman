@@ -313,7 +313,7 @@ impl OptMameAdd {
         };
 
         let copy = if self.dry_run {
-            game::dry_run
+            game::copy_dry_run
         } else {
             game::copy
         };
@@ -321,6 +321,40 @@ impl OptMameAdd {
         self.machines
             .iter()
             .try_for_each(|game| db.games[game].add(&roms, &self.roms, copy))
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMameRename {
+    /// output directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// don't actually rename ROMs
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+
+    /// machine to rename
+    machines: Vec<String>,
+}
+
+impl OptMameRename {
+    fn execute(mut self) -> Result<(), Error> {
+        let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
+
+        if self.machines.is_empty() {
+            self.machines = db.all_games();
+        }
+
+        let file_move = if self.dry_run {
+            game::file_move_dry_run
+        } else {
+            game::file_move
+        };
+
+        self.machines
+            .iter()
+            .try_for_each(|game| db.games[game].rename(&self.roms, file_move))
     }
 }
 
@@ -350,6 +384,10 @@ enum OptMame {
     /// add ROMs to directory
     #[structopt(name = "add")]
     Add(OptMameAdd),
+
+    /// rename ROMs in game directories, if necessary
+    #[structopt(name = "rename")]
+    Rename(OptMameRename),
 }
 
 impl OptMame {
@@ -361,6 +399,7 @@ impl OptMame {
             OptMame::Report(o) => o.execute(),
             OptMame::Verify(o) => o.execute(),
             OptMame::Add(o) => o.execute(),
+            OptMame::Rename(o) => o.execute(),
         }
     }
 }
@@ -615,7 +654,7 @@ impl OptMessAdd {
         };
 
         let copy = if self.dry_run {
-            game::dry_run
+            game::copy_dry_run
         } else {
             game::copy
         };
@@ -623,6 +662,45 @@ impl OptMessAdd {
         self.software
             .iter()
             .try_for_each(|game| db.games[game].add(&roms, &self.roms, copy))
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessRename {
+    /// output directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// don't actually rename ROMs
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+
+    /// software list to use
+    software_list: String,
+
+    /// software to rename
+    software: Vec<String>,
+}
+
+impl OptMessRename {
+    fn execute(mut self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
+            .remove(&self.software_list)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+
+        if self.software.is_empty() {
+            self.software = db.all_games();
+        }
+
+        let file_move = if self.dry_run {
+            game::file_move_dry_run
+        } else {
+            game::file_move
+        };
+
+        self.software
+            .iter()
+            .try_for_each(|game| db.games[game].rename(&self.roms, file_move))
     }
 }
 
@@ -700,6 +778,10 @@ enum OptMess {
     #[structopt(name = "add")]
     Add(OptMessAdd),
 
+    /// rename ROMs in directory, if necessary
+    #[structopt(name = "rename")]
+    Rename(OptMessRename),
+
     /// split ROM into MESS-compatible parts, if necessary
     #[structopt(name = "split")]
     Split(OptMessSplit),
@@ -714,6 +796,7 @@ impl OptMess {
             OptMess::Report(o) => o.execute(),
             OptMess::Verify(o) => o.execute(),
             OptMess::Add(o) => o.execute(),
+            OptMess::Rename(o) => o.execute(),
             OptMess::Split(o) => o.execute(),
         }
     }
@@ -879,7 +962,7 @@ impl OptRedumpAdd {
         };
 
         let copy = if self.dry_run {
-            game::dry_run
+            game::copy_dry_run
         } else {
             game::copy
         };

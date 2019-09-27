@@ -326,6 +326,38 @@ impl Game {
             })
             .map_err(Error::IO)
     }
+
+    pub fn rename(
+        &self,
+        target: &Path,
+        file_move: fn(&Path, &Path) -> Result<(), std::io::Error>,
+    ) -> Result<(), Error> {
+        use std::fs::read_dir;
+
+        let target_dir = target.join(&self.name);
+
+        let dir = match read_dir(&target_dir) {
+            Ok(dir) => dir,
+            Err(_) => return Ok(()),
+        };
+
+        let parts: HashMap<Part, PathBuf> = self
+            .parts
+            .iter()
+            .map(|(name, part)| (part.clone(), target_dir.join(name)))
+            .collect();
+
+        for entry in dir.filter_map(|e| e.ok()) {
+            let entry_path = entry.path();
+            if let Ok(part) = Part::from_path(&entry_path) {
+                if let Some(target_path) = parts.get(&part) {
+                    file_move(&entry_path, &target_path)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub enum VerifyFailure<P> {
@@ -573,10 +605,26 @@ pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Er
     Ok(())
 }
 
-pub fn dry_run(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
+pub fn copy_dry_run(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
     if !target.exists() {
         println!("{} -> {}", source.display(), target.display());
     } else if let Some(VerifyFailure::Bad(target)) = part.verify(target.to_path_buf()) {
+        println!("{} -> {}", source.display(), target.display());
+    }
+    Ok(())
+}
+
+pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    if (source != target) && !target.exists() {
+        use std::fs::rename;
+        rename(source, target)?;
+        println!("{} -> {}", source.display(), target.display());
+    }
+    Ok(())
+}
+
+pub fn file_move_dry_run(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    if (source != target) && !target.exists() {
         println!("{} -> {}", source.display(), target.display());
     }
     Ok(())
