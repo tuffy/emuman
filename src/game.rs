@@ -1,4 +1,5 @@
 use super::Error;
+use hash_hasher::{HashedMap, HashedSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -7,7 +8,6 @@ use std::io::BufRead;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use hash_hasher::{HashedSet, HashedMap};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
@@ -51,14 +51,17 @@ impl GameDb {
         I::Item: AsRef<str>,
     {
         let mut parts = HashedSet::default();
-        for game in games.into_iter() {
-            if let Some(game) = self.games.get(game.as_ref()) {
-                parts.extend(game.parts.values().cloned());
-            } else {
-                return Err(Error::NoSuchSoftware(game.as_ref().to_string()));
-            }
-        }
-        Ok(parts)
+        games
+            .into_iter()
+            .try_for_each(|game| {
+                if let Some(game) = self.games.get(game.as_ref()) {
+                    parts.extend(game.parts.values().cloned());
+                    Ok(())
+                } else {
+                    Err(Error::NoSuchSoftware(game.as_ref().to_string()))
+                }
+            })
+            .map(|()| parts)
     }
 
     pub fn verify<'a>(
