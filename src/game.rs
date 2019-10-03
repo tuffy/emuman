@@ -7,6 +7,7 @@ use std::io::BufRead;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use hash_hasher::{HashedSet, HashedMap};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
@@ -44,12 +45,12 @@ impl GameDb {
         })
     }
 
-    pub fn required_parts<I>(&self, games: I) -> Result<HashSet<Part>, Error>
+    pub fn required_parts<I>(&self, games: I) -> Result<HashedSet<Part>, Error>
     where
         I: IntoIterator,
         I::Item: AsRef<str>,
     {
-        let mut parts = HashSet::new();
+        let mut parts = HashedSet::default();
         for game in games.into_iter() {
             if let Some(game) = self.games.get(game.as_ref()) {
                 parts.extend(game.parts.values().cloned());
@@ -310,7 +311,7 @@ impl Game {
 
     pub fn add(
         &self,
-        rom_sources: &HashMap<Part, PathBuf>,
+        rom_sources: &HashedMap<Part, PathBuf>,
         target: &Path,
         copy: fn(&Part, &Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
@@ -341,7 +342,7 @@ impl Game {
             Err(_) => return Ok(()),
         };
 
-        let parts: HashMap<Part, PathBuf> = self
+        let parts: HashedMap<Part, PathBuf> = self
             .parts
             .iter()
             .map(|(name, part)| (part.clone(), target_dir.join(name)))
@@ -547,7 +548,7 @@ fn subdir_files(root: &Path, progress: ProgressBar) -> Vec<PathBuf> {
         .collect()
 }
 
-fn rom_sources<F>(root: &Path, check: F) -> HashMap<Part, PathBuf>
+fn rom_sources<F>(root: &Path, check: F) -> HashedMap<Part, PathBuf>
 where
     F: Fn(PathBuf) -> Option<(Part, PathBuf)> + Sync + Send,
 {
@@ -577,11 +578,11 @@ where
     results
 }
 
-pub fn all_rom_sources(root: &Path) -> HashMap<Part, PathBuf> {
+pub fn all_rom_sources(root: &Path) -> HashedMap<Part, PathBuf> {
     rom_sources(root, |pb| Part::from_path(&pb).ok().map(|part| (part, pb)))
 }
 
-pub fn get_rom_sources(root: &Path, required: HashSet<Part>) -> HashMap<Part, PathBuf> {
+pub fn get_rom_sources(root: &Path, required: HashedSet<Part>) -> HashedMap<Part, PathBuf> {
     rom_sources(root, |pb| {
         Part::from_path(&pb)
             .ok()
