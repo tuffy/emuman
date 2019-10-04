@@ -273,6 +273,7 @@ impl Game {
 
         // turn files on disk into a map, so extra files can be located
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
+
         if let Ok(dir) = read_dir(game_root) {
             for entry in dir.filter_map(|e| e.ok()) {
                 if let Ok(name) = entry.file_name().into_string() {
@@ -282,6 +283,10 @@ impl Game {
                     failures.push(VerifyFailure::Extra(entry.path()));
                 }
             }
+        } else if self.parts.is_empty() {
+            // no directory to read and no parts to check,
+            // so no failures are possible
+            return failures;
         }
 
         // verify all game parts
