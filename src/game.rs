@@ -22,6 +22,11 @@ impl GameDb {
     }
 
     #[inline]
+    pub fn game(&self, game: &str) -> Option<&Game> {
+        self.games.get(game)
+    }
+
+    #[inline]
     pub fn all_games<C: FromIterator<String>>(&self) -> C {
         self.games.keys().cloned().collect()
     }
@@ -367,6 +372,27 @@ impl Game {
 
         Ok(())
     }
+
+    pub fn display_parts(&self) {
+        use prettytable::{cell, format, row, Table};
+
+        let mut parts: Vec<(&str, &Part)> = self
+            .parts
+            .iter()
+            .map(|(name, part)| (name.as_str(), part))
+            .collect();
+
+        if !parts.is_empty() {
+            parts.sort_by(|x, y| x.0.cmp(y.0));
+
+            let mut table = Table::new();
+            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+            for (name, part) in parts {
+                table.add_row(row![name, part]);
+            }
+            table.printstd();
+        }
+    }
 }
 
 pub enum VerifyFailure<P> {
@@ -393,6 +419,17 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 pub enum Part {
     ROM { sha1: [u8; 20] },
     Disk { sha1: [u8; 20] },
+}
+
+impl fmt::Display for Part {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let sha1: &[u8] = match self {
+            Part::ROM { sha1 } => sha1,
+            Part::Disk { sha1 } => sha1,
+        };
+
+        sha1.iter().try_for_each(|b| write!(f, "{:02x}", b))
+    }
 }
 
 impl Part {

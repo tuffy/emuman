@@ -192,6 +192,24 @@ impl OptMameGames {
 }
 
 #[derive(StructOpt)]
+struct OptMameParts {
+    /// game's parts to search for
+    game: String,
+}
+
+impl OptMameParts {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
+        if let Some(game) = db.game(&self.game) {
+            game.display_parts();
+            Ok(())
+        } else {
+            Err(Error::NoSuchSoftware(self.game))
+        }
+    }
+}
+
+#[derive(StructOpt)]
 struct OptMameReport {
     /// sorting order, use "description", "year" or "creator"
     #[structopt(short = "s", long = "sort", default_value = "description")]
@@ -262,7 +280,7 @@ impl OptMameVerify {
             db.all_games()
         } else if !self.machines.is_empty() {
             // only validate user-specified machines
-            let machines = self.machines.clone().into_iter().collect();
+            let machines = self.machines.iter().cloned().collect();
             db.validate_games(&machines)?;
             machines
         } else {
@@ -369,6 +387,10 @@ enum OptMame {
     #[structopt(name = "list")]
     List(OptMameList),
 
+    /// list a machine's ROMs
+    #[structopt(name = "parts")]
+    Parts(OptMameParts),
+
     /// list given games, in order
     #[structopt(name = "games")]
     Games(OptMameGames),
@@ -395,6 +417,7 @@ impl OptMame {
         match self {
             OptMame::Create(o) => o.execute(),
             OptMame::List(o) => o.execute(),
+            OptMame::Parts(o) => o.execute(),
             OptMame::Games(o) => o.execute(),
             OptMame::Report(o) => o.execute(),
             OptMame::Verify(o) => o.execute(),
@@ -514,6 +537,31 @@ impl OptMessGames {
 
         db.games(&self.games, self.simple);
         Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessParts {
+    /// software list to use
+    software_list: String,
+
+    /// game's parts to search for
+    game: String,
+}
+
+impl OptMessParts {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS).and_then(|mut db| {
+            db.remove(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
+        })?;
+
+        if let Some(game) = db.game(&self.game) {
+            game.display_parts();
+            Ok(())
+        } else {
+            Err(Error::NoSuchSoftware(self.game))
+        }
     }
 }
 
@@ -766,6 +814,10 @@ enum OptMess {
     #[structopt(name = "games")]
     Games(OptMessGames),
 
+    /// list a machine's ROMs
+    #[structopt(name = "parts")]
+    Parts(OptMessParts),
+
     /// generate report of sets in collection
     #[structopt(name = "report")]
     Report(OptMessReport),
@@ -793,6 +845,7 @@ impl OptMess {
             OptMess::Create(o) => o.execute(),
             OptMess::List(o) => o.execute(),
             OptMess::Games(o) => o.execute(),
+            OptMess::Parts(o) => o.execute(),
             OptMess::Report(o) => o.execute(),
             OptMess::Verify(o) => o.execute(),
             OptMess::Add(o) => o.execute(),
@@ -872,6 +925,31 @@ impl OptRedumpList {
         }
 
         Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptRedumpParts {
+    /// software list to use
+    software_list: String,
+
+    /// game's tracks to search for
+    game: String,
+}
+
+impl OptRedumpParts {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(REDUMP, CACHE_REDUMP).and_then(|mut db| {
+            db.remove(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
+        })?;
+
+        if let Some(game) = db.game(&self.game) {
+            game.display_parts();
+            Ok(())
+        } else {
+            Err(Error::NoSuchSoftware(self.game))
+        }
     }
 }
 
@@ -1025,6 +1103,10 @@ enum OptRedump {
     #[structopt(name = "list")]
     List(OptRedumpList),
 
+    /// list all tracks for a given game
+    #[structopt(name = "parts")]
+    Parts(OptRedumpParts),
+
     /// verify files against Redump database
     #[structopt(name = "verify")]
     Verify(OptRedumpVerify),
@@ -1043,6 +1125,7 @@ impl OptRedump {
         match self {
             OptRedump::Create(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
+            OptRedump::Parts(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
             OptRedump::Add(o) => o.execute(),
             OptRedump::Split(o) => o.execute(),
