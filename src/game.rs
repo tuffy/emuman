@@ -388,7 +388,7 @@ impl Game {
             let mut table = Table::new();
             table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
             for (name, part) in parts {
-                table.add_row(row![name, part]);
+                table.add_row(row![name, part.digest()]);
             }
             table.printstd();
         }
@@ -421,17 +421,6 @@ pub enum Part {
     Disk { sha1: [u8; 20] },
 }
 
-impl fmt::Display for Part {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let sha1: &[u8] = match self {
-            Part::ROM { sha1 } => sha1,
-            Part::Disk { sha1 } => sha1,
-        };
-
-        sha1.iter().try_for_each(|b| write!(f, "{:02x}", b))
-    }
-}
-
 impl Part {
     #[inline]
     pub fn rom_from_sha1(sha1: String) -> Self {
@@ -452,6 +441,14 @@ impl Part {
         let mut d = name.to_string();
         d.push_str(".chd");
         d
+    }
+
+    #[inline]
+    fn digest(&self) -> Digest {
+        match self {
+            Part::ROM {sha1} => Digest(sha1),
+            Part::Disk {sha1} => Digest(sha1),
+        }
     }
 
     pub fn from_path(path: &Path) -> Result<Self, std::io::Error> {
@@ -546,6 +543,14 @@ pub fn parse_sha1(mut hex: &str) -> [u8; 20] {
     }
 
     bin
+}
+
+struct Digest<'a>(&'a [u8]);
+
+impl<'a> fmt::Display for Digest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.iter().try_for_each(|b| write!(f, "{:02x}", b))
+    }
 }
 
 #[derive(Copy, Clone)]
