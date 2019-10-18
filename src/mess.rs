@@ -480,7 +480,7 @@ fn xml_to_game(node: &Node) -> Game {
             if let Some(sha1) = node.attribute("sha1") {
                 Some((
                     node.attribute("name").unwrap().to_string(),
-                    Part::rom_from_sha1(sha1.to_string()),
+                    Part::new_rom(sha1),
                 ))
             } else {
                 None
@@ -495,7 +495,7 @@ fn xml_to_game(node: &Node) -> Game {
             if let Some(sha1) = node.attribute("sha1") {
                 Some((
                     Part::name_to_chd(node.attribute("name").unwrap()),
-                    Part::disk_from_sha1(sha1.to_string()),
+                    Part::new_disk(sha1),
                 ))
             } else {
                 None

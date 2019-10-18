@@ -423,16 +423,16 @@ pub enum Part {
 
 impl Part {
     #[inline]
-    pub fn rom_from_sha1(sha1: String) -> Self {
+    pub fn new_rom(sha1: &str) -> Self {
         Part::ROM {
-            sha1: parse_sha1(&sha1),
+            sha1: parse_sha1(sha1),
         }
     }
 
     #[inline]
-    pub fn disk_from_sha1(sha1: String) -> Self {
+    pub fn new_disk(sha1: &str) -> Self {
         Part::Disk {
-            sha1: parse_sha1(&sha1),
+            sha1: parse_sha1(sha1),
         }
     }
 

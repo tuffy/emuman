@@ -210,7 +210,7 @@ fn xml_to_game(node: &Node) -> Game {
     for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
         game.parts.insert(
             rom.attribute("name").unwrap().to_string(),
-            Part::rom_from_sha1(rom.attribute("sha1").unwrap().to_string()),
+            Part::new_rom(rom.attribute("sha1").unwrap()),
         );
     }
 
