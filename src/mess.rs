@@ -480,7 +480,10 @@ fn xml_to_game(node: &Node) -> Game {
             if let Some(sha1) = node.attribute("sha1") {
                 Some((
                     node.attribute("name").unwrap().to_string(),
-                    Part::new_rom(sha1),
+                    Part::new_rom(
+                        sha1,
+                        parse_int(node.attribute("size").unwrap()).expect("invalid ROM size"),
+                    ),
                 ))
             } else {
                 None

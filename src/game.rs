@@ -1,5 +1,5 @@
 use super::Error;
-use hash_hasher::{HashedMap, HashedSet};
+use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -50,12 +50,12 @@ impl GameDb {
         })
     }
 
-    pub fn required_parts<I>(&self, games: I) -> Result<HashedSet<Part>, Error>
+    pub fn required_parts<I>(&self, games: I) -> Result<FxHashSet<Part>, Error>
     where
         I: IntoIterator,
         I::Item: AsRef<str>,
     {
-        let mut parts = HashedSet::default();
+        let mut parts = FxHashSet::default();
         games
             .into_iter()
             .try_for_each(|game| {
@@ -324,7 +324,7 @@ impl Game {
 
     pub fn add(
         &self,
-        rom_sources: &HashedMap<Part, PathBuf>,
+        rom_sources: &FxHashMap<Part, PathBuf>,
         target: &Path,
         copy: fn(&Part, &Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
@@ -355,7 +355,7 @@ impl Game {
             Err(_) => return Ok(()),
         };
 
-        let parts: HashedMap<Part, PathBuf> = self
+        let parts: FxHashMap<Part, PathBuf> = self
             .parts
             .iter()
             .map(|(name, part)| (part.clone(), target_dir.join(name)))
@@ -388,7 +388,11 @@ impl Game {
             let mut table = Table::new();
             table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
             for (name, part) in parts {
-                table.add_row(row![name, part.digest()]);
+                if let Some(size) = part.size() {
+                    table.add_row(row![name, size, part.digest()]);
+                } else {
+                    table.add_row(row![name, "", part.digest()]);
+                }
             }
             table.printstd();
         }
@@ -417,15 +421,16 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    ROM { sha1: [u8; 20] },
+    ROM { sha1: [u8; 20], size: u64 },
     Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str) -> Self {
+    pub fn new_rom(sha1: &str, size: u64) -> Self {
         Part::ROM {
             sha1: parse_sha1(sha1),
+            size,
         }
     }
 
@@ -446,8 +451,16 @@ impl Part {
     #[inline]
     fn digest(&self) -> Digest {
         match self {
-            Part::ROM {sha1} => Digest(sha1),
-            Part::Disk {sha1} => Digest(sha1),
+            Part::ROM { sha1, .. } => Digest(sha1),
+            Part::Disk { sha1 } => Digest(sha1),
+        }
+    }
+
+    #[inline]
+    fn size(&self) -> Option<u64> {
+        match self {
+            Part::ROM { size, .. } => Some(*size),
+            Part::Disk { .. } => None,
         }
     }
 
@@ -508,14 +521,17 @@ impl Part {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
+        let mut size = 0;
         loop {
             let buf = r.fill_buf()?;
             let len = if buf.is_empty() {
                 return Ok(Part::ROM {
                     sha1: sha1.digest().bytes(),
+                    size,
                 });
             } else {
                 sha1.update(buf);
+                size += buf.len() as u64;
                 buf.len()
             };
             r.consume(len);
@@ -598,7 +614,7 @@ fn subdir_files(root: &Path, progress: ProgressBar) -> Vec<PathBuf> {
         .collect()
 }
 
-fn rom_sources<F>(root: &Path, check: F) -> HashedMap<Part, PathBuf>
+fn rom_sources<F>(root: &Path, check: F) -> FxHashMap<Part, PathBuf>
 where
     F: Fn(PathBuf) -> Option<(Part, PathBuf)> + Sync + Send,
 {
@@ -628,11 +644,11 @@ where
     results
 }
 
-pub fn all_rom_sources(root: &Path) -> HashedMap<Part, PathBuf> {
+pub fn all_rom_sources(root: &Path) -> FxHashMap<Part, PathBuf> {
     rom_sources(root, |pb| Part::from_path(&pb).ok().map(|part| (part, pb)))
 }
 
-pub fn get_rom_sources(root: &Path, required: HashedSet<Part>) -> HashedMap<Part, PathBuf> {
+pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> FxHashMap<Part, PathBuf> {
     rom_sources(root, |pb| {
         Part::from_path(&pb)
             .ok()
