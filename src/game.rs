@@ -127,7 +127,7 @@ impl GameDb {
         GameDb::display_report(
             &games
                 .into_iter()
-                .filter_map(|g| self.games.get(g.as_ref()).filter(|g| !g.is_device))
+                .filter_map(|g| self.games.get(g.as_ref()))
                 .collect::<Vec<&Game>>(),
             simple,
         )
