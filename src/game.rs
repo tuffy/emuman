@@ -2,6 +2,7 @@ use super::Error;
 use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::BufRead;
@@ -106,17 +107,23 @@ impl GameDb {
     }
 
     pub fn list(&self, search: Option<&str>, sort: GameColumn, simple: bool) {
-        let mut results: Vec<&Game> = if let Some(search) = search {
+        let mut results: Vec<GameRow> = if let Some(search) = search {
             self.games
                 .values()
-                .filter(|g| !g.is_device && g.matches(search))
+                .filter(|g| !g.is_device)
+                .map(|g| g.report(simple))
+                .filter(|g| g.matches(search))
                 .collect()
         } else {
-            self.games.values().filter(|g| !g.is_device).collect()
+            self.games
+                .values()
+                .filter(|g| !g.is_device)
+                .map(|g| g.report(simple))
+                .collect()
         };
 
-        Game::sort_report(&mut results, sort);
-        GameDb::display_report(&results, simple)
+        results.sort_by(|a, b| a.compare(b, sort));
+        GameDb::display_report(&results)
     }
 
     pub fn games<I>(&self, games: I, simple: bool)
@@ -127,9 +134,8 @@ impl GameDb {
         GameDb::display_report(
             &games
                 .into_iter()
-                .filter_map(|g| self.games.get(g.as_ref()))
-                .collect::<Vec<&Game>>(),
-            simple,
+                .filter_map(|g| self.games.get(g.as_ref()).map(|g| g.report(simple)))
+                .collect::<Vec<GameRow>>(),
         )
     }
 
@@ -140,54 +146,34 @@ impl GameDb {
         sort: GameColumn,
         simple: bool,
     ) {
-        let mut results: Vec<&Game> = games
+        let mut results: Vec<GameRow> = games
             .iter()
-            .filter_map(|g| self.games.get(g).filter(|g| !g.is_device))
+            .filter_map(|g| {
+                self.games
+                    .get(g)
+                    .filter(|g| !g.is_device)
+                    .map(|g| g.report(simple))
+            })
             .collect();
+
         if let Some(search) = search {
             results.retain(|g| g.matches(search));
         }
 
-        Game::sort_report(&mut results, sort);
-        GameDb::display_report(&results, simple)
+        results.sort_by(|a, b| a.compare(b, sort));
+        GameDb::display_report(&results)
     }
 
-    fn display_report(games: &[&Game], simple: bool) {
+    fn display_report(games: &[GameRow]) {
         use prettytable::{cell, format, row, Table};
-
-        #[inline]
-        pub fn no_parens(s: &str) -> &str {
-            if let Some(index) = s.find('(') {
-                s[0..index].trim_end()
-            } else {
-                s
-            }
-        }
-
-        #[inline]
-        pub fn no_slashes(s: &str) -> &str {
-            if let Some(index) = s.find(" / ") {
-                s[0..index].trim_end()
-            } else {
-                s
-            }
-        }
 
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
         for game in games {
-            let description = if simple {
-                no_slashes(no_parens(&game.description))
-            } else {
-                &game.description
-            };
-            let creator = if simple {
-                no_parens(&game.creator)
-            } else {
-                &game.creator
-            };
-            let year = &game.year;
-            let name = &game.name;
+            let description = game.description;
+            let creator = game.creator;
+            let year = game.year;
+            let name = game.name;
 
             table.add_row(match game.status {
                 Status::Working => row![description, creator, year, name],
@@ -200,7 +186,7 @@ impl GameDb {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Status {
     Working,
     Partial,
@@ -234,38 +220,39 @@ impl Game {
         }
     }
 
-    pub fn matches(&self, search: &str) -> bool {
-        self.name.starts_with(search)
-            || self.description.contains(search)
-            || self.creator.contains(search)
-            || (self.year == search)
-    }
-
-    pub fn sort_key(&self, sort: GameColumn) -> &str {
-        match sort {
-            GameColumn::Description => &self.description,
-            GameColumn::Creator => &self.creator,
-            GameColumn::Year => &self.year,
+    pub fn report(&self, simple: bool) -> GameRow {
+        #[inline]
+        fn no_parens(s: &str) -> &str {
+            if let Some(index) = s.find('(') {
+                s[0..index].trim_end()
+            } else {
+                s
+            }
         }
-    }
 
-    pub fn sort_report(games: &mut Vec<&Game>, sort: GameColumn) {
-        match sort {
-            GameColumn::Description => {
-                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Year));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Creator));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
+        #[inline]
+        fn no_slashes(s: &str) -> &str {
+            if let Some(index) = s.find(" / ") {
+                s[0..index].trim_end()
+            } else {
+                s
             }
-            GameColumn::Creator => {
-                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Year));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Creator));
-            }
-            GameColumn::Year => {
-                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Creator));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
-                games.sort_by_key(|x| x.sort_key(GameColumn::Year));
-            }
+        }
+
+        GameRow {
+            name: &self.name,
+            description: if simple {
+                no_slashes(no_parens(&self.description))
+            } else {
+                &self.description
+            },
+            creator: if simple {
+                no_parens(&self.creator)
+            } else {
+                &self.creator
+            },
+            year: &self.year,
+            status: self.status,
         }
     }
 
@@ -396,6 +383,35 @@ impl Game {
             }
             table.printstd();
         }
+    }
+}
+
+pub struct GameRow<'a> {
+    pub name: &'a str,
+    pub description: &'a str,
+    pub creator: &'a str,
+    pub year: &'a str,
+    pub status: Status,
+}
+
+impl<'a> GameRow<'a> {
+    pub fn matches(&self, search: &str) -> bool {
+        self.name.starts_with(search)
+            || self.description.contains(search)
+            || self.creator.contains(search)
+            || (self.year == search)
+    }
+
+    fn sort_key(&self, sort: GameColumn) -> (&str, &str, &str) {
+        match sort {
+            GameColumn::Description => (self.description, self.creator, self.year),
+            GameColumn::Creator => (self.creator, self.description, self.year),
+            GameColumn::Year => (self.year, self.description, self.creator),
+        }
+    }
+
+    pub fn compare(&self, other: &GameRow, sort: GameColumn) -> Ordering {
+        self.sort_key(sort).cmp(&other.sort_key(sort))
     }
 }
 

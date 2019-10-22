@@ -1,5 +1,5 @@
 use super::{
-    game::{Game, GameDb, Part, GameColumn},
+    game::{Game, GameColumn, GameDb, Part},
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
@@ -262,15 +262,20 @@ pub fn list_all(db: &RedumpDb) {
 }
 
 pub fn list(db: &GameDb, search: Option<&str>) {
+    use super::game::GameRow;
     use prettytable::{cell, format, row, Table};
 
-    let mut results: Vec<&Game> = if let Some(search) = search {
-        db.games.values().filter(|g| g.matches(search)).collect()
+    let mut results: Vec<GameRow> = if let Some(search) = search {
+        db.games
+            .values()
+            .map(|g| g.report(false))
+            .filter(|g| g.matches(search))
+            .collect()
     } else {
-        db.games.values().collect()
+        db.games.values().map(|g| g.report(false)).collect()
     };
 
-    Game::sort_report(&mut results, GameColumn::Description);
+    results.sort_by(|a, b| a.compare(b, GameColumn::Description));
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
