@@ -151,7 +151,7 @@ impl OptMameCreate {
 struct OptMameList {
     /// sorting order, use "description", "year" or "creator"
     #[structopt(short = "s", long = "sort", default_value = "description")]
-    sort: game::SortBy,
+    sort: game::GameColumn,
 
     /// display simple list with less information
     #[structopt(short = "S", long = "simple")]
@@ -213,7 +213,7 @@ impl OptMameParts {
 struct OptMameReport {
     /// sorting order, use "description", "year" or "creator"
     #[structopt(short = "s", long = "sort", default_value = "description")]
-    sort: game::SortBy,
+    sort: game::GameColumn,
 
     /// ROMs directory
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
@@ -484,7 +484,7 @@ struct OptMessList {
 
     /// sorting order, use "description", "year" or "publisher"
     #[structopt(short = "s", long = "sort", default_value = "description")]
-    sort: game::SortBy,
+    sort: game::GameColumn,
 
     /// display simple list with less information
     #[structopt(short = "S", long = "simple")]
@@ -569,7 +569,7 @@ impl OptMessParts {
 struct OptMessReport {
     /// sorting order, use "description", "year" or "creator"
     #[structopt(short = "s", long = "sort", default_value = "description")]
-    sort: game::SortBy,
+    sort: game::GameColumn,
 
     /// ROMs directory
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]

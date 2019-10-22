@@ -105,7 +105,7 @@ impl GameDb {
         }
     }
 
-    pub fn list(&self, search: Option<&str>, sort: SortBy, simple: bool) {
+    pub fn list(&self, search: Option<&str>, sort: GameColumn, simple: bool) {
         let mut results: Vec<&Game> = if let Some(search) = search {
             self.games
                 .values()
@@ -137,7 +137,7 @@ impl GameDb {
         &self,
         games: &HashSet<String>,
         search: Option<&str>,
-        sort: SortBy,
+        sort: GameColumn,
         simple: bool,
     ) {
         let mut results: Vec<&Game> = games
@@ -241,30 +241,30 @@ impl Game {
             || (self.year == search)
     }
 
-    pub fn sort_key(&self, sort: SortBy) -> &str {
+    pub fn sort_key(&self, sort: GameColumn) -> &str {
         match sort {
-            SortBy::Description => &self.description,
-            SortBy::Creator => &self.creator,
-            SortBy::Year => &self.year,
+            GameColumn::Description => &self.description,
+            GameColumn::Creator => &self.creator,
+            GameColumn::Year => &self.year,
         }
     }
 
-    pub fn sort_report(games: &mut Vec<&Game>, sort: SortBy) {
+    pub fn sort_report(games: &mut Vec<&Game>, sort: GameColumn) {
         match sort {
-            SortBy::Description => {
-                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Year));
-                games.sort_by_key(|x| x.sort_key(SortBy::Creator));
-                games.sort_by_key(|x| x.sort_key(SortBy::Description));
+            GameColumn::Description => {
+                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Year));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Creator));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
             }
-            SortBy::Creator => {
-                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Year));
-                games.sort_by_key(|x| x.sort_key(SortBy::Description));
-                games.sort_by_key(|x| x.sort_key(SortBy::Creator));
+            GameColumn::Creator => {
+                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Year));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Creator));
             }
-            SortBy::Year => {
-                games.sort_unstable_by_key(|x| x.sort_key(SortBy::Creator));
-                games.sort_by_key(|x| x.sort_key(SortBy::Description));
-                games.sort_by_key(|x| x.sort_key(SortBy::Year));
+            GameColumn::Year => {
+                games.sort_unstable_by_key(|x| x.sort_key(GameColumn::Creator));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Description));
+                games.sort_by_key(|x| x.sort_key(GameColumn::Year));
             }
         }
     }
@@ -570,20 +570,20 @@ impl<'a> fmt::Display for Digest<'a> {
 }
 
 #[derive(Copy, Clone)]
-pub enum SortBy {
+pub enum GameColumn {
     Description,
     Creator,
     Year,
 }
 
-impl FromStr for SortBy {
+impl FromStr for GameColumn {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, String> {
         match s {
-            "description" => Ok(SortBy::Description),
-            "creator" => Ok(SortBy::Creator),
-            "year" => Ok(SortBy::Year),
+            "description" => Ok(GameColumn::Description),
+            "creator" => Ok(GameColumn::Creator),
+            "year" => Ok(GameColumn::Year),
             _ => Err("invalid sort by value".to_string()),
         }
     }

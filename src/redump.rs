@@ -1,5 +1,5 @@
 use super::{
-    game::{Game, GameDb, Part, SortBy},
+    game::{Game, GameDb, Part, GameColumn},
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
@@ -270,7 +270,7 @@ pub fn list(db: &GameDb, search: Option<&str>) {
         db.games.values().collect()
     };
 
-    Game::sort_report(&mut results, SortBy::Description);
+    Game::sort_report(&mut results, GameColumn::Description);
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
