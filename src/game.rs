@@ -3,7 +3,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::BufRead;
 use std::iter::FromIterator;
@@ -74,22 +74,18 @@ impl GameDb {
         &self,
         root: &Path,
         games: &'a HashSet<String>,
-    ) -> Vec<(&'a str, Vec<VerifyFailure<PathBuf>>)> {
+    ) -> BTreeMap<&'a str, Vec<VerifyFailure<PathBuf>>> {
         use indicatif::ParallelProgressIterator;
         use rayon::prelude::*;
 
         let pbar = ProgressBar::new(games.len() as u64).with_style(verify_style());
         pbar.set_message("verifying games");
 
-        let mut results = games
+        games
             .par_iter()
             .progress_with(pbar)
             .map(|game| (game.as_str(), self.verify_game(root, game)))
-            .collect::<Vec<(&'a str, Vec<VerifyFailure<PathBuf>>)>>();
-
-        results.sort_unstable_by_key(|&(name, _)| name);
-
-        results
+            .collect()
     }
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure<PathBuf>> {
