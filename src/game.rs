@@ -615,19 +615,27 @@ fn verify_style() -> ProgressStyle {
     ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
 }
 
-fn subdir_files(root: &Path, progress: ProgressBar) -> Vec<PathBuf> {
+fn subdir_files(root: &Path) -> Vec<PathBuf> {
     use indicatif::ProgressIterator;
     use walkdir::WalkDir;
 
-    WalkDir::new(root)
+    let pbar = ProgressBar::new_spinner().with_style(find_files_style());
+    pbar.set_message("locating files");
+    pbar.set_draw_delta(100);
+
+    let results = WalkDir::new(root)
         .into_iter()
-        .progress_with(progress)
+        .progress_with(pbar.clone())
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
                 .map(|e| e.into_path())
         })
-        .collect()
+        .collect();
+
+    pbar.finish_and_clear();
+
+    results
 }
 
 fn rom_sources<F>(root: &Path, check: F) -> FxHashMap<Part, PathBuf>
@@ -637,16 +645,10 @@ where
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    let pbar = ProgressBar::new_spinner().with_style(find_files_style());
-    pbar.set_message("locating files");
-    pbar.set_draw_delta(100);
+    let files = subdir_files(root);
 
-    let files = subdir_files(root, pbar.clone());
-
+    let pbar = ProgressBar::new(files.len() as u64).with_style(verify_style());
     pbar.set_message("cataloging files");
-    pbar.set_style(verify_style());
-    pbar.set_position(0);
-    pbar.set_length(files.len() as u64);
     pbar.set_draw_delta(files.len() as u64 / 1000);
 
     let results = files
