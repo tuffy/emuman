@@ -307,7 +307,7 @@ impl Game {
 
     pub fn add(
         &self,
-        rom_sources: &FxHashMap<Part, PathBuf>,
+        rom_sources: &RomSources,
         target: &Path,
         copy: fn(&Part, &Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
@@ -634,7 +634,9 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     results
 }
 
-fn rom_sources<F>(root: &Path, check: F) -> FxHashMap<Part, PathBuf>
+type RomSources = FxHashMap<Part, PathBuf>;
+
+fn rom_sources<F>(root: &Path, check: F) -> RomSources
 where
     F: Fn(PathBuf) -> Option<(Part, PathBuf)> + Sync + Send,
 {
@@ -658,11 +660,11 @@ where
     results
 }
 
-pub fn all_rom_sources(root: &Path) -> FxHashMap<Part, PathBuf> {
+pub fn all_rom_sources(root: &Path) -> RomSources {
     rom_sources(root, |pb| Part::from_path(&pb).ok().map(|part| (part, pb)))
 }
 
-pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> FxHashMap<Part, PathBuf> {
+pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
     rom_sources(root, |pb| {
         Part::from_path(&pb)
             .ok()
