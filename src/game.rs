@@ -636,9 +636,9 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 
 type RomSources = FxHashMap<Part, PathBuf>;
 
-fn rom_sources<F>(root: &Path, check: F) -> RomSources
+fn rom_sources<F>(root: &Path, filter: F) -> RomSources
 where
-    F: Fn(PathBuf) -> Option<(Part, PathBuf)> + Sync + Send,
+    F: Fn(&Part) -> bool + Sync + Send,
 {
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
@@ -652,7 +652,12 @@ where
     let results = files
         .into_par_iter()
         .progress_with(pbar.clone())
-        .filter_map(check)
+        .filter_map(|pb| {
+            Part::from_path(&pb)
+                .ok()
+                .filter(|part| filter(part))
+                .map(|part| (part, pb))
+        })
         .collect();
 
     pbar.finish_and_clear();
@@ -661,16 +666,11 @@ where
 }
 
 pub fn all_rom_sources(root: &Path) -> RomSources {
-    rom_sources(root, |pb| Part::from_path(&pb).ok().map(|part| (part, pb)))
+    rom_sources(root, |_| true)
 }
 
 pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
-    rom_sources(root, |pb| {
-        Part::from_path(&pb)
-            .ok()
-            .filter(|part| required.contains(part))
-            .map(|part| (part, pb))
-    })
+    rom_sources(root, |part| required.contains(part))
 }
 
 pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
