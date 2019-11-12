@@ -181,7 +181,7 @@ come in handy when combined with `ls` or scripts.
 
 ## Adding New ROMs for Machines
 
-Given a source directory of raw unzipped ROMs and a target
+Given a source directory of zipped or unzipped ROMs and a target
 directory, you can add all the ROMs for a given machine using
 
     emuman mame add -i inputdir -r outputdir machine
@@ -199,29 +199,6 @@ the output directory.
 
 As usual, `emuman` includes no ROM files and so you will
 have to find those on your own.
-
-### Unzipping Many ROMs at Once
-
-If you already have a lot of zipped ROM files,
-here's a simple Python script to extract them all at once,
-each in their own directory:
-
-    import sys
-    from subprocess import call
-    from os.path import splitext
-    from os import unlink
-
-    for z in sys.argv[1:]:
-        (dirname, ext) = splitext(z)
-        if ext == ".zip":
-            call(["unzip", "-d", dirname, z])
-            unlink(z)
-        elif ext == ".7z":
-            call(["7za", "x", "-o" + dirname, z])
-            unlink(z)
-
-As you can see, the zip archives will be removed once
-the files have been extracted.
 
 ## Verifying ROM Sets
 
@@ -310,7 +287,7 @@ but may come in handy when combined with `ls` or scripts.
 
 ## Adding New ROMs for a Software List
 
-Given a source directory of raw unzipped ROMs, a target directory,
+Given a source directory of zipped or unzipped ROMs, a target directory,
 and a software list, you can add all the ROMs for a given piece
 of software using
 

@@ -5,10 +5,11 @@ use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::io::BufRead;
+use std::io::{BufRead, Read, Seek};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
@@ -307,21 +308,14 @@ impl Game {
 
     pub fn add(
         &self,
-        rom_sources: &RomSources,
+        rom_sources: &mut RomSources,
         target: &Path,
-        copy: fn(&Part, &Path, &Path) -> Result<(), std::io::Error>,
+        extract: ExtractFn,
     ) -> Result<(), Error> {
         let target_dir = target.join(&self.name);
         self.parts
             .iter()
-            .try_for_each(|(rom_name, part)| {
-                if let Some(source) = rom_sources.get(&part) {
-                    copy(&part, source, &target_dir.join(rom_name))
-                } else {
-                    Ok(())
-                }
-            })
-            .map_err(Error::IO)
+            .try_for_each(|(rom_name, part)| extract(rom_sources, part, target_dir.join(rom_name)))
     }
 
     pub fn rename(
@@ -476,23 +470,33 @@ impl Part {
         }
     }
 
-    pub fn from_path(path: &Path) -> Result<Self, std::io::Error> {
+    #[inline]
+    fn from_path(path: &Path) -> Result<Self, std::io::Error> {
         use std::fs::File;
-        use std::io::{BufReader, Seek, SeekFrom};
+        use std::io::BufReader;
 
-        let mut r = BufReader::new(File::open(path)?);
+        File::open(path)
+            .map(BufReader::new)
+            .and_then(|mut r| Part::from_bufreader(&mut r))
+    }
 
-        match Part::disk_from_reader(&mut r) {
+    fn from_bufreader<R>(mut r: R) -> Result<Self, std::io::Error>
+    where
+        R: BufRead + Seek,
+    {
+        use std::io::SeekFrom;
+
+        match Part::disk_from_bufreader(&mut r) {
             Ok(Some(disk)) => Ok(disk),
             Ok(None) => {
                 r.seek(SeekFrom::Start(0))?;
-                Part::rom_from_reader(r)
+                Part::rom_from_bufreader(r)
             }
             Err(err) => Err(err),
         }
     }
 
-    fn disk_from_reader<R: BufRead>(mut r: R) -> Result<Option<Self>, std::io::Error> {
+    fn disk_from_bufreader<R: BufRead>(mut r: R) -> Result<Option<Self>, std::io::Error> {
         fn skip<R: BufRead>(mut r: R, mut to_skip: usize) -> Result<(), std::io::Error> {
             while to_skip > 0 {
                 let consumed = r.fill_buf()?.len().min(to_skip);
@@ -529,7 +533,7 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn rom_from_reader<B: BufRead>(mut r: B) -> Result<Self, std::io::Error> {
+    fn rom_from_bufreader<B: BufRead>(mut r: B) -> Result<Self, std::io::Error> {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
@@ -550,11 +554,42 @@ impl Part {
         }
     }
 
+    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, std::io::Error> {
+        use sha1::Sha1;
+
+        let mut sha1 = Sha1::new();
+        let mut buf = [0; 4096];
+        let mut size = 0;
+        loop {
+            match r.read(&mut buf) {
+                Ok(0) => {
+                    break Ok(Part::ROM {
+                        sha1: sha1.digest().bytes(),
+                        size,
+                    })
+                }
+                Ok(bytes) => {
+                    sha1.update(&buf[0..bytes]);
+                    size += bytes as u64;
+                }
+                Err(e) => break Err(e),
+            }
+        }
+    }
+
     fn verify<P: AsRef<Path>>(&self, part_path: P) -> Option<VerifyFailure<P>> {
         match Part::from_path(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => None,
             Ok(_) => Some(VerifyFailure::Bad(part_path)),
             Err(err) => Some(VerifyFailure::Error(part_path, err)),
+        }
+    }
+
+    fn is_bad<P: AsRef<Path>>(&self, part_path: P) -> bool {
+        if let Some(VerifyFailure::Bad(_)) = self.verify(part_path) {
+            true
+        } else {
+            false
         }
     }
 }
@@ -634,7 +669,54 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     results
 }
 
-type RomSources = FxHashMap<Part, PathBuf>;
+fn is_zip<R>(mut reader: R) -> Result<bool, std::io::Error>
+where
+    R: Read + Seek,
+{
+    use std::io::SeekFrom;
+
+    let mut buf = [0; 4];
+    reader.read_exact(&mut buf)?;
+    reader.seek(SeekFrom::Start(0))?;
+    Ok(&buf == b"\x50\x4b\x03\x04")
+}
+
+pub enum RomSource {
+    Disk(PathBuf),
+    Zip { file: Arc<PathBuf>, index: usize },
+}
+
+impl RomSource {
+    fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
+        use std::fs::File;
+        use std::io::BufReader;
+
+        let mut r = File::open(&pb).map(BufReader::new)?;
+
+        // valid parts might be less than 4 bytes,
+        // so fallback to reading a raw part
+        // if some error occurs testing for zipfiles
+        if is_zip(&mut r).unwrap_or(false) {
+            let file = Arc::new(pb);
+            let mut zip = zip::ZipArchive::new(r)?;
+            (0..zip.len())
+                .map(|index| {
+                    Ok((
+                        Part::rom_from_reader(zip.by_index(index)?)?,
+                        RomSource::Zip {
+                            file: file.clone(),
+                            index,
+                        },
+                    ))
+                })
+                .collect()
+        } else {
+            Ok(vec![(Part::from_bufreader(r)?, RomSource::Disk(pb))])
+        }
+    }
+}
+
+type RomSources = FxHashMap<Part, RomSource>;
 
 fn rom_sources<F>(root: &Path, filter: F) -> RomSources
 where
@@ -652,12 +734,12 @@ where
     let results = files
         .into_par_iter()
         .progress_with(pbar.clone())
-        .filter_map(|pb| {
-            Part::from_path(&pb)
-                .ok()
-                .filter(|part| filter(part))
-                .map(|part| (part, pb))
+        .flat_map(|pb| {
+            RomSource::from_path(pb)
+                .unwrap_or_else(|_| Vec::new())
+                .into_par_iter()
         })
+        .filter(|(part, _)| filter(part))
         .collect();
 
     pbar.finish_and_clear();
@@ -673,26 +755,73 @@ pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
     rom_sources(root, |part| required.contains(part))
 }
 
-pub fn copy(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
-    use std::fs::{copy, create_dir_all, hard_link, remove_file};
+pub type ExtractFn = fn(&mut RomSources, &Part, PathBuf) -> Result<(), Error>;
+
+pub fn extract(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<(), Error> {
+    use std::collections::hash_map::Entry;
 
     if !target.exists() {
-        create_dir_all(target.parent().unwrap())?;
-        hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
-        println!("{} -> {}", source.display(), target.display());
+        if let Entry::Occupied(mut entry) = roms.entry(part.clone()) {
+            use std::fs::create_dir_all;
+
+            create_dir_all(target.parent().unwrap())?;
+
+            match entry.get() {
+                RomSource::Disk(source) => {
+                    use std::fs::{copy, hard_link};
+
+                    hard_link(source, &target).or_else(|_| copy(source, &target).map(|_| ()))?;
+                    println!("{} -> {}", source.display(), target.display());
+                }
+                RomSource::Zip { file, index } => {
+                    use std::fs::File;
+                    use std::io::{copy, BufReader};
+                    use zip::ZipArchive;
+
+                    copy(
+                        &mut ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
+                            .by_index(*index)?,
+                        &mut File::create(&target)?,
+                    )?;
+                    println!("{}:{} -> {}", file.display(), index, target.display());
+
+                    // replace zip file source with on-disk source
+                    // in RomSources database so that if this part
+                    // is extracted again, it will be hard-linked
+                    // to the file we've just finished extracting
+                    entry.insert(RomSource::Disk(target));
+                }
+            }
+        }
+        Ok(())
     } else if let Some(VerifyFailure::Bad(target)) = part.verify(target) {
-        remove_file(target)?;
-        hard_link(source, target).or_else(|_| copy(source, target).map(|_| ()))?;
-        println!("{} -> {}", source.display(), target.display());
+        use std::fs::remove_file;
+
+        remove_file(&target)
+            .map_err(Error::IO)
+            .and_then(|()| extract(roms, part, target))
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
-pub fn copy_dry_run(part: &Part, source: &Path, target: &Path) -> Result<(), std::io::Error> {
-    if !target.exists() {
-        println!("{} -> {}", source.display(), target.display());
-    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target.to_path_buf()) {
-        println!("{} -> {}", source.display(), target.display());
+pub fn extract_dry_run(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<(), Error> {
+    use std::collections::hash_map::Entry;
+
+    if !target.exists() || part.is_bad(&target) {
+        if let Entry::Occupied(entry) = roms.entry(part.clone()) {
+            match entry.get() {
+                RomSource::Disk(source) => {
+                    println!("{} -> {}", source.display(), target.display());
+                }
+                RomSource::Zip {
+                    file: source,
+                    index,
+                } => {
+                    println!("{}:{} -> {}", source.display(), index, target.display());
+                }
+            }
+        }
     }
     Ok(())
 }

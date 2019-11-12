@@ -31,6 +31,7 @@ pub enum Error {
     XML(roxmltree::Error),
     SQL(rusqlite::Error),
     CBOR(serde_cbor::Error),
+    Zip(zip::result::ZipError),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
     MissingCache(&'static str),
@@ -60,6 +61,12 @@ impl From<serde_cbor::Error> for Error {
     }
 }
 
+impl From<zip::result::ZipError> for Error {
+    fn from(err: zip::result::ZipError) -> Self {
+        Error::Zip(err)
+    }
+}
+
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         match self {
@@ -67,6 +74,7 @@ impl std::error::Error for Error {
             Error::XML(err) => err.description(),
             Error::SQL(err) => err.description(),
             Error::CBOR(err) => err.description(),
+            Error::Zip(err) => err.description(),
             Error::NoSuchSoftwareList(_) => "no such software list",
             Error::NoSuchSoftware(_) => "no such software",
             Error::MissingCache(_) => "missing cache file",
@@ -79,6 +87,7 @@ impl std::error::Error for Error {
             Error::XML(err) => Some(err),
             Error::SQL(err) => Some(err),
             Error::CBOR(err) => Some(err),
+            Error::Zip(err) => Some(err),
             Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) | Error::MissingCache(_) => {
                 None
             }
@@ -93,6 +102,7 @@ impl fmt::Display for Error {
             Error::XML(err) => err.fmt(f),
             Error::SQL(err) => err.fmt(f),
             Error::CBOR(err) => err.fmt(f),
+            Error::Zip(err) => err.fmt(f),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::MissingCache(s) => write!(
@@ -323,7 +333,7 @@ impl OptMameAdd {
     fn execute(mut self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
 
-        let roms = if self.machines.is_empty() {
+        let mut roms = if self.machines.is_empty() {
             self.machines = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
@@ -331,14 +341,14 @@ impl OptMameAdd {
         };
 
         let copy = if self.dry_run {
-            game::copy_dry_run
+            game::extract_dry_run
         } else {
-            game::copy
+            game::extract
         };
 
         self.machines
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.roms, copy))
+            .try_for_each(|game| db.games[game].add(&mut roms, &self.roms, copy))
     }
 }
 
@@ -694,7 +704,7 @@ impl OptMessAdd {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-        let roms = if self.software.is_empty() {
+        let mut roms = if self.software.is_empty() {
             self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
@@ -702,14 +712,14 @@ impl OptMessAdd {
         };
 
         let copy = if self.dry_run {
-            game::copy_dry_run
+            game::extract_dry_run
         } else {
-            game::copy
+            game::extract
         };
 
         self.software
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.roms, copy))
+            .try_for_each(|game| db.games[game].add(&mut roms, &self.roms, copy))
     }
 }
 
@@ -1032,7 +1042,7 @@ impl OptRedumpAdd {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-        let roms = if self.software.is_empty() {
+        let mut roms = if self.software.is_empty() {
             self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
@@ -1040,14 +1050,14 @@ impl OptRedumpAdd {
         };
 
         let copy = if self.dry_run {
-            game::copy_dry_run
+            game::extract_dry_run
         } else {
-            game::copy
+            game::extract
         };
 
         self.software
             .iter()
-            .try_for_each(|game| db.games[game].add(&roms, &self.output, copy))
+            .try_for_each(|game| db.games[game].add(&mut roms, &self.output, copy))
     }
 }
 
