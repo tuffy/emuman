@@ -4,7 +4,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
@@ -127,15 +127,16 @@ struct OptMameCreate {
 
 impl OptMameCreate {
     fn execute(self) -> Result<(), Error> {
-        let mut xml_data = String::new();
 
-        if let Some(path) = self.xml {
-            File::open(path).and_then(|mut xml| xml.read_to_string(&mut xml_data))?;
+        let xml_data = if let Some(path) = self.xml {
+            read_raw_or_zip(path)?
         } else {
             use std::io::stdin;
 
+            let mut xml_data = String::new();
             stdin().read_to_string(&mut xml_data)?;
-        }
+            xml_data
+        };
 
         let xml = Document::parse(&xml_data)?;
 
@@ -895,10 +896,7 @@ impl OptRedumpCreate {
             let mut split_db = split::SplitDb::default();
 
             for file in self.xml.iter() {
-                let mut xml_data = String::new();
-
-                File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
+                let xml_data = read_raw_or_zip(file)?;
                 let tree = Document::parse(&xml_data)?;
                 let (name, game_db) = redump::add_xml_file(&mut split_db, &tree);
                 redump_db.insert(name, game_db);
@@ -1173,6 +1171,33 @@ fn main() {
     if let Err(err) = Opt::from_args().execute() {
         eprintln!("* {}", err);
     }
+}
+
+fn is_zip<R>(mut reader: R) -> Result<bool, std::io::Error>
+where
+    R: Read + Seek,
+{
+    use std::io::SeekFrom;
+
+    let mut buf = [0; 4];
+    reader.read_exact(&mut buf)?;
+    reader.seek(SeekFrom::Start(0))?;
+    Ok(&buf == b"\x50\x4b\x03\x04")
+}
+
+// attempts to read the first file in a .zip file,
+// or the whole raw file if it is not a .zip
+fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
+    let mut f = File::open(file)?;
+    let mut data = String::new();
+    if is_zip(&mut f)? {
+        use zip::ZipArchive;
+
+        ZipArchive::new(f)?.by_index(0)?.read_to_string(&mut data)?;
+    } else {
+        f.read_to_string(&mut data)?;
+    }
+    Ok(data)
 }
 
 fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {

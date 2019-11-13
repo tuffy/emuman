@@ -1,4 +1,4 @@
-use super::Error;
+use super::{Error, is_zip};
 use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
@@ -558,8 +558,8 @@ impl Part {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
-        let mut buf = [0; 4096];
         let mut size = 0;
+        let mut buf = [0; 4096];
         loop {
             match r.read(&mut buf) {
                 Ok(0) => {
@@ -601,8 +601,9 @@ pub fn parse_sha1(mut hex: &str) -> [u8; 20] {
     assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
 
     for c in bin.iter_mut() {
-        *c = u8::from_str_radix(&hex[0..2], 16).unwrap();
-        hex = &hex[2..];
+        let (first, rest) = hex.split_at(2);
+        *c = u8::from_str_radix(first, 16).unwrap();
+        hex = rest;
     }
 
     bin
@@ -667,18 +668,6 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     pbar.finish_and_clear();
 
     results
-}
-
-fn is_zip<R>(mut reader: R) -> Result<bool, std::io::Error>
-where
-    R: Read + Seek,
-{
-    use std::io::SeekFrom;
-
-    let mut buf = [0; 4];
-    reader.read_exact(&mut buf)?;
-    reader.seek(SeekFrom::Start(0))?;
-    Ok(&buf == b"\x50\x4b\x03\x04")
 }
 
 pub enum RomSource {

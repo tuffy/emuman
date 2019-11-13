@@ -114,10 +114,9 @@ One way to get this information is on the
 [MAME downloads page](https://www.mamedev.org/release.html).
 It's the `mameXXXXlx.zip` link labeled
 "full driver information in XML format".
-Be sure to unzip the file once it's been downloaded.
 Then you can seed it like:
 
-    emuman mame create mameXXXX.xml
+    emuman mame create mameXXXX.zip
 
 However, another way is to get the driver information
 directly from MAME itself using its `-listxml` option, like:
@@ -352,13 +351,13 @@ These utilities work very much like the ones for MESS.
 
 ## Populating the Database
 
-After downloading the desired `.dat` files from the Redump website,
+After downloading the desired `.dat` files from the Redump website
+(which are normally stored in individual `.zip` files),
 populate the database with
 
-    emuman redump create *.dat
+    emuman redump create *.zip
 
-The `dat` files will be given names to be used in subsequent options,
-and those names can be queried with:
+The `dat` files will be given names to be used in subsequent options.
 
 ## Generating a List of Software
 
