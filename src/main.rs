@@ -127,7 +127,6 @@ struct OptMameCreate {
 
 impl OptMameCreate {
     fn execute(self) -> Result<(), Error> {
-
         let xml_data = if let Some(path) = self.xml {
             read_raw_or_zip(path)?
         } else {

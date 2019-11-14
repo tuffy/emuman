@@ -1,4 +1,4 @@
-use super::{Error, is_zip};
+use super::{is_zip, Error};
 use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
@@ -759,8 +759,24 @@ pub fn extract(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<()
                 RomSource::Disk(source) => {
                     use std::fs::{copy, hard_link};
 
-                    hard_link(source, &target).or_else(|_| copy(source, &target).map(|_| ()))?;
-                    println!("{} -> {}", source.display(), target.display());
+                    if hard_link(source, &target).is_ok() {
+                        println!("{} -> {}", source.display(), target.display());
+                    } else {
+                        match copy(source, &target) {
+                            Ok(_) => {
+                                println!("{} -> {}", source.display(), target.display());
+
+                                // if we're forced to do a physical copy
+                                // (likely because the files aren't on
+                                // the same filesystem), replace the
+                                // old entry with the newly copied one
+                                // so that this part will be hard-linked
+                                // if extracted again
+                                entry.insert(RomSource::Disk(target));
+                            }
+                            Err(e) => return Err(Error::IO(e)),
+                        }
+                    }
                 }
                 RomSource::Zip { file, index } => {
                     use std::fs::File;
