@@ -703,6 +703,42 @@ impl RomSource {
             Ok(vec![(Part::from_bufreader(r)?, RomSource::Disk(pb))])
         }
     }
+
+    fn extract(&self, target: &Path) -> Result<bool, Error> {
+        match self {
+            RomSource::Disk(source) => {
+                use std::fs::{copy, hard_link};
+
+                if hard_link(source, &target).is_ok() {
+                    Ok(false)
+                } else {
+                    copy(source, &target).map_err(Error::IO).map(|_| true)
+                }
+            }
+            RomSource::Zip { file, index } => {
+                use std::fs::File;
+                use std::io::{copy, BufReader};
+                use zip::ZipArchive;
+
+                copy(
+                    &mut ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
+                        .by_index(*index)?,
+                    &mut File::create(&target)?,
+                )
+                .map_err(Error::IO)
+                .map(|_| true)
+            }
+        }
+    }
+}
+
+impl fmt::Display for RomSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RomSource::Disk(source) => source.display().fmt(f),
+            RomSource::Zip { file, index } => write!(f, "{}:{}", file.display(), index),
+        }
+    }
 }
 
 type RomSources = FxHashMap<Part, RomSource>;
@@ -755,47 +791,11 @@ pub fn extract(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<()
 
             create_dir_all(target.parent().unwrap())?;
 
-            match entry.get() {
-                RomSource::Disk(source) => {
-                    use std::fs::{copy, hard_link};
-
-                    if hard_link(source, &target).is_ok() {
-                        println!("{} -> {}", source.display(), target.display());
-                    } else {
-                        match copy(source, &target) {
-                            Ok(_) => {
-                                println!("{} -> {}", source.display(), target.display());
-
-                                // if we're forced to do a physical copy
-                                // (likely because the files aren't on
-                                // the same filesystem), replace the
-                                // old entry with the newly copied one
-                                // so that this part will be hard-linked
-                                // if extracted again
-                                entry.insert(RomSource::Disk(target));
-                            }
-                            Err(e) => return Err(Error::IO(e)),
-                        }
-                    }
-                }
-                RomSource::Zip { file, index } => {
-                    use std::fs::File;
-                    use std::io::{copy, BufReader};
-                    use zip::ZipArchive;
-
-                    copy(
-                        &mut ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
-                            .by_index(*index)?,
-                        &mut File::create(&target)?,
-                    )?;
-                    println!("{}:{} -> {}", file.display(), index, target.display());
-
-                    // replace zip file source with on-disk source
-                    // in RomSources database so that if this part
-                    // is extracted again, it will be hard-linked
-                    // to the file we've just finished extracting
-                    entry.insert(RomSource::Disk(target));
-                }
+            let source = entry.get();
+            let new_file_created = source.extract(&target)?;
+            println!("{} -> {}", source, target.display());
+            if new_file_created {
+                entry.insert(RomSource::Disk(target));
             }
         }
         Ok(())
