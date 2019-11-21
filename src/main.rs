@@ -210,12 +210,7 @@ struct OptMameParts {
 impl OptMameParts {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
-        if let Some(game) = db.game(&self.game) {
-            game.display_parts();
-            Ok(())
-        } else {
-            Err(Error::NoSuchSoftware(self.game))
-        }
+        db.display_parts(&self.game)
     }
 }
 
@@ -566,12 +561,7 @@ impl OptMessParts {
                 .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
         })?;
 
-        if let Some(game) = db.game(&self.game) {
-            game.display_parts();
-            Ok(())
-        } else {
-            Err(Error::NoSuchSoftware(self.game))
-        }
+        db.display_parts(&self.game)
     }
 }
 
@@ -951,12 +941,7 @@ impl OptRedumpParts {
                 .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
         })?;
 
-        if let Some(game) = db.game(&self.game) {
-            game.display_parts();
-            Ok(())
-        } else {
-            Err(Error::NoSuchSoftware(self.game))
-        }
+        db.display_parts(&self.game)
     }
 }
 

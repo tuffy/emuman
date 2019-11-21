@@ -1,6 +1,7 @@
 use super::{is_zip, Error};
 use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
+use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -162,7 +163,7 @@ impl GameDb {
     }
 
     fn display_report(games: &[GameRow]) {
-        use prettytable::{cell, format, row, Table};
+        use prettytable::{cell, format, row};
 
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
@@ -180,6 +181,39 @@ impl GameDb {
         }
 
         table.printstd();
+    }
+
+    pub fn display_parts(&self, name: &str) -> Result<(), Error> {
+        use prettytable::{cell, format, row};
+
+        let game = self
+            .game(name)
+            .ok_or_else(|| Error::NoSuchSoftware(name.to_string()))?;
+
+        let mut table = Table::new();
+        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+
+        let devices: BTreeMap<&str, &Game> = game
+            .devices
+            .iter()
+            .map(|dev| self.game(dev).expect("unknown device in game"))
+            .filter(|game| !game.parts.is_empty())
+            .map(|game| (game.name.as_str(), game))
+            .collect();
+
+        if devices.is_empty() {
+            game.display_parts(&mut table);
+        } else {
+            table.add_row(row![H3cu->name]);
+            game.display_parts(&mut table);
+            for (dev_name, dev) in devices.into_iter() {
+                table.add_row(row![H3cu->dev_name]);
+                dev.display_parts(&mut table);
+            }
+        }
+
+        table.printstd();
+        Ok(())
     }
 }
 
@@ -350,28 +384,23 @@ impl Game {
         Ok(())
     }
 
-    pub fn display_parts(&self) {
-        use prettytable::{cell, format, row, Table};
+    pub fn display_parts(&self, table: &mut Table) {
+        use prettytable::{cell, row};
 
-        let mut parts: Vec<(&str, &Part)> = self
+        let parts: BTreeMap<&str, &Part> = self
             .parts
             .iter()
             .map(|(name, part)| (name.as_str(), part))
             .collect();
 
         if !parts.is_empty() {
-            parts.sort_by(|x, y| x.0.cmp(y.0));
-
-            let mut table = Table::new();
-            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
             for (name, part) in parts {
                 if let Some(size) = part.size() {
-                    table.add_row(row![name, size, part.digest()]);
+                    table.add_row(row![name, r->size, part.digest()]);
                 } else {
                     table.add_row(row![name, "", part.digest()]);
                 }
             }
-            table.printstd();
         }
     }
 }
