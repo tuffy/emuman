@@ -688,8 +688,9 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 
     let results = if cfg!(unix) {
         use walkdir::DirEntryExt;
+        use nohash_hasher::IntSet;
 
-        let mut files = HashSet::new();
+        let mut files = IntSet::default();
 
         walkdir
             .filter_map(|e| {

@@ -1,7 +1,7 @@
 [package]
 name = "emuman"
 description = "Utility for managing emulator ROM files."
-version = "1.8.3"
+version = "1.8.5"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/tuffy/emuman"
@@ -20,5 +20,6 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_cbor = "0.10"
 fxhash = "0.2"
+nohash-hasher = "0.1"
 indicatif = {version = "0.12", features=["with_rayon"]}
 zip = "0.5"
