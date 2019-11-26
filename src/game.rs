@@ -684,15 +684,29 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     pbar.set_message("locating files");
     pbar.set_draw_delta(100);
 
-    let results = WalkDir::new(root)
-        .into_iter()
-        .progress_with(pbar.clone())
-        .filter_map(|e| {
-            e.ok()
-                .filter(|e| e.file_type().is_file())
-                .map(|e| e.into_path())
-        })
-        .collect();
+    let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
+
+    let results = if cfg!(unix) {
+        use walkdir::DirEntryExt;
+
+        let mut files = HashSet::new();
+
+        walkdir
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| e.file_type().is_file() && files.insert(e.ino()))
+                    .map(|e| e.into_path())
+            })
+            .collect()
+    } else {
+        walkdir
+            .filter_map(|e| {
+                e.ok()
+                    .filter(|e| e.file_type().is_file())
+                    .map(|e| e.into_path())
+            })
+            .collect()
+    };
 
     pbar.finish_and_clear();
 
