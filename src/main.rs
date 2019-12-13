@@ -777,16 +777,14 @@ impl OptMessSplit {
             let mut rom_data = Vec::new();
             File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
 
-            if mess::is_ines_format(&rom_data) {
-                mess::remove_ines_header(&mut rom_data);
-            }
+            let data = mess::strip_ines_header(&rom_data);
 
             if let Some(exact_match) = db
-                .possible_matches(rom_data.len() as u64)
+                .possible_matches(data.len() as u64)
                 .iter()
-                .find(|m| m.matches(&rom_data))
+                .find(|m| m.matches(&data))
             {
-                exact_match.extract(&self.output, &rom_data)?;
+                exact_match.extract(&self.output, &data)?;
                 if self.delete {
                     use std::fs::remove_file;
 

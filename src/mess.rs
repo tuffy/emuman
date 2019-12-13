@@ -609,14 +609,12 @@ pub fn list_all(db: &MessDb) {
     table.printstd();
 }
 
-#[inline]
-pub fn is_ines_format(data: &[u8]) -> bool {
-    (data.len() >= 4) && (&data[0..4] == b"NES\x1a")
-}
-
-#[inline]
-pub fn remove_ines_header(data: &mut Vec<u8>) {
-    let _ = data.drain(0..16);
+pub fn strip_ines_header(data: &[u8]) -> &[u8] {
+    if (data.len() >= 4) && (&data[0..4] == b"NES\x1a") {
+        &data[16..]
+    } else {
+        data
+    }
 }
 
 #[inline]
