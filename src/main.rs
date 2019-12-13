@@ -770,17 +770,33 @@ impl OptMessSplit {
         let db = read_cache::<split::SplitDb>(MESS, CACHE_MESS_SPLIT)?;
 
         self.roms.par_iter().try_for_each(|rom| {
-            let mut rom_data = Vec::new();
-            File::open(&rom).and_then(|mut f| f.read_to_end(&mut rom_data))?;
+            let mut f = File::open(&rom)?;
 
-            let data = mess::strip_ines_header(&rom_data);
+            let roms: Vec<Vec<u8>> = if is_zip(&mut f)? {
+                let mut zip = zip::ZipArchive::new(f)?;
+                (0..zip.len())
+                    .map(|index| {
+                        let mut rom_data = Vec::new();
+                        zip.by_index(index)?.read_to_end(&mut rom_data)?;
+                        Ok(rom_data)
+                    })
+                    .collect::<Result<Vec<Vec<u8>>, Error>>()?
+            } else {
+                let mut rom_data = Vec::new();
+                f.read_to_end(&mut rom_data)?;
+                vec![rom_data]
+            };
 
-            if let Some(exact_match) = db
-                .possible_matches(data.len() as u64)
-                .iter()
-                .find(|m| m.matches(&data))
-            {
-                exact_match.extract(&self.output, &data)?;
+            for rom_data in roms.into_iter() {
+                let data = mess::strip_ines_header(&rom_data);
+
+                if let Some(exact_match) = db
+                    .possible_matches(data.len() as u64)
+                    .iter()
+                    .find(|m| m.matches(&data))
+                {
+                    exact_match.extract(&self.output, &data)?;
+                }
             }
 
             Ok(())
