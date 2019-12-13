@@ -758,10 +758,6 @@ struct OptMessSplit {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
 
-    /// delete input ROM once split
-    #[structopt(long = "delete")]
-    delete: bool,
-
     /// ROMs to split
     #[structopt(parse(from_os_str))]
     roms: Vec<PathBuf>,
@@ -785,11 +781,6 @@ impl OptMessSplit {
                 .find(|m| m.matches(&data))
             {
                 exact_match.extract(&self.output, &data)?;
-                if self.delete {
-                    use std::fs::remove_file;
-
-                    remove_file(&rom)?;
-                }
             }
 
             Ok(())
@@ -1047,10 +1038,6 @@ struct OptRedumpSplit {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
-    /// delete input .bin once split
-    #[structopt(long = "delete")]
-    delete: bool,
-
     /// input .bin file
     #[structopt(parse(from_os_str))]
     bins: Vec<PathBuf>,
@@ -1070,11 +1057,6 @@ impl OptRedumpSplit {
                 File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
                 if let Some(exact_match) = matches.iter().find(|m| m.matches(&bin_data)) {
                     exact_match.extract(&self.root, &bin_data)?;
-                    if self.delete {
-                        use std::fs::remove_file;
-
-                        remove_file(bin_path)?;
-                    }
                 }
             }
             Ok(())
