@@ -5,7 +5,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
@@ -175,7 +174,7 @@ impl OptMameList {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
         db.list(
-            self.search.as_ref().map(|t| t.deref()),
+            self.search.as_deref(),
             self.sort,
             self.simple,
         );
@@ -243,7 +242,7 @@ impl OptMameReport {
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
         db.report(
             &machines,
-            self.search.as_ref().map(|t| t.deref()),
+            self.search.as_deref(),
             self.sort,
             self.simple,
         );
@@ -508,7 +507,7 @@ impl OptMessList {
                 .remove(&software_list)
                 .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
             db.list(
-                self.search.as_ref().map(|t| t.deref()),
+                self.search.as_deref(),
                 self.sort,
                 self.simple,
             )
@@ -601,7 +600,7 @@ impl OptMessReport {
 
         db.report(
             &software,
-            self.search.as_ref().map(|s| s.deref()),
+            self.search.as_deref(),
             self.sort,
             self.simple,
         );
@@ -921,7 +920,7 @@ impl OptRedumpList {
             let db = db
                 .remove(&software_list)
                 .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
-            redump::list(&db, self.search.as_ref().map(|t| t.deref()))
+            redump::list(&db, self.search.as_deref())
         } else {
             redump::list_all(&db)
         }
