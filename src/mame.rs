@@ -361,14 +361,15 @@ const ADD_SLOT_OPTION: &str = "INSERT INTO SlotOption
 const CREATE_SOFTWARE_LIST: &str = "CREATE TABLE IF NOT EXISTS SoftwareList (
     machine_id INTEGER NOT NULL,
     name VARCHAR(80) NOT NULL,
+    tag VARCHAR(80) NOT NULL,
     status VARCHAR(80) NOT NULL,
     filter VARCHAR(80),
     FOREIGN KEY (machine_id) REFERENCES Machine (machine_id) ON DELETE CASCADE
 )";
 
 const ADD_SOFTWARE_LIST: &str = "INSERT INTO SoftwareList
-    (machine_id, name, status, filter) VALUES
-    (:machine_id, :name, :status, :filter)";
+    (machine_id, name, tag, status, filter) VALUES
+    (:machine_id, :name, :tag, :status, :filter)";
 
 const CREATE_RAM_OPTION: &str = "CREATE TABLE IF NOT EXISTS RAMOption (
     machine_id INTEGER NOT NULL,
@@ -936,6 +937,7 @@ fn add_software_list(db: &Transaction, machine_id: i64, list: &Node) -> Result<(
             stmt.execute_named(named_params! {
                     ":machine_id": machine_id,
                     ":name": list.attribute("name"),
+                    ":tag": list.attribute("tag"),
                     ":status": list.attribute("status"),
                     ":filter": list.attribute("filter"),
             })
