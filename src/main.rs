@@ -173,11 +173,7 @@ struct OptMameList {
 impl OptMameList {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
-        db.list(
-            self.search.as_deref(),
-            self.sort,
-            self.simple,
-        );
+        db.list(self.search.as_deref(), self.sort, self.simple);
         Ok(())
     }
 }
@@ -240,12 +236,7 @@ impl OptMameReport {
             .collect();
 
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
-        db.report(
-            &machines,
-            self.search.as_deref(),
-            self.sort,
-            self.simple,
-        );
+        db.report(&machines, self.search.as_deref(), self.sort, self.simple);
         Ok(())
     }
 }
@@ -506,11 +497,7 @@ impl OptMessList {
             let db = db
                 .remove(&software_list)
                 .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
-            db.list(
-                self.search.as_deref(),
-                self.sort,
-                self.simple,
-            )
+            db.list(self.search.as_deref(), self.sort, self.simple)
         } else {
             mess::list_all(&db)
         }
@@ -598,12 +585,7 @@ impl OptMessReport {
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
 
-        db.report(
-            &software,
-            self.search.as_deref(),
-            self.sort,
-            self.simple,
-        );
+        db.report(&software, self.search.as_deref(), self.sort, self.simple);
         Ok(())
     }
 }

@@ -300,7 +300,9 @@ impl Game {
         if let Ok(dir) = read_dir(game_root) {
             for entry in dir.filter_map(|e| e.ok()) {
                 if let Ok(name) = entry.file_name().into_string() {
-                    files_on_disk.insert(name, entry.path());
+                    if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                        files_on_disk.insert(name, entry.path());
+                    }
                 } else {
                     // anything that's not UTF-8 is an extra
                     failures.push(VerifyFailure::Extra(entry.path()));
@@ -395,11 +397,7 @@ impl Game {
 
         if !parts.is_empty() {
             for (name, part) in parts {
-                if let Some(size) = part.size() {
-                    table.add_row(row![name, r->size, part.digest()]);
-                } else {
-                    table.add_row(row![name, "", part.digest()]);
-                }
+                table.add_row(row![name, part.digest()]);
             }
         }
     }
@@ -456,16 +454,15 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    ROM { sha1: [u8; 20], size: u64 },
+    ROM { sha1: [u8; 20] },
     Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str, size: u64) -> Self {
+    pub fn new_rom(sha1: &str) -> Self {
         Part::ROM {
             sha1: parse_sha1(sha1),
-            size,
         }
     }
 
@@ -488,14 +485,6 @@ impl Part {
         match self {
             Part::ROM { sha1, .. } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
-        }
-    }
-
-    #[inline]
-    fn size(&self) -> Option<u64> {
-        match self {
-            Part::ROM { size, .. } => Some(*size),
-            Part::Disk { .. } => None,
         }
     }
 
@@ -566,17 +555,14 @@ impl Part {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
-        let mut size = 0;
         loop {
             let buf = r.fill_buf()?;
             let len = if buf.is_empty() {
                 return Ok(Part::ROM {
                     sha1: sha1.digest().bytes(),
-                    size,
                 });
             } else {
                 sha1.update(buf);
-                size += buf.len() as u64;
                 buf.len()
             };
             r.consume(len);
@@ -587,19 +573,16 @@ impl Part {
         use sha1::Sha1;
 
         let mut sha1 = Sha1::new();
-        let mut size = 0;
         let mut buf = [0; 4096];
         loop {
             match r.read(&mut buf) {
                 Ok(0) => {
                     break Ok(Part::ROM {
                         sha1: sha1.digest().bytes(),
-                        size,
                     })
                 }
                 Ok(bytes) => {
                     sha1.update(&buf[0..bytes]);
-                    size += bytes as u64;
                 }
                 Err(e) => break Err(e),
             }
@@ -687,8 +670,8 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
 
     let results = if cfg!(unix) {
-        use walkdir::DirEntryExt;
         use nohash_hasher::IntSet;
+        use walkdir::DirEntryExt;
 
         let mut files = IntSet::default();
 

@@ -1006,10 +1006,7 @@ fn xml_to_game(node: &Node) -> Game {
                 if let Some(sha1) = child.attribute("sha1") {
                     game.parts.insert(
                         child.attribute("name").unwrap().to_string(),
-                        Part::new_rom(
-                            sha1,
-                            u64::from_str(child.attribute("size").unwrap()).unwrap(),
-                        ),
+                        Part::new_rom(sha1),
                     );
                 }
             }
