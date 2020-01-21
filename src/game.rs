@@ -167,6 +167,8 @@ impl GameDb {
 
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        table.get_format().column_separator('\u{2502}');
+
         for game in games {
             let description = game.description;
             let creator = game.creator;
@@ -192,6 +194,7 @@ impl GameDb {
 
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        table.get_format().column_separator('\u{2502}');
 
         let devices: BTreeMap<&str, &Game> = game
             .devices
