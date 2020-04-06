@@ -705,11 +705,6 @@ pub enum RomSource {
     Zip { file: Arc<PathBuf>, index: usize },
 }
 
-enum Extracted {
-    Copied,
-    Linked,
-}
-
 impl RomSource {
     fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
@@ -776,6 +771,11 @@ impl fmt::Display for RomSource {
             RomSource::Zip { file, index } => write!(f, "{}:{}", file.display(), index),
         }
     }
+}
+
+enum Extracted {
+    Copied,
+    Linked,
 }
 
 type RomSources = FxHashMap<Part, RomSource>;
