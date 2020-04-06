@@ -67,19 +67,6 @@ impl From<zip::result::ZipError> for Error {
 }
 
 impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        match self {
-            Error::IO(err) => err.description(),
-            Error::XML(err) => err.description(),
-            Error::SQL(err) => err.description(),
-            Error::CBOR(err) => err.description(),
-            Error::Zip(err) => err.description(),
-            Error::NoSuchSoftwareList(_) => "no such software list",
-            Error::NoSuchSoftware(_) => "no such software",
-            Error::MissingCache(_) => "missing cache file",
-        }
-    }
-
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::IO(err) => Some(err),

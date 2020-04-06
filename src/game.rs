@@ -705,6 +705,11 @@ pub enum RomSource {
     Zip { file: Arc<PathBuf>, index: usize },
 }
 
+enum Extracted {
+    Copied,
+    Linked,
+}
+
 impl RomSource {
     fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
@@ -734,15 +739,17 @@ impl RomSource {
         }
     }
 
-    fn extract(&self, target: &Path) -> Result<bool, Error> {
+    fn extract(&self, target: &Path) -> Result<Extracted, Error> {
         match self {
             RomSource::Disk(source) => {
                 use std::fs::{copy, hard_link};
 
                 if hard_link(source, &target).is_ok() {
-                    Ok(false)
+                    Ok(Extracted::Linked)
                 } else {
-                    copy(source, &target).map_err(Error::IO).map(|_| true)
+                    copy(source, &target)
+                        .map_err(Error::IO)
+                        .map(|_| Extracted::Copied)
                 }
             }
             RomSource::Zip { file, index } => {
@@ -756,7 +763,7 @@ impl RomSource {
                     &mut File::create(&target)?,
                 )
                 .map_err(Error::IO)
-                .map(|_| true)
+                .map(|_| Extracted::Copied)
             }
         }
     }
@@ -822,10 +829,12 @@ pub fn extract(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<()
             create_dir_all(target.parent().unwrap())?;
 
             let source = entry.get();
-            let new_file_created = source.extract(&target)?;
-            println!("{} -> {}", source, target.display());
-            if new_file_created {
-                entry.insert(RomSource::Disk(target));
+            match source.extract(&target)? {
+                Extracted::Copied => {
+                    println!("{} => {}", source, target.display());
+                    entry.insert(RomSource::Disk(target));
+                }
+                Extracted::Linked => println!("{} -> {}", source, target.display()),
             }
         }
         Ok(())
