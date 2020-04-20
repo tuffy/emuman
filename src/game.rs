@@ -508,10 +508,7 @@ impl Part {
         let mut r = Sha1Reader::new(r);
         match Part::disk_from_reader(&mut r) {
             Ok(Some(part)) => Ok(part),
-            Ok(None) => {
-                copy(&mut r, &mut sink())?;
-                Ok(Part::ROM { sha1: r.digest() })
-            }
+            Ok(None) => copy(&mut r, &mut sink()).map(|_| Part::ROM { sha1: r.digest() }),
             Err(err) => Err(err),
         }
     }
