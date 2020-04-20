@@ -3,10 +3,11 @@ use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
+use sha1::Sha1;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::io::{BufRead, Read, Seek};
+use std::io::Read;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -498,33 +499,27 @@ impl Part {
 
         File::open(path)
             .map(BufReader::new)
-            .and_then(|mut r| Part::from_bufreader(&mut r))
+            .and_then(|mut r| Part::from_reader(&mut r))
     }
 
-    fn from_bufreader<R>(mut r: R) -> Result<Self, std::io::Error>
-    where
-        R: BufRead + Seek,
-    {
-        use std::io::SeekFrom;
+    fn from_reader<R: Read>(r: R) -> Result<Self, std::io::Error> {
+        use std::io::{copy, sink};
 
-        match Part::disk_from_bufreader(&mut r) {
-            Ok(Some(disk)) => Ok(disk),
+        let mut r = Sha1Reader::new(r);
+        match Part::disk_from_reader(&mut r) {
+            Ok(Some(part)) => Ok(part),
             Ok(None) => {
-                r.seek(SeekFrom::Start(0))?;
-                Part::rom_from_bufreader(r)
+                copy(&mut r, &mut sink())?;
+                Ok(Part::ROM { sha1: r.digest() })
             }
             Err(err) => Err(err),
         }
     }
 
-    fn disk_from_bufreader<R: BufRead>(mut r: R) -> Result<Option<Self>, std::io::Error> {
-        fn skip<R: BufRead>(mut r: R, mut to_skip: usize) -> Result<(), std::io::Error> {
-            while to_skip > 0 {
-                let consumed = r.fill_buf()?.len().min(to_skip);
-                r.consume(consumed);
-                to_skip -= consumed;
-            }
-            Ok(())
+    fn disk_from_reader<R: Read>(mut r: R) -> Result<Option<Self>, std::io::Error> {
+        fn skip<R: Read>(mut r: R, to_skip: usize) -> Result<(), std::io::Error> {
+            let mut buf = vec![0; to_skip];
+            r.read_exact(buf.as_mut_slice())
         }
 
         let mut tag = [0; 8];
@@ -554,44 +549,6 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn rom_from_bufreader<B: BufRead>(mut r: B) -> Result<Self, std::io::Error> {
-        use sha1::Sha1;
-
-        let mut sha1 = Sha1::new();
-        loop {
-            let buf = r.fill_buf()?;
-            let len = if buf.is_empty() {
-                return Ok(Part::ROM {
-                    sha1: sha1.digest().bytes(),
-                });
-            } else {
-                sha1.update(buf);
-                buf.len()
-            };
-            r.consume(len);
-        }
-    }
-
-    fn rom_from_reader<R: Read>(mut r: R) -> Result<Self, std::io::Error> {
-        use sha1::Sha1;
-
-        let mut sha1 = Sha1::new();
-        let mut buf = [0; 4096];
-        loop {
-            match r.read(&mut buf) {
-                Ok(0) => {
-                    break Ok(Part::ROM {
-                        sha1: sha1.digest().bytes(),
-                    })
-                }
-                Ok(bytes) => {
-                    sha1.update(&buf[0..bytes]);
-                }
-                Err(e) => break Err(e),
-            }
-        }
-    }
-
     fn verify<P: AsRef<Path>>(&self, part_path: P) -> Option<VerifyFailure<P>> {
         match Part::from_path(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => None,
@@ -606,6 +563,34 @@ impl Part {
         } else {
             false
         }
+    }
+}
+
+struct Sha1Reader<R> {
+    reader: R,
+    sha1: Sha1,
+}
+
+impl<R> Sha1Reader<R> {
+    #[inline]
+    fn new(reader: R) -> Self {
+        Sha1Reader {
+            reader,
+            sha1: Sha1::new(),
+        }
+    }
+
+    #[inline]
+    fn digest(self) -> [u8; 20] {
+        self.sha1.digest().bytes()
+    }
+}
+
+impl<R: Read> Read for Sha1Reader<R> {
+    fn read(&mut self, data: &mut [u8]) -> Result<usize, std::io::Error> {
+        let bytes = self.reader.read(data)?;
+        self.sha1.update(&data[0..bytes]);
+        Ok(bytes)
     }
 }
 
@@ -721,7 +706,7 @@ impl RomSource {
             (0..zip.len())
                 .map(|index| {
                     Ok((
-                        Part::rom_from_reader(zip.by_index(index)?)?,
+                        Part::from_reader(zip.by_index(index)?)?,
                         RomSource::Zip {
                             file: file.clone(),
                             index,
@@ -730,7 +715,7 @@ impl RomSource {
                 })
                 .collect()
         } else {
-            Ok(vec![(Part::from_bufreader(r)?, RomSource::Disk(pb))])
+            Ok(vec![(Part::from_reader(r)?, RomSource::Disk(pb))])
         }
     }
 
