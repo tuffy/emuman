@@ -8,6 +8,7 @@ use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
+mod extra;
 mod game;
 mod mame;
 mod mess;
@@ -16,10 +17,12 @@ mod split;
 
 static MAME: &str = "mame";
 static MESS: &str = "mess";
+static EXTRA: &str = "extra";
 static REDUMP: &str = "redump";
 
 static CACHE_MAME: &str = "mame.cbor";
 static CACHE_MESS: &str = "mess.cbor";
+static CACHE_EXTRA: &str = "extra.cbor";
 static CACHE_REDUMP: &str = "redump.cbor";
 static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
 static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
@@ -829,6 +832,174 @@ impl OptMess {
 }
 
 #[derive(StructOpt)]
+struct OptExtraCreate {
+    /// extras .DAT file files
+    #[structopt(parse(from_os_str))]
+    dats: Vec<PathBuf>,
+}
+
+impl OptExtraCreate {
+    fn execute(self) -> Result<(), Error> {
+        // FIXME
+        let games = self
+            .dats
+            .into_iter()
+            .filter_map(|dat| read_dat_or_zip(dat).transpose())
+            .collect::<Result<Vec<game::Game>, Error>>()?;
+
+        write_cache(
+            CACHE_EXTRA,
+            game::GameDb {
+                description: "MAME Extras".to_string(),
+                games: games
+                    .into_iter()
+                    .map(|game| (game.name.clone(), game))
+                    .collect(),
+            },
+        )
+    }
+}
+
+/*FIXME - add more parts to extras?*/
+#[derive(StructOpt)]
+struct OptExtraList {}
+
+impl OptExtraList {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
+        db.list(None, game::GameColumn::Description, false);
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptExtraParts {
+    /// sections's parts to search for
+    section: String,
+}
+
+impl OptExtraParts {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
+        db.display_parts(&self.section)
+    }
+}
+
+#[derive(StructOpt)]
+struct OptExtraVerify {
+    /// extras directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    dir: PathBuf,
+
+    /// extra to verify
+    extras: Vec<String>,
+}
+
+impl OptExtraVerify {
+    fn execute(self) -> Result<(), Error> {
+        let db: game::GameDb = read_cache(EXTRA, CACHE_EXTRA)?;
+
+        let extras: HashSet<String> = if !self.extras.is_empty() {
+            // only validate user-specified extras
+            let extras = self.extras.iter().cloned().collect();
+            db.validate_games(&extras)?;
+            extras
+        } else {
+            // ignore stuff that's on disk but not valid machines
+            self.dir
+                .read_dir()?
+                .filter_map(|e| {
+                    e.ok()
+                        .and_then(|e| e.file_name().into_string().ok())
+                        .filter(|s| db.is_game(s))
+                })
+                .collect()
+        };
+
+        verify(&db, &self.dir, &extras, false);
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptExtraAdd {
+    /// input directory
+    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    input: PathBuf,
+
+    /// output directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    dir: PathBuf,
+
+    /// don't actually add files
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+
+    /// extra to add
+    extras: Vec<String>,
+}
+
+impl OptExtraAdd {
+    fn execute(mut self) -> Result<(), Error> {
+        let db: game::GameDb = read_cache(EXTRA, CACHE_EXTRA)?;
+
+        let mut parts = if self.extras.is_empty() {
+            self.extras = db.all_games();
+            game::all_rom_sources(&self.input)
+        } else {
+            game::get_rom_sources(&self.input, db.required_parts(&self.extras)?)
+        };
+
+        let copy = if self.dry_run {
+            game::extract_dry_run
+        } else {
+            game::extract
+        };
+
+        self.extras
+            .iter()
+            .try_for_each(|game| db.games[game].add(&mut parts, &self.dir, copy))
+    }
+}
+
+#[derive(StructOpt)]
+#[structopt(name = "extra")]
+enum OptExtra {
+    /// create internal database
+    #[structopt(name = "create")]
+    Create(OptExtraCreate),
+
+    /// list all extras categories
+    #[structopt(name = "list")]
+    List(OptExtraList),
+
+    /// list an extra's parts
+    #[structopt(name = "parts")]
+    Parts(OptExtraParts),
+
+    /// verify parts in directory
+    #[structopt(name = "verify")]
+    Verify(OptExtraVerify),
+
+    /// add files to directory
+    #[structopt(name = "add")]
+    Add(OptExtraAdd),
+}
+
+impl OptExtra {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptExtra::Create(o) => o.execute(),
+            OptExtra::List(o) => o.execute(),
+            OptExtra::Parts(o) => o.execute(),
+            OptExtra::Verify(o) => o.execute(),
+            OptExtra::Add(o) => o.execute(),
+        }
+    }
+}
+
+#[derive(StructOpt)]
 struct OptRedumpCreate {
     /// SQLite database
     #[structopt(long = "db", parse(from_os_str))]
@@ -1100,6 +1271,10 @@ enum Opt {
     #[structopt(name = "mess")]
     Mess(OptMess),
 
+    /// extra files management, like snapshots
+    #[structopt(name = "extra")]
+    Extra(OptExtra),
+
     /// disc image software management
     #[structopt(name = "redump")]
     Redump(OptRedump),
@@ -1110,6 +1285,7 @@ impl Opt {
         match self {
             Opt::Mame(o) => o.execute(),
             Opt::Mess(o) => o.execute(),
+            Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
         }
     }
@@ -1146,6 +1322,48 @@ fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
         f.read_to_string(&mut data)?;
     }
     Ok(data)
+}
+
+// attempts to read the appopriate .dat in a zip file,
+// or the whole raw file if it is not a .zip
+fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Option<game::Game>, Error> {
+    let mut f = File::open(file)?;
+    let mut data = String::new();
+    if is_zip(&mut f)? {
+        use zip::ZipArchive;
+
+        let mut zip = ZipArchive::new(f)?;
+
+        let dats = zip
+            .file_names()
+            .filter(|s| s.ends_with(".dat"))
+            .map(|s| s.to_owned())
+            .collect::<Vec<String>>();
+
+        match dats.as_slice() {
+            [] => Ok(None),
+            [dat] => {
+                // only one .dat file, so use that
+                zip.by_name(dat)?.read_to_string(&mut data)?;
+                let tree = Document::parse(&data)?;
+                Ok(Some(extra::dat_to_game(&tree)))
+            }
+            dats => {
+                // multiple .dat files, so use one with NS in filename
+                if let Some(dat) = dats.iter().find(|s| s.contains("NS")) {
+                    zip.by_name(dat)?.read_to_string(&mut data)?;
+                    let tree = Document::parse(&data)?;
+                    Ok(Some(extra::dat_to_game(&tree)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    } else {
+        f.read_to_string(&mut data)?;
+        let tree = Document::parse(&data)?;
+        Ok(Some(extra::dat_to_game(&tree)))
+    }
 }
 
 fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {
