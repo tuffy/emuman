@@ -836,31 +836,40 @@ struct OptExtraCreate {
     /// extras .DAT file files
     #[structopt(parse(from_os_str))]
     dats: Vec<PathBuf>,
+
+    /// append new .DAT file to existing set
+    #[structopt(short = "a", long = "append")]
+    append: bool,
 }
 
 impl OptExtraCreate {
     fn execute(self) -> Result<(), Error> {
-        // FIXME
-        let games = self
+        let new_games = self
             .dats
             .into_iter()
             .filter_map(|dat| read_dat_or_zip(dat).transpose())
             .collect::<Result<Vec<game::Game>, Error>>()?;
 
-        write_cache(
-            CACHE_EXTRA,
+        let db = if self.append {
+            let mut db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
+            for game in new_games {
+                db.games.insert(game.name.clone(), game);
+            }
+            db
+        } else {
             game::GameDb {
                 description: "MAME Extras".to_string(),
-                games: games
+                games: new_games
                     .into_iter()
                     .map(|game| (game.name.clone(), game))
                     .collect(),
-            },
-        )
+            }
+        };
+
+        write_cache(CACHE_EXTRA, db)
     }
 }
 
-/*FIXME - add more parts to extras?*/
 #[derive(StructOpt)]
 struct OptExtraList {}
 
