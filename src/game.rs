@@ -487,7 +487,7 @@ impl Part {
     #[inline]
     fn digest(&self) -> Digest {
         match self {
-            Part::ROM { sha1, .. } => Digest(sha1),
+            Part::ROM { sha1 } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
         }
     }
@@ -591,11 +591,16 @@ impl<R: Read> Read for Sha1Reader<R> {
     }
 }
 
-pub fn parse_sha1(mut hex: &str) -> [u8; 20] {
+pub fn parse_sha1(hex: &str) -> [u8; 20] {
+    let mut hex = hex.trim();
     let mut bin = [0; 20];
 
-    assert_eq!(hex.len(), 40);
-    assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    if hex.len() != 40 {
+        panic!("sha1 sum \"{}\" not 40 characters", hex);
+    }
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        panic!("sha1 sum \"{}\" not all hex digits", hex);
+    }
 
     for c in bin.iter_mut() {
         let (first, rest) = hex.split_at(2);
