@@ -1,5 +1,5 @@
 use super::{
-    game::{Game, GameDb, Part, Status},
+    game::{Game, GameColumn, GameDb, GameRow, Part, Status},
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
@@ -591,6 +591,46 @@ fn xml_to_split(node: &Node) -> (u64, SplitGame) {
     }
 
     (offset as u64, game)
+}
+
+pub fn list(db: &MessDb, search: Option<&str>, sort: GameColumn, simple: bool) {
+    let mut results: Vec<(&str, GameRow)> = db
+        .iter()
+        .flat_map(|(name, game_db)| {
+            game_db
+                .list_results(search, simple)
+                .into_iter()
+                .map(move |row| (name.as_str(), row))
+        })
+        .collect();
+
+    results.sort_by(|(_, a), (_, b)| a.compare(b, sort));
+
+    display_results(&results);
+}
+
+pub fn display_results(results: &[(&str, GameRow)]) {
+    use prettytable::{cell, format, row, Table};
+
+    let mut table = Table::new();
+
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    table.get_format().column_separator('\u{2502}');
+
+    for (db_name, game) in results {
+        let description = game.description;
+        let creator = game.creator;
+        let year = game.year;
+        let name = game.name;
+
+        table.add_row(match game.status {
+            Status::Working => row![description, creator, year, db_name, name],
+            Status::Partial => row![FY => description, creator, year, db_name, name],
+            Status::NotWorking => row![FR => description, creator, year, db_name, name],
+        });
+    }
+
+    table.printstd();
 }
 
 pub fn list_all(db: &MessDb) {

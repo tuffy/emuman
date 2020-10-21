@@ -105,8 +105,8 @@ impl GameDb {
         }
     }
 
-    pub fn list(&self, search: Option<&str>, sort: GameColumn, simple: bool) {
-        let mut results: Vec<GameRow> = if let Some(search) = search {
+    pub fn list_results(&self, search: Option<&str>, simple: bool) -> Vec<GameRow> {
+        if let Some(search) = search {
             self.games
                 .values()
                 .filter(|g| !g.is_device)
@@ -119,8 +119,11 @@ impl GameDb {
                 .filter(|g| !g.is_device)
                 .map(|g| g.report(simple))
                 .collect()
-        };
+        }
+    }
 
+    pub fn list(&self, search: Option<&str>, sort: GameColumn, simple: bool) {
+        let mut results = self.list_results(search, simple);
         results.sort_by(|a, b| a.compare(b, sort));
         GameDb::display_report(&results)
     }
@@ -138,13 +141,12 @@ impl GameDb {
         )
     }
 
-    pub fn report(
+    pub fn report_results(
         &self,
         games: &HashSet<String>,
         search: Option<&str>,
-        sort: GameColumn,
         simple: bool,
-    ) {
+    ) -> Vec<GameRow> {
         let mut results: Vec<GameRow> = games
             .iter()
             .filter_map(|g| {
@@ -159,6 +161,17 @@ impl GameDb {
             results.retain(|g| g.matches(search));
         }
 
+        results
+    }
+
+    pub fn report(
+        &self,
+        games: &HashSet<String>,
+        search: Option<&str>,
+        sort: GameColumn,
+        simple: bool,
+    ) {
+        let mut results = self.report_results(games, search, simple);
         results.sort_by(|a, b| a.compare(b, sort));
         GameDb::display_report(&results)
     }
@@ -554,12 +567,9 @@ impl Part {
         }
     }
 
+    #[inline]
     fn is_bad<P: AsRef<Path>>(&self, part_path: P) -> bool {
-        if let Some(VerifyFailure::Bad(_)) = self.verify(part_path) {
-            true
-        } else {
-            false
-        }
+        matches!(self.verify(part_path), Some(VerifyFailure::Bad(_)))
     }
 }
 

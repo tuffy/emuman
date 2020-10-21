@@ -483,13 +483,15 @@ impl OptMessList {
     fn execute(self) -> Result<(), Error> {
         let mut db: mess::MessDb = read_cache(MESS, CACHE_MESS)?;
 
-        if let Some(software_list) = self.software_list {
-            let db = db
-                .remove(&software_list)
-                .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
-            db.list(self.search.as_deref(), self.sort, self.simple)
-        } else {
-            mess::list_all(&db)
+        match self.software_list.as_deref() {
+            Some("any") => mess::list(&db, self.search.as_deref(), self.sort, self.simple),
+            Some(software_list) => {
+                let db = db
+                    .remove(software_list)
+                    .ok_or_else(|| Error::NoSuchSoftwareList(software_list.to_string()))?;
+                db.list(self.search.as_deref(), self.sort, self.simple)
+            }
+            None => mess::list_all(&db),
         }
 
         Ok(())
@@ -564,18 +566,42 @@ struct OptMessReport {
 
 impl OptMessReport {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS).and_then(|mut db| {
-            db.remove(&self.software_list)
-                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))
-        })?;
+        use crate::game::GameRow;
 
-        let software: HashSet<String> = self
-            .roms
-            .read_dir()?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .collect();
+        let mut mess_db: mess::MessDb = read_cache(MESS, CACHE_MESS)?;
 
-        db.report(&software, self.search.as_deref(), self.sort, self.simple);
+        if self.software_list == "any" {
+            let mut results: Vec<(&str, GameRow)> = Vec::new();
+            for (name, db) in mess_db.iter() {
+                let roms = self.roms.join(name);
+                if let Ok(dir) = roms.read_dir() {
+                    let software: HashSet<String> = dir
+                        .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                        .collect();
+
+                    results.extend(
+                        db.report_results(&software, self.search.as_deref(), self.simple)
+                            .into_iter()
+                            .map(|row| (name.as_str(), row)),
+                    );
+                }
+            }
+            results.sort_by(|(_, a), (_, b)| a.compare(b, self.sort));
+            mess::display_results(&results);
+        } else {
+            let db = mess_db
+                .remove(&self.software_list)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+
+            let software: HashSet<String> = self
+                .roms
+                .read_dir()?
+                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+                .collect();
+
+            db.report(&software, self.search.as_deref(), self.sort, self.simple);
+        }
+
         Ok(())
     }
 }
