@@ -704,13 +704,21 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 
 pub enum RomSource {
     Disk(PathBuf),
-    Zip { file: Arc<PathBuf>, index: usize },
+    Zip {
+        file: Arc<PathBuf>,
+        index: usize,
+    },
+    SubZip {
+        file: Arc<PathBuf>,
+        index: usize,
+        sub_index: usize,
+    },
 }
 
 impl RomSource {
     pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
-        use std::io::BufReader;
+        use std::io::{copy, BufReader, Cursor};
 
         let mut r = File::open(&pb).map(BufReader::new)?;
 
@@ -720,17 +728,36 @@ impl RomSource {
         if is_zip(&mut r).unwrap_or(false) {
             let file = Arc::new(pb);
             let mut zip = zip::ZipArchive::new(r)?;
-            (0..zip.len())
-                .map(|index| {
-                    Ok((
-                        Part::from_reader(zip.by_index(index)?)?,
+            let mut result = Vec::new();
+            for index in 0..zip.len() {
+                let mut file_data = Vec::new();
+                copy(&mut zip.by_index(index)?, &mut file_data)?;
+                let mut reader = Cursor::new(file_data);
+                if is_zip(&mut reader).unwrap_or(false) {
+                    let mut sub_zip = zip::ZipArchive::new(reader)?;
+                    for sub_index in 0..sub_zip.len() {
+                        let part = Part::from_reader(sub_zip.by_index(sub_index)?)?;
+                        result.push((
+                            part,
+                            RomSource::SubZip {
+                                file: file.clone(),
+                                index,
+                                sub_index,
+                            },
+                        ))
+                    }
+                } else {
+                    let part = Part::from_reader(reader)?;
+                    result.push((
+                        part,
                         RomSource::Zip {
                             file: file.clone(),
                             index,
                         },
                     ))
-                })
-                .collect()
+                }
+            }
+            Ok(result)
         } else {
             Ok(vec![(Part::from_reader(r)?, RomSource::Disk(pb))])
         }
@@ -762,6 +789,30 @@ impl RomSource {
                 .map_err(Error::IO)
                 .map(|_| Extracted::Copied)
             }
+            RomSource::SubZip {
+                file,
+                index,
+                sub_index,
+            } => {
+                use std::fs::File;
+                use std::io::{copy, BufReader, Cursor};
+                use zip::ZipArchive;
+
+                let mut file_data = Vec::new();
+                copy(
+                    &mut ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
+                        .by_index(*index)?,
+                    &mut file_data,
+                )?;
+
+                let reader = Cursor::new(file_data);
+                copy(
+                    &mut ZipArchive::new(reader)?.by_index(*sub_index)?,
+                    &mut File::create(&target)?,
+                )
+                .map_err(Error::IO)
+                .map(|_| Extracted::Copied)
+            }
         }
     }
 }
@@ -771,6 +822,11 @@ impl fmt::Display for RomSource {
         match self {
             RomSource::Disk(source) => source.display().fmt(f),
             RomSource::Zip { file, index } => write!(f, "{}:{}", file.display(), index),
+            RomSource::SubZip {
+                file,
+                index,
+                sub_index,
+            } => write!(f, "{}:{}:{}", file.display(), index, sub_index),
         }
     }
 }
@@ -865,6 +921,19 @@ pub fn extract_dry_run(roms: &mut RomSources, part: &Part, target: PathBuf) -> R
                     index,
                 } => {
                     println!("{}:{} -> {}", source.display(), index, target.display());
+                }
+                RomSource::SubZip {
+                    file: source,
+                    index,
+                    sub_index,
+                } => {
+                    println!(
+                        "{}:{}:{} -> {}",
+                        source.display(),
+                        index,
+                        sub_index,
+                        target.display()
+                    );
                 }
             }
         }
