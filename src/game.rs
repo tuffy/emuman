@@ -31,6 +31,11 @@ impl GameDb {
     }
 
     #[inline]
+    pub fn games_iter(&self) -> impl Iterator<Item = &Game> {
+        self.games.values()
+    }
+
+    #[inline]
     pub fn all_games<C: FromIterator<String>>(&self) -> C {
         self.games.keys().cloned().collect()
     }
@@ -498,7 +503,7 @@ impl Part {
     }
 
     #[inline]
-    fn digest(&self) -> Digest {
+    pub fn digest(&self) -> Digest {
         match self {
             Part::ROM { sha1 } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
@@ -621,7 +626,7 @@ pub fn parse_sha1(hex: &str) -> [u8; 20] {
     bin
 }
 
-struct Digest<'a>(&'a [u8]);
+pub struct Digest<'a>(&'a [u8]);
 
 impl<'a> fmt::Display for Digest<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -703,7 +708,7 @@ pub enum RomSource {
 }
 
 impl RomSource {
-    fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
+    pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
         use std::io::BufReader;
 

@@ -347,6 +347,8 @@ impl OptMameRename {
 
         if self.machines.is_empty() {
             self.machines = db.all_games();
+        } else {
+            db.validate_games(&self.machines)?;
         }
 
         let file_move = if self.dry_run {
@@ -665,6 +667,56 @@ impl OptMessVerify {
 }
 
 #[derive(StructOpt)]
+struct OptMessVerifyAll {
+    /// ROMs directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// verify all possible machines
+    #[structopt(long = "all")]
+    all: bool,
+
+    /// verify only working machines
+    #[structopt(long = "working")]
+    working: bool,
+
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
+}
+
+impl OptMessVerifyAll {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
+
+        for (software_list, mut db) in db.into_iter() {
+            let roms_path = self.roms.join(software_list);
+
+            if self.working {
+                db.retain_working();
+            }
+
+            let software: HashSet<String> = if self.all {
+                db.all_games()
+            } else {
+                roms_path
+                    .read_dir()?
+                    .filter_map(|e| {
+                        e.ok()
+                            .and_then(|e| e.file_name().into_string().ok())
+                            .filter(|s| db.is_game(s))
+                    })
+                    .collect()
+            };
+
+            verify(&db, &roms_path, &software, self.failures);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
 struct OptMessAdd {
     /// input directory
     #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
@@ -707,6 +759,41 @@ impl OptMessAdd {
         self.software
             .iter()
             .try_for_each(|game| db.games[game].add(&mut roms, &self.roms, copy))
+    }
+}
+
+#[derive(StructOpt)]
+struct OptMessAddAll {
+    /// input directory
+    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    input: PathBuf,
+
+    /// output directory
+    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// don't actually add ROMs
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+}
+
+impl OptMessAddAll {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
+
+        let mut roms = game::all_rom_sources(&self.input);
+
+        let copy = if self.dry_run {
+            game::extract_dry_run
+        } else {
+            game::extract
+        };
+
+        db.into_iter().try_for_each(|(software, db)| {
+            let roms_path = self.roms.join(software);
+            db.games_iter()
+                .try_for_each(|game| game.add(&mut roms, &roms_path, copy))
+        })
     }
 }
 
@@ -828,9 +915,17 @@ enum OptMess {
     #[structopt(name = "verify")]
     Verify(OptMessVerify),
 
+    /// verify all ROMs in all software lists in directory
+    #[structopt(name = "verify-all")]
+    VerifyAll(OptMessVerifyAll),
+
     /// add ROMs to directory
     #[structopt(name = "add")]
     Add(OptMessAdd),
+
+    /// add all ROMs from all software lists to directory
+    #[structopt(name = "add-all")]
+    AddAll(OptMessAddAll),
 
     /// rename ROMs in directory, if necessary
     #[structopt(name = "rename")]
@@ -850,7 +945,9 @@ impl OptMess {
             OptMess::Parts(o) => o.execute(),
             OptMess::Report(o) => o.execute(),
             OptMess::Verify(o) => o.execute(),
+            OptMess::VerifyAll(o) => o.execute(),
             OptMess::Add(o) => o.execute(),
+            OptMess::AddAll(o) => o.execute(),
             OptMess::Rename(o) => o.execute(),
             OptMess::Split(o) => o.execute(),
         }
@@ -1295,6 +1392,26 @@ impl OptRedump {
     }
 }
 
+#[derive(StructOpt)]
+struct OptIdentify {
+    /// ROMs or CHDs to identify
+    parts: Vec<PathBuf>,
+}
+
+impl OptIdentify {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::RomSource;
+
+        for path in self.parts.into_iter() {
+            for (part, source) in RomSource::from_path(path)? {
+                println!("{}  {}", part.digest(), source);
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Emulation Database Manager
 #[derive(StructOpt)]
 enum Opt {
@@ -1313,6 +1430,10 @@ enum Opt {
     /// disc image software management
     #[structopt(name = "redump")]
     Redump(OptRedump),
+
+    /// identify ROM or CHD by hash
+    #[structopt(name = "identify")]
+    Identify(OptIdentify),
 }
 
 impl Opt {
@@ -1322,6 +1443,7 @@ impl Opt {
             Opt::Mess(o) => o.execute(),
             Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
+            Opt::Identify(o) => o.execute(),
         }
     }
 }
