@@ -718,7 +718,7 @@ pub enum RomSource {
 impl RomSource {
     pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
-        use std::io::{copy, BufReader, Cursor};
+        use std::io::{BufReader, Cursor};
 
         let mut r = File::open(&pb).map(BufReader::new)?;
 
@@ -731,7 +731,7 @@ impl RomSource {
             let mut result = Vec::new();
             for index in 0..zip.len() {
                 let mut file_data = Vec::new();
-                copy(&mut zip.by_index(index)?, &mut file_data)?;
+                zip.by_index(index)?.read_to_end(&mut file_data)?;
                 let mut reader = Cursor::new(file_data);
                 if is_zip(&mut reader).unwrap_or(false) {
                     let mut sub_zip = zip::ZipArchive::new(reader)?;
@@ -799,11 +799,9 @@ impl RomSource {
                 use zip::ZipArchive;
 
                 let mut file_data = Vec::new();
-                copy(
-                    &mut ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
-                        .by_index(*index)?,
-                    &mut file_data,
-                )?;
+                ZipArchive::new(File::open(file.as_ref()).map(BufReader::new)?)?
+                    .by_index(*index)?
+                    .read_to_end(&mut file_data)?;
 
                 let reader = Cursor::new(file_data);
                 copy(
