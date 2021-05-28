@@ -700,13 +700,16 @@ impl OptMessVerifyAll {
                 db.all_games()
             } else {
                 roms_path
-                    .read_dir()?
-                    .filter_map(|e| {
-                        e.ok()
-                            .and_then(|e| e.file_name().into_string().ok())
-                            .filter(|s| db.is_game(s))
+                    .read_dir()
+                    .map(|dir| {
+                        dir.filter_map(|e| {
+                            e.ok()
+                                .and_then(|e| e.file_name().into_string().ok())
+                                .filter(|s| db.is_game(s))
+                        })
+                        .collect()
                     })
-                    .collect()
+                    .unwrap_or_default()
             };
 
             verify(&db, &roms_path, &software, self.failures);
