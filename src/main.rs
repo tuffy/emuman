@@ -973,24 +973,18 @@ impl OptExtraCreate {
         let new_games = self
             .dats
             .into_iter()
-            .filter_map(|dat| read_dat_or_zip(dat).transpose())
-            .collect::<Result<Vec<game::Game>, Error>>()?;
+            .map(|dat| read_dat_or_zip(dat))
+            .collect::<Result<Vec<Vec<(String, game::GameDb)>>, Error>>()?;
 
-        let db = if self.append {
-            let mut db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
-            for game in new_games {
-                db.games.insert(game.name.clone(), game);
-            }
-            db
+        let mut db = if self.append {
+            read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
         } else {
-            game::GameDb {
-                description: "MAME Extras".to_string(),
-                games: new_games
-                    .into_iter()
-                    .map(|game| (game.name.clone(), game))
-                    .collect(),
-            }
+            extra::ExtraDb::default()
         };
+
+        for (name, game_db) in new_games.into_iter().flatten() {
+            db.insert(name, game_db);
+        }
 
         write_cache(CACHE_EXTRA, db)
     }
@@ -1001,8 +995,8 @@ struct OptExtraList {}
 
 impl OptExtraList {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
-        db.list(None, game::GameColumn::Description, false);
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
+        mess::list_all(&db);
         Ok(())
     }
 }
@@ -1011,11 +1005,18 @@ impl OptExtraList {
 struct OptExtraParts {
     /// sections's parts to search for
     section: String,
+
+    /// section's name to search for
+    name: String,
 }
 
 impl OptExtraParts {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<game::GameDb>(EXTRA, CACHE_EXTRA)?;
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA).and_then(|mut db| {
+            db.remove(&self.name)
+                .ok_or_else(|| Error::NoSuchSoftwareList(self.name.clone()))
+        })?;
+
         db.display_parts(&self.section)
     }
 }
@@ -1026,21 +1027,24 @@ struct OptExtraVerify {
     #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 
-    /// extra to verify
-    extras: Vec<String>,
+    /// extras category to verify
+    extra: String,
+
+    /// machine to verify
+    software: Vec<String>,
 }
 
 impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
-        let db: game::GameDb = read_cache(EXTRA, CACHE_EXTRA)?;
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
+            .remove(&self.extra)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
-        let extras: HashSet<String> = if !self.extras.is_empty() {
-            // only validate user-specified extras
-            let extras = self.extras.iter().cloned().collect();
-            db.validate_games(&extras)?;
-            extras
+        let software: HashSet<String> = if !self.software.is_empty() {
+            let software = self.software.iter().cloned().collect();
+            db.validate_games(&software)?;
+            software
         } else {
-            // ignore stuff that's on disk but not valid machines
             self.dir
                 .read_dir()?
                 .filter_map(|e| {
@@ -1051,7 +1055,7 @@ impl OptExtraVerify {
                 .collect()
         };
 
-        verify(&db, &self.dir, &extras, false);
+        verify(&db, &self.dir, &software, false);
 
         Ok(())
     }
@@ -1072,18 +1076,23 @@ struct OptExtraAdd {
     dry_run: bool,
 
     /// extra to add
-    extras: Vec<String>,
+    extra: String,
+
+    /// machine to add
+    software: Vec<String>,
 }
 
 impl OptExtraAdd {
     fn execute(mut self) -> Result<(), Error> {
-        let db: game::GameDb = read_cache(EXTRA, CACHE_EXTRA)?;
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
+            .remove(&self.extra)
+            .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
-        let mut parts = if self.extras.is_empty() {
-            self.extras = db.all_games();
+        let mut parts = if self.software.is_empty() {
+            self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
-            game::get_rom_sources(&self.input, db.required_parts(&self.extras)?)
+            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
         };
 
         let copy = if self.dry_run {
@@ -1092,7 +1101,7 @@ impl OptExtraAdd {
             game::extract
         };
 
-        self.extras
+        self.software
             .iter()
             .try_for_each(|game| db.games[game].add(&mut parts, &self.dir, copy))
     }
@@ -1484,11 +1493,10 @@ fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
     Ok(data)
 }
 
-// attempts to read the appopriate .dat in a zip file,
+// attempts to read all .dat files in a .zip file
 // or the whole raw file if it is not a .zip
-fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Option<game::Game>, Error> {
+fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Vec<(String, game::GameDb)>, Error> {
     let mut f = File::open(file)?;
-    let mut data = String::new();
     if is_zip(&mut f)? {
         use zip::ZipArchive;
 
@@ -1500,29 +1508,19 @@ fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Option<game::Game>, Error>
             .map(|s| s.to_owned())
             .collect::<Vec<String>>();
 
-        match dats.as_slice() {
-            [] => Ok(None),
-            [dat] => {
-                // only one .dat file, so use that
-                zip.by_name(dat)?.read_to_string(&mut data)?;
+        dats.into_iter()
+            .map(|name| {
+                let mut data = String::new();
+                zip.by_name(&name)?.read_to_string(&mut data)?;
                 let tree = Document::parse(&data)?;
-                Ok(Some(extra::dat_to_game(&tree)))
-            }
-            dats => {
-                // multiple .dat files, so use one with NS in filename
-                if let Some(dat) = dats.iter().find(|s| s.contains("NS")) {
-                    zip.by_name(dat)?.read_to_string(&mut data)?;
-                    let tree = Document::parse(&data)?;
-                    Ok(Some(extra::dat_to_game(&tree)))
-                } else {
-                    Ok(None)
-                }
-            }
-        }
+                Ok(extra::dat_to_game_db(&tree))
+            })
+            .collect()
     } else {
+        let mut data = String::new();
         f.read_to_string(&mut data)?;
         let tree = Document::parse(&data)?;
-        Ok(Some(extra::dat_to_game(&tree)))
+        Ok(vec![extra::dat_to_game_db(&tree)])
     }
 }
 

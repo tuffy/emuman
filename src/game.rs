@@ -16,6 +16,7 @@ use std::sync::Arc;
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
     pub description: String,
+    pub date: Option<String>,
     pub games: HashMap<String, Game>,
 }
 

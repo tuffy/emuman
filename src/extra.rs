@@ -1,8 +1,12 @@
-use super::game::{Game, Part};
+use super::game::{Game, GameDb, Part};
 use roxmltree::Document;
+use std::collections::BTreeMap;
 
-pub fn dat_to_game(tree: &Document) -> Game {
-    let mut game = Game::default();
+pub type ExtraDb = BTreeMap<String, GameDb>;
+
+pub fn dat_to_game_db(tree: &Document) -> (String, GameDb) {
+    let mut name = String::new();
+    let mut game_db = GameDb::default();
 
     let root = tree.root_element();
 
@@ -10,36 +14,45 @@ pub fn dat_to_game(tree: &Document) -> Game {
         for child in node.children() {
             match child.tag_name().name() {
                 "description" => {
-                    game.description = child
+                    game_db.description = child
                         .text()
                         .map(|s| s.to_string())
                         .unwrap_or_else(String::default)
                 }
-                "date" => {
-                    game.year = child
-                        .text()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(String::default)
+                "date" => game_db.date = child.text().map(|s| s.to_string()),
+                "name" => {
+                    name = child.text().map(|s| s.to_string()).unwrap_or_default();
                 }
                 _ => {}
             }
         }
     }
 
-    if let Some(node) = root.children().find(|c| c.tag_name().name() == "machine") {
-        game.name = node.attribute("name").unwrap().to_string();
+    for node in root.children().filter(|c| c.tag_name().name() == "machine") {
+        let mut game = Game {
+            name: node.attribute("name").unwrap().to_string(),
+            ..Game::default()
+        };
 
         for child in node.children() {
-            if child.tag_name().name() == "rom" {
-                if let Some(sha1) = child.attribute("sha1") {
-                    game.parts.insert(
-                        child.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1),
-                    );
+            match child.tag_name().name() {
+                "rom" => {
+                    if let Some(sha1) = child.attribute("sha1") {
+                        game.parts.insert(
+                            child.attribute("name").unwrap().to_string(),
+                            Part::new_rom(sha1),
+                        );
+                    }
                 }
+                "description" => {
+                    game.description = child.text().map(|s| s.to_string()).unwrap_or_default();
+                }
+                _ => { /*ignore other children*/ }
             }
         }
+
+        game_db.games.insert(game.name.clone(), game);
     }
 
-    game
+    (name, game_db)
 }
