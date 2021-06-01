@@ -1032,6 +1032,10 @@ struct OptExtraVerify {
 
     /// machine to verify
     software: Vec<String>,
+
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
 }
 
 impl OptExtraVerify {
@@ -1055,7 +1059,52 @@ impl OptExtraVerify {
                 .collect()
         };
 
-        verify(&db, &self.dir, &software, false);
+        verify(&db, &self.dir, &software, self.failures);
+
+        Ok(())
+    }
+}
+
+#[derive(StructOpt)]
+struct OptExtraVerifyAll {
+    /// extras directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    dir: PathBuf,
+
+    /// verify all possible machines
+    #[structopt(long = "all")]
+    all: bool,
+
+    /// display only failures
+    #[structopt(long = "failures")]
+    failures: bool,
+}
+
+impl OptExtraVerifyAll {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
+
+        for (extra_list, db) in db.into_iter() {
+            let extras_path = self.dir.join(extra_list);
+
+            let software: HashSet<String> = if self.all {
+                db.all_games()
+            } else {
+                extras_path
+                    .read_dir()
+                    .map(|dir| {
+                        dir.filter_map(|e| {
+                            e.ok()
+                                .and_then(|e| e.file_name().into_string().ok())
+                                .filter(|s| db.is_game(s))
+                        })
+                        .collect()
+                    })
+                    .unwrap_or_default()
+            };
+
+            verify(&db, &extras_path, &software, self.failures);
+        }
 
         Ok(())
     }
@@ -1108,6 +1157,41 @@ impl OptExtraAdd {
 }
 
 #[derive(StructOpt)]
+struct OptExtraAddAll {
+    /// input directory
+    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    input: PathBuf,
+
+    /// output directory
+    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    dir: PathBuf,
+
+    /// don't actually add files
+    #[structopt(long = "dry-run")]
+    dry_run: bool,
+}
+
+impl OptExtraAddAll {
+    fn execute(self) -> Result<(), Error> {
+        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
+
+        let mut parts = game::all_rom_sources(&self.input);
+
+        let copy = if self.dry_run {
+            game::extract_dry_run
+        } else {
+            game::extract
+        };
+
+        db.into_iter().try_for_each(|(extra, db)| {
+            let extras_path = self.dir.join(extra);
+            db.games_iter()
+                .try_for_each(|game| game.add(&mut parts, &extras_path, copy))
+        })
+    }
+}
+
+#[derive(StructOpt)]
 #[structopt(name = "extra")]
 enum OptExtra {
     /// create internal database
@@ -1129,6 +1213,14 @@ enum OptExtra {
     /// add files to directory
     #[structopt(name = "add")]
     Add(OptExtraAdd),
+
+    /// add all files to directory
+    #[structopt(name = "add-all")]
+    AddAll(OptExtraAddAll),
+
+    /// verify all files in directory
+    #[structopt(name = "verify-all")]
+    VerifyAll(OptExtraVerifyAll),
 }
 
 impl OptExtra {
@@ -1139,6 +1231,8 @@ impl OptExtra {
             OptExtra::Parts(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
             OptExtra::Add(o) => o.execute(),
+            OptExtra::AddAll(o) => o.execute(),
+            OptExtra::VerifyAll(o) => o.execute(),
         }
     }
 }
