@@ -1502,15 +1502,93 @@ impl OptRedump {
 struct OptIdentify {
     /// ROMs or CHDs to identify
     parts: Vec<PathBuf>,
+
+    /// perform reverse lookup
+    #[structopt(short = "l", long = "lookup")]
+    lookup: bool,
 }
 
 impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
-        use crate::game::RomSource;
+        use crate::game::{Part, RomSource};
+        use prettytable::Table;
+        use std::borrow::Cow;
+        use std::collections::{BTreeSet, HashMap};
 
-        for path in self.parts.into_iter() {
-            for (part, source) in RomSource::from_path(path)? {
-                println!("{}  {}", part.digest(), source);
+        if self.lookup {
+            let mut lookup: HashMap<Part, BTreeSet<[Cow<'static, str>; 4]>> = HashMap::default();
+
+            for (_, game) in read_cache::<game::GameDb>(MAME, CACHE_MAME)
+                .unwrap_or_default()
+                .games
+            {
+                for (name, part) in game.parts {
+                    lookup.entry(part).or_default().insert([
+                        "mame".into(),
+                        "".into(),
+                        game.name.clone().into(),
+                        name.clone().into(),
+                    ]);
+                }
+            }
+
+            for (system_name, system) in
+                read_cache::<mess::MessDb>(MESS, CACHE_MESS).unwrap_or_default()
+            {
+                for (_, game) in system.games {
+                    for (name, part) in game.parts {
+                        lookup.entry(part).or_default().insert([
+                            "mess".into(),
+                            system_name.clone().into(),
+                            game.name.clone().into(),
+                            name.clone().into(),
+                        ]);
+                    }
+                }
+            }
+
+            for (system_name, system) in
+                read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA).unwrap_or_default()
+            {
+                for (_, game) in system.games {
+                    for (name, part) in game.parts {
+                        lookup.entry(part).or_default().insert([
+                            "extra".into(),
+                            system_name.clone().into(),
+                            game.name.clone().into(),
+                            name.clone().into(),
+                        ]);
+                    }
+                }
+            }
+
+            for path in self.parts.into_iter() {
+                println!("{}:", path.display());
+                for (part, _) in RomSource::from_path(path)? {
+                    match lookup.get(&part) {
+                        Some(sources) => {
+                            use prettytable::{cell, format, row};
+                            let mut table = Table::new();
+                            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+                            table.get_format().column_separator('\u{2502}');
+
+                            for [category, system, game, rom] in sources {
+                                table.add_row(row![category, system, game, rom]);
+                            }
+
+                            table.printstd();
+                        }
+                        None => {
+                            println!("unknown");
+                        }
+                    }
+                }
+            }
+        } else {
+            for path in self.parts.into_iter() {
+                for (part, source) in RomSource::from_path(path)? {
+                    println!("{}  {}", part.digest(), source);
+                }
             }
         }
 
