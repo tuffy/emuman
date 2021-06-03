@@ -56,11 +56,11 @@ const INSERT_ROM: &str = "INSERT INTO ROM
 pub fn create_tables(db: &Transaction) -> Result<(), Error> {
     use rusqlite::params;
 
-    db.execute(CREATE_DATAFILE, params![]).map_err(Error::SQL)?;
-    db.execute(CREATE_GAME, params![]).map_err(Error::SQL)?;
-    db.execute(CREATE_ROM, params![]).map_err(Error::SQL)?;
+    db.execute(CREATE_DATAFILE, params![]).map_err(Error::Sql)?;
+    db.execute(CREATE_GAME, params![]).map_err(Error::Sql)?;
+    db.execute(CREATE_ROM, params![]).map_err(Error::Sql)?;
     db.execute(CREATE_ROM_INDEX, params![])
-        .map_err(Error::SQL)?;
+        .map_err(Error::Sql)?;
     Ok(())
 }
 
@@ -69,7 +69,7 @@ pub fn clear_tables(db: &Transaction) -> Result<(), Error> {
 
     db.execute("DELETE FROM Datafile", params![])
         .map(|_| ())
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
 }
 
 pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
@@ -82,9 +82,9 @@ pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
         .and_then(|mut f| f.read_to_string(&mut xml_file))
         .map_err(Error::IO)?;
 
-    let tree = Document::parse(&xml_file).map_err(Error::XML)?;
+    let tree = Document::parse(&xml_file).map_err(Error::Xml)?;
 
-    add_data_file(db, &tree.root_element()).map_err(Error::SQL)
+    add_data_file(db, &tree.root_element()).map_err(Error::Sql)
 }
 
 #[inline]

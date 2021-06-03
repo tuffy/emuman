@@ -144,7 +144,7 @@ pub fn clear_tables(db: &Transaction) -> Result<(), Error> {
 
     db.execute("DELETE FROM SoftwareList", params![])
         .map(|_| ())
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
 }
 
 pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
@@ -155,7 +155,7 @@ pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
     File::open(xml_path).and_then(|mut f| f.read_to_string(&mut xml_file))?;
 
     let tree = Document::parse(&xml_file)?;
-    add_software_list(db, &tree.root_element()).map_err(Error::SQL)
+    add_software_list(db, &tree.root_element()).map_err(Error::Sql)
 }
 
 fn add_software_list(db: &Transaction, node: &Node) -> Result<(), rusqlite::Error> {
@@ -476,33 +476,29 @@ pub fn xml_to_game_db(split_db: &mut SplitDb, tree: &Document) -> (String, GameD
 
 fn xml_to_game(node: &Node) -> Game {
     fn node_to_rom(node: &Node) -> Option<(String, Part)> {
-        if node.tag_name().name() == "rom" {
-            if let Some(sha1) = node.attribute("sha1") {
-                Some((
-                    node.attribute("name").unwrap().to_string(),
-                    Part::new_rom(sha1),
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        (node.tag_name().name() == "rom")
+            .then(|| {
+                node.attribute("sha1").map(|sha1| {
+                    (
+                        node.attribute("name").unwrap().to_string(),
+                        Part::new_rom(sha1),
+                    )
+                })
+            })
+            .flatten()
     }
 
     fn node_to_disk(node: &Node) -> Option<(String, Part)> {
-        if node.tag_name().name() == "disk" {
-            if let Some(sha1) = node.attribute("sha1") {
-                Some((
-                    Part::name_to_chd(node.attribute("name").unwrap()),
-                    Part::new_disk(sha1),
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        (node.tag_name().name() == "disk")
+            .then(|| {
+                node.attribute("sha1").map(|sha1| {
+                    (
+                        Part::name_to_chd(node.attribute("name").unwrap()),
+                        Part::new_disk(sha1),
+                    )
+                })
+            })
+            .flatten()
     }
 
     let mut game = Game {
@@ -664,8 +660,8 @@ pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
     u64::from_str(s)
         .or_else(|_| u64::from_str_radix(s, 16))
         .or_else(|e| {
-            if s.starts_with("0x") {
-                u64::from_str_radix(&s[2..], 16)
+            if let Some(stripped) = s.strip_prefix("0x") {
+                u64::from_str_radix(stripped, 16)
             } else {
                 dbg!(s);
                 Err(e)

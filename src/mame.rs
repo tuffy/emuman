@@ -418,7 +418,7 @@ pub fn create_tables(db: &Transaction) -> Result<(), Error> {
 pub fn clear_tables(db: &Transaction) -> Result<(), Error> {
     db.execute("DELETE FROM Machine", params![])
         .map(|_| ())
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
 }
 
 pub fn xml_to_db(tree: &Document, db: &Transaction) -> Result<(), Error> {
@@ -476,7 +476,7 @@ fn add_machine(db: &Transaction, machine: &Node) -> Result<(), Error> {
             ":sample_of": machine.attribute("sampleof")
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -488,7 +488,7 @@ fn add_description(db: &Transaction, machine_id: i64, description: &Node) -> Res
                 ":description": description.text(),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -500,7 +500,7 @@ fn add_year(db: &Transaction, machine_id: i64, year: &Node) -> Result<(), Error>
                 ":year": year.text(),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -512,7 +512,7 @@ fn add_manufacturer(db: &Transaction, machine_id: i64, manufacturer: &Node) -> R
                 ":manufacturer": manufacturer.text(),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -526,7 +526,7 @@ fn add_bios_set(db: &Transaction, machine_id: i64, bios_set: &Node) -> Result<()
                 ":default": bios_set.attribute("default").unwrap_or("no"),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -547,7 +547,7 @@ fn add_rom(db: &Transaction, machine_id: i64, rom: &Node) -> Result<(), Error> {
             ":optional": rom.attribute("optional").unwrap_or("no")
         })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -566,7 +566,7 @@ fn add_disk(db: &Transaction, machine_id: i64, disk: &Node) -> Result<(), Error>
             ":optional": disk.attribute("optional").unwrap_or("no")
         }
     ))
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
     .map(|_| ())
 }
 
@@ -578,7 +578,7 @@ fn add_device_ref(db: &Transaction, machine_id: i64, device_ref: &Node) -> Resul
                 ":name": device_ref.attribute("name")
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -590,7 +590,7 @@ fn add_sample(db: &Transaction, machine_id: i64, sample: &Node) -> Result<(), Er
                 ":name": sample.attribute("name")
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -604,7 +604,7 @@ fn add_chip(db: &Transaction, machine_id: i64, chip: &Node) -> Result<(), Error>
             ":clock": chip.attribute("clock").map(|s| i64::from_str(s).expect("invalid chip clock"))
         })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -629,7 +629,7 @@ fn add_display(db: &Transaction, machine_id: i64, display: &Node) -> Result<(), 
             ":vbstart": display.attribute("vbstart").map(|s| i64::from_str(s).expect("invalid vbstart integer"))
         }
     ))
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
     .map(|_| ())
 }
 
@@ -641,7 +641,7 @@ fn add_sound(db: &Transaction, machine_id: i64, sound: &Node) -> Result<(), Erro
             ":channels": sound.attribute("channels").map(|s| i64::from_str(s).expect("invalid channels integer"))
         }
     ))
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
     .map(|_| ())
 }
 
@@ -696,7 +696,7 @@ fn add_dip_location(db: &Transaction, switch_id: i64, location: &Node) -> Result
             ":inverted": location.attribute("inverted").unwrap_or("no"),
         }))
     .map(|_| ())
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
 }
 
 fn add_dip_value(db: &Transaction, switch_id: i64, value: &Node) -> Result<(), Error> {
@@ -709,7 +709,7 @@ fn add_dip_value(db: &Transaction, switch_id: i64, value: &Node) -> Result<(), E
             ":default": value.attribute("default").unwrap_or("no"),
         }))
     .map(|_| ())
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
 }
 
 fn add_configuration(db: &Transaction, machine_id: i64, conf: &Node) -> Result<(), Error> {
@@ -745,7 +745,7 @@ fn add_conf_location(db: &Transaction, conf_id: i64, location: &Node) -> Result<
             ":inverted": location.attribute("inverted").unwrap_or("no"),
         }))
     .map(|_| ())
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
 }
 
 fn add_conf_setting(db: &Transaction, conf_id: i64, setting: &Node) -> Result<(), Error> {
@@ -758,7 +758,7 @@ fn add_conf_setting(db: &Transaction, conf_id: i64, setting: &Node) -> Result<()
             ":default": setting.attribute("default").unwrap_or("no"),
         }))
     .map(|_| ())
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
 }
 
 fn add_control(db: &Transaction, machine_id: i64, control: &Node) -> Result<(), Error> {
@@ -780,7 +780,7 @@ fn add_control(db: &Transaction, machine_id: i64, control: &Node) -> Result<(), 
             ":ways3": control.attribute("ways3")
         }
     ))
-    .map_err(Error::SQL)
+    .map_err(Error::Sql)
     .map(|_| ())
 }
 
@@ -808,7 +808,7 @@ fn add_adjuster(db: &Transaction, machine_id: i64, adjuster: &Node) -> Result<()
                 ":default": adjuster.attribute("default").map(|s| i64::from_str(s).expect("invalid analog mask")),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -820,7 +820,7 @@ fn add_analog(db: &Transaction, port_id: i64, analog: &Node) -> Result<(), Error
                 ":mask": analog.attribute("mask").map(|s| i64::from_str(s).expect("invalid analog mask"))
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -834,7 +834,7 @@ fn add_driver(db: &Transaction, machine_id: i64, driver: &Node) -> Result<(), Er
                 ":savestate": driver.attribute("savestate")
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -848,7 +848,7 @@ fn add_feature(db: &Transaction, machine_id: i64, feature: &Node) -> Result<(), 
                 ":overall": feature.attribute("overall"),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -886,7 +886,7 @@ fn add_instance(db: &Transaction, device_id: i64, instance: &Node) -> Result<(),
                 ":briefname": instance.attribute("briefname"),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -898,7 +898,7 @@ fn add_extension(db: &Transaction, device_id: i64, extension: &Node) -> Result<(
                 ":name": extension.attribute("name"),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -927,7 +927,7 @@ fn add_slot_option(db: &Transaction, slot_id: i64, option: &Node) -> Result<(), 
                 ":default": option.attribute("default").unwrap_or("no")
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -942,7 +942,7 @@ fn add_software_list(db: &Transaction, machine_id: i64, list: &Node) -> Result<(
                     ":filter": list.attribute("filter"),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 
@@ -956,7 +956,7 @@ fn add_ram_option(db: &Transaction, machine_id: i64, ram: &Node) -> Result<(), E
                 ":value": ram.text().map(|s| i64::from_str(s).expect("invalid ramoption value")),
             })
         })
-        .map_err(Error::SQL)
+        .map_err(Error::Sql)
         .map(|_| ())
 }
 

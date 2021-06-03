@@ -30,9 +30,9 @@ static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
 #[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
-    XML(roxmltree::Error),
-    SQL(rusqlite::Error),
-    CBOR(serde_cbor::Error),
+    Xml(roxmltree::Error),
+    Sql(rusqlite::Error),
+    Cbor(serde_cbor::Error),
     Zip(zip::result::ZipError),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
@@ -47,19 +47,19 @@ impl From<std::io::Error> for Error {
 
 impl From<roxmltree::Error> for Error {
     fn from(err: roxmltree::Error) -> Self {
-        Error::XML(err)
+        Error::Xml(err)
     }
 }
 
 impl From<rusqlite::Error> for Error {
     fn from(err: rusqlite::Error) -> Self {
-        Error::SQL(err)
+        Error::Sql(err)
     }
 }
 
 impl From<serde_cbor::Error> for Error {
     fn from(err: serde_cbor::Error) -> Self {
-        Error::CBOR(err)
+        Error::Cbor(err)
     }
 }
 
@@ -73,9 +73,9 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::IO(err) => Some(err),
-            Error::XML(err) => Some(err),
-            Error::SQL(err) => Some(err),
-            Error::CBOR(err) => Some(err),
+            Error::Xml(err) => Some(err),
+            Error::Sql(err) => Some(err),
+            Error::Cbor(err) => Some(err),
             Error::Zip(err) => Some(err),
             Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) | Error::MissingCache(_) => {
                 None
@@ -88,9 +88,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::IO(err) => err.fmt(f),
-            Error::XML(err) => err.fmt(f),
-            Error::SQL(err) => err.fmt(f),
-            Error::CBOR(err) => err.fmt(f),
+            Error::Xml(err) => err.fmt(f),
+            Error::Sql(err) => err.fmt(f),
+            Error::Cbor(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
@@ -973,7 +973,7 @@ impl OptExtraCreate {
         let new_games = self
             .dats
             .into_iter()
-            .map(|dat| read_dat_or_zip(dat))
+            .map(read_dat_or_zip)
             .collect::<Result<Vec<Vec<(String, game::GameDb)>>, Error>>()?;
 
         let mut db = if self.append {
@@ -1297,7 +1297,7 @@ impl OptRedumpList {
         if let Some(software_list) = self.software_list {
             let db = db
                 .remove(&software_list)
-                .ok_or_else(|| Error::NoSuchSoftwareList(software_list))?;
+                .ok_or(Error::NoSuchSoftwareList(software_list))?;
             redump::list(&db, self.search.as_deref())
         } else {
             redump::list_all(&db)
@@ -1700,7 +1700,7 @@ where
     create_dir_all(dir)?;
     let path = dir.join(db_file);
     let f = BufWriter::new(File::create(&path)?);
-    serde_cbor::to_writer(f, &cache).map_err(Error::CBOR)?;
+    serde_cbor::to_writer(f, &cache).map_err(Error::Cbor)?;
     println!("* Wrote \"{}\"", path.display());
     Ok(())
 }
@@ -1717,7 +1717,7 @@ where
         File::open(dirs.data_local_dir().join(db_file))
             .map_err(|_| Error::MissingCache(utility))?,
     );
-    serde_cbor::from_reader(f).map_err(Error::CBOR)
+    serde_cbor::from_reader(f).map_err(Error::Cbor)
 }
 
 fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures: bool) {

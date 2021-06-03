@@ -477,14 +477,14 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    ROM { sha1: [u8; 20] },
+    Rom { sha1: [u8; 20] },
     Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
     pub fn new_rom(sha1: &str) -> Self {
-        Part::ROM {
+        Part::Rom {
             sha1: parse_sha1(sha1),
         }
     }
@@ -506,7 +506,7 @@ impl Part {
     #[inline]
     pub fn digest(&self) -> Digest {
         match self {
-            Part::ROM { sha1 } => Digest(sha1),
+            Part::Rom { sha1 } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
         }
     }
@@ -527,7 +527,7 @@ impl Part {
         let mut r = Sha1Reader::new(r);
         match Part::disk_from_reader(&mut r) {
             Ok(Some(part)) => Ok(part),
-            Ok(None) => copy(&mut r, &mut sink()).map(|_| Part::ROM { sha1: r.digest() }),
+            Ok(None) => copy(&mut r, &mut sink()).map(|_| Part::Rom { sha1: r.digest() }),
             Err(err) => Err(err),
         }
     }
