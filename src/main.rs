@@ -1510,54 +1510,39 @@ struct OptIdentify {
 
 impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
-        use crate::game::{Part, RomSource};
+        use crate::game::{GameDb, Part, RomSource};
         use prettytable::Table;
-        use std::borrow::Cow;
-        use std::collections::{BTreeSet, HashMap};
+        use std::collections::{BTreeMap, HashMap};
+
+        #[inline]
+        fn make_mame(db: game::GameDb) -> BTreeMap<String, GameDb> {
+            let mut map = BTreeMap::default();
+            map.insert("".to_string(), db);
+            map
+        }
 
         if self.lookup {
-            let mut lookup: HashMap<Part, BTreeSet<[Cow<'static, str>; 4]>> = HashMap::default();
+            let all_parts: [(&str, BTreeMap<String, GameDb>); 3] = [
+                (
+                    "mame",
+                    make_mame(read_cache(MAME, CACHE_MAME).unwrap_or_default()),
+                ),
+                ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
+                ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
+            ];
 
-            for (_, game) in read_cache::<game::GameDb>(MAME, CACHE_MAME)
-                .unwrap_or_default()
-                .games
-            {
-                for (name, part) in game.parts {
-                    lookup.entry(part).or_default().insert([
-                        "mame".into(),
-                        "".into(),
-                        game.name.clone().into(),
-                        name.clone().into(),
-                    ]);
-                }
-            }
-
-            for (system_name, system) in
-                read_cache::<mess::MessDb>(MESS, CACHE_MESS).unwrap_or_default()
-            {
-                for (_, game) in system.games {
-                    for (name, part) in game.parts {
-                        lookup.entry(part).or_default().insert([
-                            "mess".into(),
-                            system_name.clone().into(),
-                            game.name.clone().into(),
-                            name.clone().into(),
-                        ]);
-                    }
-                }
-            }
-
-            for (system_name, system) in
-                read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA).unwrap_or_default()
-            {
-                for (_, game) in system.games {
-                    for (name, part) in game.parts {
-                        lookup.entry(part).or_default().insert([
-                            "extra".into(),
-                            system_name.clone().into(),
-                            game.name.clone().into(),
-                            name.clone().into(),
-                        ]);
+            let mut lookup: HashMap<&Part, Vec<[&str; 4]>> = HashMap::default();
+            for (category, game_dbs) in &all_parts {
+                for (system, game_db) in game_dbs.iter() {
+                    for game in game_db.games_iter() {
+                        for (rom, part) in game.parts.iter() {
+                            lookup.entry(part).or_default().push([
+                                category,
+                                system,
+                                game.name.as_str(),
+                                rom,
+                            ]);
+                        }
                     }
                 }
             }
