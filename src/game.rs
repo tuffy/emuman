@@ -719,25 +719,67 @@ pub enum RomSource {
 impl RomSource {
     pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
-        use std::io::{BufReader, Cursor};
+        use std::io::{BufReader, Cursor, Seek, SeekFrom};
 
         let mut r = File::open(&pb).map(BufReader::new)?;
 
-        // valid parts might be less than 4 bytes,
-        // so fallback to reading a raw part
-        // if some error occurs testing for zipfiles
+        let mut result = vec![(Part::from_reader(&mut r)?, RomSource::Disk(pb.clone()))];
+
+        // valid ROMs might also be potentially invalid Zip archives
+        // so the extra error handling ensures original file(s)
+        // are returned as part of the result if something goes bad
+        // after the initial read
+
+        if r.seek(SeekFrom::Start(0)).is_err() {
+            return Ok(result);
+        }
+
         if is_zip(&mut r).unwrap_or(false) {
             let file = Arc::new(pb);
-            let mut zip = zip::ZipArchive::new(r)?;
-            let mut result = Vec::new();
+            let mut zip = match zip::ZipArchive::new(r) {
+                Ok(z) => z,
+                Err(_) => return Ok(result),
+            };
+
             for index in 0..zip.len() {
                 let mut file_data = Vec::new();
-                zip.by_index(index)?.read_to_end(&mut file_data)?;
+                match zip.by_index(index) {
+                    Ok(mut r) => if r.read_to_end(&mut file_data).is_err() {
+                        return Ok(result);
+                    }
+                    Err(_) => return Ok(result),
+                }
+
                 let mut reader = Cursor::new(file_data);
+                if let Ok(part) = Part::from_reader(&mut reader) {
+                    result.push((
+                        part,
+                        RomSource::Zip {
+                            file: file.clone(),
+                            index,
+                        },
+                    ));
+                }
+
+                if reader.seek(SeekFrom::Start(0)).is_err() {
+                    return Ok(result);
+                }
+
                 if is_zip(&mut reader).unwrap_or(false) {
-                    let mut sub_zip = zip::ZipArchive::new(reader)?;
+                    let mut sub_zip = match zip::ZipArchive::new(reader) {
+                        Ok(z) => z,
+                        Err(_) => return Ok(result),
+                    };
+
                     for sub_index in 0..sub_zip.len() {
-                        let part = Part::from_reader(sub_zip.by_index(sub_index)?)?;
+                        let part = match sub_zip.by_index(sub_index) {
+                            Ok(z) => match Part::from_reader(z) {
+                                Ok(part) => part,
+                                Err(_) => return Ok(result),
+                            }
+                            Err(_) => return Ok(result),
+                        };
+
                         result.push((
                             part,
                             RomSource::SubZip {
@@ -747,21 +789,11 @@ impl RomSource {
                             },
                         ))
                     }
-                } else {
-                    let part = Part::from_reader(reader)?;
-                    result.push((
-                        part,
-                        RomSource::Zip {
-                            file: file.clone(),
-                            index,
-                        },
-                    ))
                 }
             }
-            Ok(result)
-        } else {
-            Ok(vec![(Part::from_reader(r)?, RomSource::Disk(pb))])
         }
+
+        Ok(result)
     }
 
     fn extract(&self, target: &Path) -> Result<Extracted, Error> {
