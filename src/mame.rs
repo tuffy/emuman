@@ -425,34 +425,34 @@ pub fn xml_to_db(tree: &Document, db: &Transaction) -> Result<(), Error> {
     let root = tree.root_element();
 
     for machine in root.children().filter(|c| c.tag_name().name() == "machine") {
-        add_machine(&db, &machine)?;
+        add_machine(db, &machine)?;
 
         let machine_id = db.last_insert_rowid();
 
         for child in machine.children() {
             match child.tag_name().name() {
-                "description" => add_description(&db, machine_id, &child)?,
-                "year" => add_year(&db, machine_id, &child)?,
-                "manufacturer" => add_manufacturer(&db, machine_id, &child)?,
-                "biosset" => add_bios_set(&db, machine_id, &child)?,
-                "rom" => add_rom(&db, machine_id, &child)?,
-                "disk" => add_disk(&db, machine_id, &child)?,
-                "device_ref" => add_device_ref(&db, machine_id, &child)?,
-                "sample" => add_sample(&db, machine_id, &child)?,
-                "chip" => add_chip(&db, machine_id, &child)?,
-                "display" => add_display(&db, machine_id, &child)?,
-                "sound" => add_sound(&db, machine_id, &child)?,
-                "input" => add_input(&db, machine_id, &child)?,
-                "dipswitch" => add_dip_switch(&db, machine_id, &child)?,
-                "configuration" => add_configuration(&db, machine_id, &child)?,
-                "port" => add_port(&db, machine_id, &child)?,
-                "adjuster" => add_adjuster(&db, machine_id, &child)?,
-                "driver" => add_driver(&db, machine_id, &child)?,
-                "feature" => add_feature(&db, machine_id, &child)?,
-                "device" => add_device(&db, machine_id, &child)?,
-                "slot" => add_slot(&db, machine_id, &child)?,
-                "softwarelist" => add_software_list(&db, machine_id, &child)?,
-                "ramoption" => add_ram_option(&db, machine_id, &child)?,
+                "description" => add_description(db, machine_id, &child)?,
+                "year" => add_year(db, machine_id, &child)?,
+                "manufacturer" => add_manufacturer(db, machine_id, &child)?,
+                "biosset" => add_bios_set(db, machine_id, &child)?,
+                "rom" => add_rom(db, machine_id, &child)?,
+                "disk" => add_disk(db, machine_id, &child)?,
+                "device_ref" => add_device_ref(db, machine_id, &child)?,
+                "sample" => add_sample(db, machine_id, &child)?,
+                "chip" => add_chip(db, machine_id, &child)?,
+                "display" => add_display(db, machine_id, &child)?,
+                "sound" => add_sound(db, machine_id, &child)?,
+                "input" => add_input(db, machine_id, &child)?,
+                "dipswitch" => add_dip_switch(db, machine_id, &child)?,
+                "configuration" => add_configuration(db, machine_id, &child)?,
+                "port" => add_port(db, machine_id, &child)?,
+                "adjuster" => add_adjuster(db, machine_id, &child)?,
+                "driver" => add_driver(db, machine_id, &child)?,
+                "feature" => add_feature(db, machine_id, &child)?,
+                "device" => add_device(db, machine_id, &child)?,
+                "slot" => add_slot(db, machine_id, &child)?,
+                "softwarelist" => add_software_list(db, machine_id, &child)?,
+                "ramoption" => add_ram_option(db, machine_id, &child)?,
                 _ => { /*ignore other child types*/ }
             }
         }
@@ -464,7 +464,7 @@ pub fn xml_to_db(tree: &Document, db: &Transaction) -> Result<(), Error> {
 fn add_machine(db: &Transaction, machine: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_MACHINE)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
             ":name": machine.attribute("name"),
             ":source_file": machine.attribute("sourcefile"),
             ":is_bios": machine.attribute("isbios").unwrap_or("no"),
@@ -483,7 +483,7 @@ fn add_machine(db: &Transaction, machine: &Node) -> Result<(), Error> {
 fn add_description(db: &Transaction, machine_id: i64, description: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DESCRIPTION)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":description": description.text(),
             })
@@ -495,7 +495,7 @@ fn add_description(db: &Transaction, machine_id: i64, description: &Node) -> Res
 fn add_year(db: &Transaction, machine_id: i64, year: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_YEAR)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":year": year.text(),
             })
@@ -507,7 +507,7 @@ fn add_year(db: &Transaction, machine_id: i64, year: &Node) -> Result<(), Error>
 fn add_manufacturer(db: &Transaction, machine_id: i64, manufacturer: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_MANUFACTURER)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":manufacturer": manufacturer.text(),
             })
@@ -519,7 +519,7 @@ fn add_manufacturer(db: &Transaction, machine_id: i64, manufacturer: &Node) -> R
 fn add_bios_set(db: &Transaction, machine_id: i64, bios_set: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_BIOS_SET)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":name": bios_set.attribute("name"),
                 ":description": bios_set.attribute("description"),
@@ -533,7 +533,7 @@ fn add_bios_set(db: &Transaction, machine_id: i64, bios_set: &Node) -> Result<()
 fn add_rom(db: &Transaction, machine_id: i64, rom: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_ROM)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":name": rom.attribute("name"),
             ":bios": rom.attribute("bios"),
@@ -553,7 +553,7 @@ fn add_rom(db: &Transaction, machine_id: i64, rom: &Node) -> Result<(), Error> {
 
 fn add_disk(db: &Transaction, machine_id: i64, disk: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DISK)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":name": disk.attribute("name"),
@@ -573,7 +573,7 @@ fn add_disk(db: &Transaction, machine_id: i64, disk: &Node) -> Result<(), Error>
 fn add_device_ref(db: &Transaction, machine_id: i64, device_ref: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DEVICE_REF)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":name": device_ref.attribute("name")
             })
@@ -585,7 +585,7 @@ fn add_device_ref(db: &Transaction, machine_id: i64, device_ref: &Node) -> Resul
 fn add_sample(db: &Transaction, machine_id: i64, sample: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_SAMPLE)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":name": sample.attribute("name")
             })
@@ -597,7 +597,7 @@ fn add_sample(db: &Transaction, machine_id: i64, sample: &Node) -> Result<(), Er
 fn add_chip(db: &Transaction, machine_id: i64, chip: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_CHIP)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":name": chip.attribute("name"),
             ":tag": chip.attribute("tag"),
@@ -610,7 +610,7 @@ fn add_chip(db: &Transaction, machine_id: i64, chip: &Node) -> Result<(), Error>
 
 fn add_display(db: &Transaction, machine_id: i64, display: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DISPLAY)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":tag": display.attribute("tag"),
@@ -635,7 +635,7 @@ fn add_display(db: &Transaction, machine_id: i64, display: &Node) -> Result<(), 
 
 fn add_sound(db: &Transaction, machine_id: i64, sound: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_SOUND)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":channels": sound.attribute("channels").map(|s| i64::from_str(s).expect("invalid channels integer"))
@@ -647,7 +647,7 @@ fn add_sound(db: &Transaction, machine_id: i64, sound: &Node) -> Result<(), Erro
 
 fn add_input(db: &Transaction, machine_id: i64, input: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_INPUT)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":service": input.attribute("service").unwrap_or("no"),
@@ -665,7 +665,7 @@ fn add_input(db: &Transaction, machine_id: i64, input: &Node) -> Result<(), Erro
 
 fn add_dip_switch(db: &Transaction, machine_id: i64, switch: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DIP_SWITCH)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":name": switch.attribute("name"),
@@ -688,7 +688,7 @@ fn add_dip_switch(db: &Transaction, machine_id: i64, switch: &Node) -> Result<()
 
 fn add_dip_location(db: &Transaction, switch_id: i64, location: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DIP_LOCATION)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":dip_switch_id": switch_id,
             ":name": location.attribute("name"),
@@ -701,7 +701,7 @@ fn add_dip_location(db: &Transaction, switch_id: i64, location: &Node) -> Result
 
 fn add_dip_value(db: &Transaction, switch_id: i64, value: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DIP_VALUE)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":dip_switch_id": switch_id,
             ":name": value.attribute("name"),
@@ -714,7 +714,7 @@ fn add_dip_value(db: &Transaction, switch_id: i64, value: &Node) -> Result<(), E
 
 fn add_configuration(db: &Transaction, machine_id: i64, conf: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_CONFIGURATION).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":name": conf.attribute("name"),
             ":tag": conf.attribute("tag"),
@@ -737,7 +737,7 @@ fn add_configuration(db: &Transaction, machine_id: i64, conf: &Node) -> Result<(
 
 fn add_conf_location(db: &Transaction, conf_id: i64, location: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_CONF_LOCATION)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":configuration_id": conf_id,
             ":name": location.attribute("name"),
@@ -750,7 +750,7 @@ fn add_conf_location(db: &Transaction, conf_id: i64, location: &Node) -> Result<
 
 fn add_conf_setting(db: &Transaction, conf_id: i64, setting: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_CONF_SETTING)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":configuration_id": conf_id,
             ":name": setting.attribute("name"),
@@ -763,7 +763,7 @@ fn add_conf_setting(db: &Transaction, conf_id: i64, setting: &Node) -> Result<()
 
 fn add_control(db: &Transaction, machine_id: i64, control: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_CONTROL)
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":machine_id": machine_id,
             ":type": control.attribute("type"),
@@ -786,7 +786,7 @@ fn add_control(db: &Transaction, machine_id: i64, control: &Node) -> Result<(), 
 
 fn add_port(db: &Transaction, machine_id: i64, port: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_PORT).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":tag": port.attribute("tag"),
         })
@@ -802,7 +802,7 @@ fn add_port(db: &Transaction, machine_id: i64, port: &Node) -> Result<(), Error>
 fn add_adjuster(db: &Transaction, machine_id: i64, adjuster: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_ADJUSTER)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":name": adjuster.attribute("name"),
                 ":default": adjuster.attribute("default").map(|s| i64::from_str(s).expect("invalid analog mask")),
@@ -815,7 +815,7 @@ fn add_adjuster(db: &Transaction, machine_id: i64, adjuster: &Node) -> Result<()
 fn add_analog(db: &Transaction, port_id: i64, analog: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_ANALOG)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":port_id": port_id,
                 ":mask": analog.attribute("mask").map(|s| i64::from_str(s).expect("invalid analog mask"))
             })
@@ -827,7 +827,7 @@ fn add_analog(db: &Transaction, port_id: i64, analog: &Node) -> Result<(), Error
 fn add_driver(db: &Transaction, machine_id: i64, driver: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DRIVER)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":status": driver.attribute("status"),
                 ":emulation": driver.attribute("emulation"),
@@ -841,7 +841,7 @@ fn add_driver(db: &Transaction, machine_id: i64, driver: &Node) -> Result<(), Er
 fn add_feature(db: &Transaction, machine_id: i64, feature: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_FEATURE)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":type": feature.attribute("type"),
                 ":status": feature.attribute("status"),
@@ -854,7 +854,7 @@ fn add_feature(db: &Transaction, machine_id: i64, feature: &Node) -> Result<(), 
 
 fn add_device(db: &Transaction, machine_id: i64, device: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_DEVICE).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":type": device.attribute("type"),
             ":tag": device.attribute("tag"),
@@ -868,8 +868,8 @@ fn add_device(db: &Transaction, machine_id: i64, device: &Node) -> Result<(), Er
 
     for child in device.children() {
         match child.tag_name().name() {
-            "instance" => add_instance(&db, device_id, &child)?,
-            "extension" => add_extension(&db, device_id, &child)?,
+            "instance" => add_instance(db, device_id, &child)?,
+            "extension" => add_extension(db, device_id, &child)?,
             _ => { /*ignore other child types*/ }
         }
     }
@@ -880,7 +880,7 @@ fn add_device(db: &Transaction, machine_id: i64, device: &Node) -> Result<(), Er
 fn add_instance(db: &Transaction, device_id: i64, instance: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_INSTANCE)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":device_id": device_id,
                 ":name": instance.attribute("name"),
                 ":briefname": instance.attribute("briefname"),
@@ -893,7 +893,7 @@ fn add_instance(db: &Transaction, device_id: i64, instance: &Node) -> Result<(),
 fn add_extension(db: &Transaction, device_id: i64, extension: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_EXTENSION)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":device_id": device_id,
                 ":name": extension.attribute("name"),
             })
@@ -904,7 +904,7 @@ fn add_extension(db: &Transaction, device_id: i64, extension: &Node) -> Result<(
 
 fn add_slot(db: &Transaction, machine_id: i64, slot: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_SLOT).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":machine_id": machine_id,
             ":name": slot.attribute("name"),
         })
@@ -920,7 +920,7 @@ fn add_slot(db: &Transaction, machine_id: i64, slot: &Node) -> Result<(), Error>
 fn add_slot_option(db: &Transaction, slot_id: i64, option: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_SLOT_OPTION)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":slot_id": slot_id,
                 ":name": option.attribute("name"),
                 ":devname": option.attribute("devname"),
@@ -934,7 +934,7 @@ fn add_slot_option(db: &Transaction, slot_id: i64, option: &Node) -> Result<(), 
 fn add_software_list(db: &Transaction, machine_id: i64, list: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_SOFTWARE_LIST)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                     ":machine_id": machine_id,
                     ":name": list.attribute("name"),
                     ":tag": list.attribute("tag"),
@@ -949,7 +949,7 @@ fn add_software_list(db: &Transaction, machine_id: i64, list: &Node) -> Result<(
 fn add_ram_option(db: &Transaction, machine_id: i64, ram: &Node) -> Result<(), Error> {
     db.prepare_cached(ADD_RAM_OPTION)
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":machine_id": machine_id,
                 ":name": ram.attribute("name"),
                 ":default": ram.attribute("default"),

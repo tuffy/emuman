@@ -311,24 +311,24 @@ impl Game {
     }
 
     fn verify(&self, game_root: &Path) -> Vec<VerifyFailure<PathBuf>> {
+        use dashmap::DashMap;
         use rayon::prelude::*;
         use std::fs::read_dir;
-        use std::sync::Mutex;
 
         let mut failures = Vec::new();
 
         // turn files on disk into a map, so extra files can be located
-        let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
+        let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
 
         if let Ok(dir) = read_dir(game_root) {
             for entry in dir.filter_map(|e| e.ok()) {
-                if let Ok(name) = entry.file_name().into_string() {
-                    if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                        files_on_disk.insert(name, entry.path());
+                match entry.file_name().into_string() {
+                    Ok(name) => {
+                        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                            files_on_disk.insert(name, entry.path());
+                        }
                     }
-                } else {
-                    // anything that's not UTF-8 is an extra
-                    failures.push(VerifyFailure::Extra(entry.path()));
+                    Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
                 }
             }
         } else if self.parts.is_empty() {
@@ -338,16 +338,12 @@ impl Game {
         }
 
         // verify all game parts
-        let files_on_disk = Mutex::new(files_on_disk);
         failures.extend(
             self.parts
                 .par_iter()
-                .filter_map(|(name, part)| {
-                    if let Some(pathbuf) = files_on_disk.lock().unwrap().remove(name) {
-                        part.verify(pathbuf)
-                    } else {
-                        Some(VerifyFailure::Missing(game_root.join(name)))
-                    }
+                .filter_map(|(name, part)| match files_on_disk.remove(name) {
+                    Some((_, pathbuf)) => part.verify(pathbuf),
+                    None => Some(VerifyFailure::Missing(game_root.join(name))),
                 })
                 .collect::<Vec<VerifyFailure<PathBuf>>>()
                 .into_iter(),
@@ -356,8 +352,6 @@ impl Game {
         // mark any leftover files on disk as extras
         failures.extend(
             files_on_disk
-                .into_inner()
-                .unwrap()
                 .into_iter()
                 .map(|(_, pathbuf)| VerifyFailure::Extra(pathbuf)),
         );
@@ -401,7 +395,7 @@ impl Game {
             let entry_path = entry.path();
             if let Ok(part) = Part::from_path(&entry_path) {
                 if let Some(target_path) = parts.get(&part) {
-                    file_move(&entry_path, &target_path)?;
+                    file_move(&entry_path, target_path)?;
                 }
             }
         }
@@ -475,6 +469,30 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
     }
 }
 
+#[derive(Clone, Hash, PartialEq, Eq)]
+enum FileId {
+    Posix { dev: u64, ino: u64 },
+    Unknown(PathBuf),
+}
+
+impl FileId {
+    fn new(path: &Path) -> Result<Self, std::io::Error> {
+        #[cfg(target_os = "linux")]
+        use std::os::linux::fs::MetadataExt;
+        #[cfg(target_os = "macos")]
+        use std::os::macos::fs::MetadataExt;
+
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
+            path.metadata().map(|m| Self::Posix {
+                dev: m.st_dev(),
+                ino: m.st_ino(),
+            })
+        } else {
+            Ok(FileId::Unknown(path.to_path_buf()))
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
     Rom { sha1: [u8; 20] },
@@ -519,6 +537,31 @@ impl Part {
         File::open(path)
             .map(BufReader::new)
             .and_then(|mut r| Part::from_reader(&mut r))
+    }
+
+    fn from_cached_path(path: &Path) -> Result<Self, std::io::Error> {
+        use dashmap::DashMap;
+        use fxhash::FxBuildHasher;
+        use once_cell::sync::OnceCell;
+
+        static PART_CACHE: OnceCell<DashMap<FileId, Part, FxBuildHasher>> = OnceCell::new();
+
+        let file_id = FileId::new(path)?;
+
+        // using DashMap's Entry API leaves the map locked
+        // while generating the Part from path
+        // which locks out other threads until finished
+        // whereas a get()/insert() pair does not
+        let map = PART_CACHE.get_or_init(|| DashMap::default());
+
+        match map.get(&file_id) {
+            Some(part) => Ok(part.clone()),
+            None => {
+                let part = Self::from_path(path)?;
+                map.insert(file_id, part.clone());
+                Ok(part)
+            }
+        }
     }
 
     fn from_reader<R: Read>(r: R) -> Result<Self, std::io::Error> {
@@ -566,7 +609,7 @@ impl Part {
     }
 
     fn verify<P: AsRef<Path>>(&self, part_path: P) -> Option<VerifyFailure<P>> {
-        match Part::from_path(part_path.as_ref()) {
+        match Part::from_cached_path(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => None,
             Ok(_) => Some(VerifyFailure::Bad(part_path)),
             Err(err) => Some(VerifyFailure::Error(part_path, err)),
@@ -744,8 +787,10 @@ impl RomSource {
             for index in 0..zip.len() {
                 let mut file_data = Vec::new();
                 match zip.by_index(index) {
-                    Ok(mut r) => if r.read_to_end(&mut file_data).is_err() {
-                        return Ok(result);
+                    Ok(mut r) => {
+                        if r.read_to_end(&mut file_data).is_err() {
+                            return Ok(result);
+                        }
                     }
                     Err(_) => return Ok(result),
                 }
@@ -776,7 +821,7 @@ impl RomSource {
                             Ok(z) => match Part::from_reader(z) {
                                 Ok(part) => part,
                                 Err(_) => return Ok(result),
-                            }
+                            },
                             Err(_) => return Ok(result),
                         };
 

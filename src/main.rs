@@ -437,7 +437,7 @@ impl OptMessCreate {
             mess::clear_tables(&trans)?;
             self.xml
                 .iter()
-                .try_for_each(|p| mess::add_file(&p, &trans))?;
+                .try_for_each(|p| mess::add_file(p, &trans))?;
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());
@@ -880,9 +880,9 @@ impl OptMessSplit {
                 if let Some(exact_match) = db
                     .possible_matches(data.len() as u64)
                     .iter()
-                    .find(|m| m.matches(&data))
+                    .find(|m| m.matches(data))
                 {
-                    exact_match.extract(&self.output, &data)?;
+                    exact_match.extract(&self.output, data)?;
                 }
             }
 
@@ -1258,7 +1258,7 @@ impl OptRedumpCreate {
             redump::clear_tables(&trans)?;
             self.xml
                 .iter()
-                .try_for_each(|p| redump::add_file(&p, &trans))?;
+                .try_for_each(|p| redump::add_file(p, &trans))?;
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());

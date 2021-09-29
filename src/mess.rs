@@ -164,7 +164,7 @@ fn add_software_list(db: &Transaction, node: &Node) -> Result<(), rusqlite::Erro
         (name, description) VALUES (:name, :description)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":name": node.attribute("name"),
             ":description": node.attribute("description")
         })
@@ -188,7 +188,7 @@ fn add_software(
         (:softwarelist_id, :name, :cloneof, :supported)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":softwarelist_id": softwarelist_id,
             ":name": node.attribute("name"),
             ":cloneof": node.attribute("cloneof"),
@@ -219,7 +219,7 @@ fn add_description(db: &Transaction, software_id: i64, node: &Node) -> Result<()
          (software_id = :software_id)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":software_id": software_id,
             ":description": node.text()
         })
@@ -230,7 +230,7 @@ fn add_description(db: &Transaction, software_id: i64, node: &Node) -> Result<()
 fn add_year(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
     db.prepare_cached("UPDATE Software SET year = :year WHERE (software_id = :software_id)")
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":software_id": software_id,
                 ":year": node.text()
             })
@@ -244,7 +244,7 @@ fn add_publisher(db: &Transaction, software_id: i64, node: &Node) -> Result<(), 
          (software_id = :software_id)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":software_id": software_id,
             ":publisher": node.text()
         })
@@ -258,7 +258,7 @@ fn add_info(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusql
         (:software_id, :name, :value)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":software_id": software_id,
             ":name": node.attribute("name"),
             ":value": node.attribute("value")
@@ -277,7 +277,7 @@ fn add_shared_feature(
         (:software_id, :name, :value)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":software_id": software_id,
             ":name": node.attribute("name"),
             ":value": node.attribute("value")
@@ -292,7 +292,7 @@ fn add_part(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusql
         (:software_id, :name, :interface)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":software_id": software_id,
             ":name": node.attribute("name"),
             ":interface": node.attribute("interface")
@@ -320,7 +320,7 @@ fn add_feature(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqli
         (:part_id, :name, :value)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":part_id": part_id,
             ":name": node.attribute("name"),
             ":value": node.attribute("value")
@@ -335,7 +335,7 @@ fn add_data_area(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusq
         VALUES (:part_id, :name, :size, :width, :endianness)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":part_id": part_id,
             ":name": node.attribute("name"),
             ":size": node.attribute("size").map(|s| parse_int(s).map(|i| i as i64).expect("invalid data area size")),
@@ -358,7 +358,7 @@ fn add_rom(db: &Transaction, data_area_id: i64, node: &Node) -> Result<(), rusql
         VALUES
         (:data_area_id, :name, :size, :crc, :sha1,
          :offset, :value, :status, :loadflag)")
-    .and_then(|mut stmt| stmt.execute_named(
+    .and_then(|mut stmt| stmt.execute(
         named_params! {
             ":data_area_id": data_area_id,
             ":name": node.attribute("name"),
@@ -377,7 +377,7 @@ fn add_rom(db: &Transaction, data_area_id: i64, node: &Node) -> Result<(), rusql
 fn add_disk_area(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
     db.prepare_cached("INSERT INTO DiskArea (part_id, name) VALUES (:part_id, :name)")
         .and_then(|mut stmt| {
-            stmt.execute_named(named_params! {
+            stmt.execute(named_params! {
                 ":part_id": part_id,
                 ":name": node.attribute("name")
             })
@@ -396,7 +396,7 @@ fn add_disk(db: &Transaction, disk_area_id: i64, node: &Node) -> Result<(), rusq
         VALUES (:disk_area_id, :name, :sha1, :status, :writeable)",
     )
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":disk_area_id": disk_area_id,
             ":name": node.attribute("name"),
             ":sha1": node.attribute("sha1"),
@@ -412,7 +412,7 @@ fn add_dipswitch(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusq
         "INSERT INTO Dipswitch (part_id, name, tag, mask) VALUES
         (:part_id, :name, :tag, :mask)")
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":part_id": part_id,
             ":name": node.attribute("name"),
             ":tag": node.attribute("tag"),
@@ -432,7 +432,7 @@ fn add_dipvalue(db: &Transaction, dipswitch_id: i64, node: &Node) -> Result<(), 
         "INSERT INTO Dipvalue (dipswitch_id, name, value, switch_default) VALUES
         (:dipswitch_id, :name, :value, :default)")
     .and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":dipswitch_id": dipswitch_id,
             ":name": node.attribute("name"),
             ":value": node.attribute("value").map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch value")),

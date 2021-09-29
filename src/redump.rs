@@ -98,7 +98,7 @@ fn add_data_file(db: &Transaction, node: &Node) -> Result<(), rusqlite::Error> {
     let header = node.children().find(|c| c.tag_name().name() == "header");
 
     db.prepare_cached(INSERT_DATAFILE).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":name":
                 header.as_ref().and_then(|node| child_text(node, "name")),
             ":description":
@@ -125,7 +125,7 @@ fn add_data_file(db: &Transaction, node: &Node) -> Result<(), rusqlite::Error> {
 
 fn add_game(db: &Transaction, data_file_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
     db.prepare_cached(INSERT_GAME).and_then(|mut stmt| {
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
         ":datafile_id": data_file_id,
         ":name": node.attribute("name"),
         ":category": child_text(node, "category"),
@@ -144,7 +144,7 @@ fn add_rom(db: &Transaction, game_id: i64, node: &Node) -> Result<(), rusqlite::
 
     db.prepare_cached(INSERT_ROM)
     .and_then(|mut stmt|
-        stmt.execute_named(named_params! {
+        stmt.execute(named_params! {
             ":game_id": game_id,
             ":name": node.attribute("name"),
             ":size": node.attribute("size").map(|s| i64::from_str(s).expect("invalid rom size integer")),
