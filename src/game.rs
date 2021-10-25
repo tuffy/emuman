@@ -321,12 +321,13 @@ impl Game {
         let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
 
         if let Ok(dir) = read_dir(game_root) {
-            for entry in dir.filter_map(|e| e.ok()) {
+            for entry in dir
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            {
                 match entry.file_name().into_string() {
                     Ok(name) => {
-                        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                            files_on_disk.insert(name, entry.path());
-                        }
+                        files_on_disk.insert(name, entry.path()).map(|_| ());
                     }
                     Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
                 }
@@ -374,12 +375,13 @@ impl Game {
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
         if let Ok(dir) = read_dir(&game_root) {
-            for entry in dir.filter_map(|e| e.ok()) {
+            for entry in dir
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            {
                 match entry.file_name().into_string() {
                     Ok(name) => {
-                        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                            files_on_disk.insert(name, entry.path());
-                        }
+                        files_on_disk.insert(name, entry.path());
                     }
                     Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
                 }
