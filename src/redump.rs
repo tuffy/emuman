@@ -166,12 +166,12 @@ pub fn add_xml_file(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb)
         .children()
         .find(|c| c.tag_name().name() == "name")
         .and_then(|s| s.text().map(|s| s.to_string()))
-        .unwrap_or_else(String::default);
+        .unwrap_or_default();
     let description = header
         .children()
         .find(|c| c.tag_name().name() == "description")
         .and_then(|s| s.text().map(|s| s.to_string()))
-        .unwrap_or_else(String::default);
+        .unwrap_or_default();
     let mut game_db = GameDb {
         description,
         ..GameDb::default()
@@ -203,7 +203,7 @@ fn xml_to_game(node: &Node) -> Game {
             .children()
             .find(|c| c.tag_name().name() == "description")
             .and_then(|c| c.text().map(|s| s.to_string()))
-            .unwrap_or_else(String::default),
+            .unwrap_or_default(),
         ..Game::default()
     };
 

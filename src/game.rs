@@ -359,16 +359,106 @@ impl Game {
         failures
     }
 
-    pub fn add(
+    pub fn add_and_verify(
         &self,
         rom_sources: &mut RomSources,
-        target: &Path,
-        extract: ExtractFn,
-    ) -> Result<(), Error> {
-        let target_dir = target.join(&self.name);
-        self.parts
-            .iter()
-            .try_for_each(|(rom_name, part)| extract(rom_sources, part, target_dir.join(rom_name)))
+        target_dir: &Path,
+    ) -> Result<Vec<VerifyFailure<PathBuf>>, Error> {
+        use std::fs::read_dir;
+
+        let mut failures = Vec::new();
+
+        let game_root = target_dir.join(&self.name);
+
+        // turn files on disk into a map, so extra files can be located
+        let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
+
+        if let Ok(dir) = read_dir(&game_root) {
+            for entry in dir.filter_map(|e| e.ok()) {
+                match entry.file_name().into_string() {
+                    Ok(name) => {
+                        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                            files_on_disk.insert(name, entry.path());
+                        }
+                    }
+                    Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
+                }
+            }
+        }
+
+        // verify all game parts
+        for (name, part) in self.parts.iter() {
+            use std::collections::hash_map::Entry;
+            use std::fs::remove_file;
+
+            match files_on_disk.remove(name) {
+                Some(target) => {
+                    // if file exists on disk
+                    if part.verify(&target).is_some() {
+                        // but is not correct
+                        match rom_sources.entry(part.clone()) {
+                            Entry::Occupied(mut entry) => {
+                                // if part exists in rom_sources
+                                // replace incorrect file with file from rom_sources
+                                let source = entry.get();
+                                remove_file(&target).map_err(Error::IO)?;
+                                match source.extract(&target)? {
+                                    Extracted::Copied => {
+                                        println!("{} => {}", source, target.display());
+                                        entry.insert(RomSource::Disk(target));
+                                    }
+                                    Extracted::Linked => {
+                                        println!("{} -> {}", source, target.display())
+                                    }
+                                }
+                            }
+                            Entry::Vacant(_) => {
+                                // if part missing in rom_sources, mark as bad
+                                failures.push(VerifyFailure::Bad(target));
+                            }
+                        }
+                    }
+                }
+                None => {
+                    // if file does not already exist on disk
+
+                    use std::fs::create_dir_all;
+
+                    let target = game_root.join(name);
+
+                    match rom_sources.entry(part.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            // and if part exists in rom_sources
+                            // link/copy file from rom_sources
+                            let source = entry.get();
+                            create_dir_all(target.parent().unwrap())?;
+                            match source.extract(&target)? {
+                                Extracted::Copied => {
+                                    println!("{} => {}", source, target.display());
+                                    entry.insert(RomSource::Disk(target));
+                                }
+                                Extracted::Linked => {
+                                    println!("{} -> {}", source, target.display())
+                                }
+                            }
+                        }
+                        Entry::Vacant(_) => {
+                            // otherwise mark as missing
+                            failures.push(VerifyFailure::Missing(target));
+                        }
+                    }
+                }
+            }
+        }
+
+        // mark any leftover files on disk as extras
+        failures.extend(
+            files_on_disk
+                .into_iter()
+                .map(|(_, pathbuf)| VerifyFailure::Extra(pathbuf)),
+        );
+
+        Ok(failures)
     }
 
     pub fn rename(
@@ -552,7 +642,7 @@ impl Part {
         // while generating the Part from path
         // which locks out other threads until finished
         // whereas a get()/insert() pair does not
-        let map = PART_CACHE.get_or_init(|| DashMap::default());
+        let map = PART_CACHE.get_or_init(DashMap::default);
 
         match map.get(&file_id) {
             Some(part) => Ok(part.clone()),
@@ -614,11 +704,6 @@ impl Part {
             Ok(_) => Some(VerifyFailure::Bad(part_path)),
             Err(err) => Some(VerifyFailure::Error(part_path, err)),
         }
-    }
-
-    #[inline]
-    fn is_bad<P: AsRef<Path>>(&self, part_path: P) -> bool {
-        matches!(self.verify(part_path), Some(VerifyFailure::Bad(_)))
     }
 }
 
@@ -912,7 +997,7 @@ enum Extracted {
     Linked,
 }
 
-type RomSources = FxHashMap<Part, RomSource>;
+pub type RomSources = FxHashMap<Part, RomSource>;
 
 fn rom_sources<F>(root: &Path, filter: F) -> RomSources
 where
@@ -949,72 +1034,6 @@ pub fn all_rom_sources(root: &Path) -> RomSources {
 
 pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
     rom_sources(root, |part| required.contains(part))
-}
-
-pub type ExtractFn = fn(&mut RomSources, &Part, PathBuf) -> Result<(), Error>;
-
-pub fn extract(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<(), Error> {
-    use std::collections::hash_map::Entry;
-
-    if !target.exists() {
-        if let Entry::Occupied(mut entry) = roms.entry(part.clone()) {
-            use std::fs::create_dir_all;
-
-            create_dir_all(target.parent().unwrap())?;
-
-            let source = entry.get();
-            match source.extract(&target)? {
-                Extracted::Copied => {
-                    println!("{} => {}", source, target.display());
-                    entry.insert(RomSource::Disk(target));
-                }
-                Extracted::Linked => println!("{} -> {}", source, target.display()),
-            }
-        }
-        Ok(())
-    } else if let Some(VerifyFailure::Bad(target)) = part.verify(target) {
-        use std::fs::remove_file;
-
-        remove_file(&target)
-            .map_err(Error::IO)
-            .and_then(|()| extract(roms, part, target))
-    } else {
-        Ok(())
-    }
-}
-
-pub fn extract_dry_run(roms: &mut RomSources, part: &Part, target: PathBuf) -> Result<(), Error> {
-    use std::collections::hash_map::Entry;
-
-    if !target.exists() || part.is_bad(&target) {
-        if let Entry::Occupied(entry) = roms.entry(part.clone()) {
-            match entry.get() {
-                RomSource::Disk(source) => {
-                    println!("{} -> {}", source.display(), target.display());
-                }
-                RomSource::Zip {
-                    file: source,
-                    index,
-                } => {
-                    println!("{}:{} -> {}", source.display(), index, target.display());
-                }
-                RomSource::SubZip {
-                    file: source,
-                    index,
-                    sub_index,
-                } => {
-                    println!(
-                        "{}:{}:{} -> {}",
-                        source.display(),
-                        index,
-                        sub_index,
-                        target.display()
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {

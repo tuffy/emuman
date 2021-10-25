@@ -296,34 +296,29 @@ struct OptMameAdd {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
-    /// don't actually add ROMs
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
-
     /// machine to add
     machines: Vec<String>,
 }
 
 impl OptMameAdd {
-    fn execute(mut self) -> Result<(), Error> {
+    fn execute(self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
 
         let mut roms = if self.machines.is_empty() {
-            self.machines = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
             game::get_rom_sources(&self.input, db.required_parts(&self.machines)?)
         };
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
+        if self.machines.is_empty() {
+            add_and_verify(&mut roms, &self.roms, db.games_iter())
         } else {
-            game::extract
-        };
-
-        self.machines
-            .iter()
-            .try_for_each(|game| db.games[game].add(&mut roms, &self.roms, copy))
+            add_and_verify(
+                &mut roms,
+                &self.roms,
+                self.machines.iter().filter_map(|game| db.game(game)),
+            )
+        }
     }
 }
 
@@ -729,10 +724,6 @@ struct OptMessAdd {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
-    /// don't actually add ROMs
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
-
     /// software list to use
     software_list: String,
 
@@ -741,27 +732,26 @@ struct OptMessAdd {
 }
 
 impl OptMessAdd {
-    fn execute(mut self) -> Result<(), Error> {
+    fn execute(self) -> Result<(), Error> {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let mut roms = if self.software.is_empty() {
-            self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
             game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
         };
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
+        if self.software.is_empty() {
+            add_and_verify(&mut roms, &self.roms, db.games_iter())
         } else {
-            game::extract
-        };
-
-        self.software
-            .iter()
-            .try_for_each(|game| db.games[game].add(&mut roms, &self.roms, copy))
+            add_and_verify(
+                &mut roms,
+                &self.roms,
+                self.software.iter().filter_map(|game| db.game(game)),
+            )
+        }
     }
 }
 
@@ -774,10 +764,6 @@ struct OptMessAddAll {
     /// output directory
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
-
-    /// don't actually add ROMs
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
 }
 
 impl OptMessAddAll {
@@ -786,16 +772,8 @@ impl OptMessAddAll {
 
         let mut roms = game::all_rom_sources(&self.input);
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
-        } else {
-            game::extract
-        };
-
         db.into_iter().try_for_each(|(software, db)| {
-            let roms_path = self.roms.join(software);
-            db.games_iter()
-                .try_for_each(|game| game.add(&mut roms, &roms_path, copy))
+            add_and_verify(&mut roms, &self.roms.join(software), db.games_iter())
         })
     }
 }
@@ -1120,10 +1098,6 @@ struct OptExtraAdd {
     #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 
-    /// don't actually add files
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
-
     /// extra to add
     extra: String,
 
@@ -1132,27 +1106,26 @@ struct OptExtraAdd {
 }
 
 impl OptExtraAdd {
-    fn execute(mut self) -> Result<(), Error> {
+    fn execute(self) -> Result<(), Error> {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
             .remove(&self.extra)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
         let mut parts = if self.software.is_empty() {
-            self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
             game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
         };
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
+        if self.software.is_empty() {
+            add_and_verify(&mut parts, &self.dir, db.games_iter())
         } else {
-            game::extract
-        };
-
-        self.software
-            .iter()
-            .try_for_each(|game| db.games[game].add(&mut parts, &self.dir, copy))
+            add_and_verify(
+                &mut parts,
+                &self.dir,
+                self.software.iter().filter_map(|game| db.game(game)),
+            )
+        }
     }
 }
 
@@ -1165,10 +1138,6 @@ struct OptExtraAddAll {
     /// output directory
     #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
-
-    /// don't actually add files
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
 }
 
 impl OptExtraAddAll {
@@ -1177,16 +1146,8 @@ impl OptExtraAddAll {
 
         let mut parts = game::all_rom_sources(&self.input);
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
-        } else {
-            game::extract
-        };
-
         db.into_iter().try_for_each(|(extra, db)| {
-            let extras_path = self.dir.join(extra);
-            db.games_iter()
-                .try_for_each(|game| game.add(&mut parts, &extras_path, copy))
+            add_and_verify(&mut parts, &self.dir.join(extra), db.games_iter())
         })
     }
 }
@@ -1389,10 +1350,6 @@ struct OptRedumpAdd {
     #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
 
-    /// don't actually add tracks
-    #[structopt(long = "dry-run")]
-    dry_run: bool,
-
     /// software list to use
     software_list: String,
 
@@ -1401,27 +1358,26 @@ struct OptRedumpAdd {
 }
 
 impl OptRedumpAdd {
-    fn execute(mut self) -> Result<(), Error> {
+    fn execute(self) -> Result<(), Error> {
         let db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let mut roms = if self.software.is_empty() {
-            self.software = db.all_games();
             game::all_rom_sources(&self.input)
         } else {
             game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
         };
 
-        let copy = if self.dry_run {
-            game::extract_dry_run
+        if self.software.is_empty() {
+            add_and_verify(&mut roms, &self.output, db.games_iter())
         } else {
-            game::extract
-        };
-
-        self.software
-            .iter()
-            .try_for_each(|game| db.games[game].add(&mut roms, &self.output, copy))
+            add_and_verify(
+                &mut roms,
+                &self.output,
+                self.software.iter().filter_map(|game| db.game(game)),
+            )
+        }
     }
 }
 
@@ -1736,4 +1692,28 @@ fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures
     }
 
     eprintln!("{} tested, {} OK", games.len(), successes);
+}
+
+fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> Result<(), Error>
+where
+    I: Iterator<Item = &'g game::Game>,
+{
+    use std::collections::BTreeMap;
+
+    let results = games
+        .map(|game| {
+            game.add_and_verify(roms, root)
+                .map(|failures| (game.name.as_str(), failures))
+        })
+        .collect::<Result<BTreeMap<_, _>, Error>>()?;
+
+    let successes = results.values().filter(|v| v.is_empty()).count();
+
+    for (game, failures) in results.iter() {
+        game::display_bad_results(game, failures);
+    }
+
+    eprintln!("{} added, {} OK", results.len(), successes);
+
+    Ok(())
 }
