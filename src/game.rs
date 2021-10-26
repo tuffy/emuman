@@ -343,7 +343,7 @@ impl Game {
             self.parts
                 .par_iter()
                 .filter_map(|(name, part)| match files_on_disk.remove(name) {
-                    Some((_, pathbuf)) => part.verify(pathbuf),
+                    Some((_, pathbuf)) => part.verify(pathbuf).err(),
                     None => Some(VerifyFailure::Missing(game_root.join(name))),
                 })
                 .collect::<Vec<VerifyFailure<PathBuf>>>()
@@ -396,7 +396,7 @@ impl Game {
             match files_on_disk.remove(name) {
                 Some(target) => {
                     // if file exists on disk
-                    if part.verify(&target).is_some() {
+                    if part.verify(&target).is_err() {
                         // but is not correct
                         match rom_sources.entry(part.clone()) {
                             Entry::Occupied(mut entry) => {
@@ -700,11 +700,11 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn verify<P: AsRef<Path>>(&self, part_path: P) -> Option<VerifyFailure<P>> {
+    fn verify<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
         match Part::from_cached_path(part_path.as_ref()) {
-            Ok(ref disk_part) if self == disk_part => None,
-            Ok(_) => Some(VerifyFailure::Bad(part_path)),
-            Err(err) => Some(VerifyFailure::Error(part_path, err)),
+            Ok(ref disk_part) if self == disk_part => Ok(()),
+            Ok(_) => Err(VerifyFailure::Bad(part_path)),
+            Err(err) => Err(VerifyFailure::Error(part_path, err)),
         }
     }
 }
