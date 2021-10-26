@@ -5,8 +5,6 @@ use std::collections::BTreeMap;
 pub type ExtraDb = BTreeMap<String, GameDb>;
 
 pub fn dat_to_game_db(tree: &Document) -> (String, GameDb) {
-    use crate::game::parse_int;
-
     let mut name = String::new();
     let mut game_db = GameDb::default();
 
@@ -42,10 +40,7 @@ pub fn dat_to_game_db(tree: &Document) -> (String, GameDb) {
                     if let Some(sha1) = child.attribute("sha1") {
                         game.parts.insert(
                             child.attribute("name").unwrap().to_string(),
-                            Part::new_rom(
-                                sha1,
-                                parse_int(child.attribute("size").unwrap()).unwrap(),
-                            ),
+                            Part::new_rom(sha1),
                         );
                     }
                 }

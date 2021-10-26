@@ -588,16 +588,15 @@ impl FileId {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    Rom { sha1: [u8; 20], size: u64 },
+    Rom { sha1: [u8; 20] },
     Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str, size: u64) -> Self {
+    pub fn new_rom(sha1: &str) -> Self {
         Part::Rom {
             sha1: parse_sha1(sha1),
-            size,
         }
     }
 
@@ -620,14 +619,6 @@ impl Part {
         match self {
             Part::Rom { sha1, .. } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
-        }
-    }
-
-    #[inline]
-    pub fn size(&self) -> Option<u64> {
-        match self {
-            Part::Rom { size, .. } => Some(*size),
-            Part::Disk { .. } => None,
         }
     }
 
@@ -722,7 +713,6 @@ impl Part {
 struct Sha1Reader<R> {
     reader: R,
     sha1: Sha1,
-    size: u64,
 }
 
 impl<R> Sha1Reader<R> {
@@ -731,7 +721,6 @@ impl<R> Sha1Reader<R> {
         Sha1Reader {
             reader,
             sha1: Sha1::new(),
-            size: 0,
         }
     }
 }
@@ -740,7 +729,6 @@ impl<R: Read> Read for Sha1Reader<R> {
     fn read(&mut self, data: &mut [u8]) -> Result<usize, std::io::Error> {
         let bytes = self.reader.read(data)?;
         self.sha1.update(&data[0..bytes]);
-        self.size += bytes as u64;
         Ok(bytes)
     }
 }
@@ -749,7 +737,6 @@ impl<R> From<Sha1Reader<R>> for Part {
     #[inline]
     fn from(other: Sha1Reader<R>) -> Part {
         Part::Rom {
-            size: other.size,
             sha1: other.sha1.digest().bytes(),
         }
     }
@@ -813,10 +800,7 @@ fn verify_style() -> ProgressStyle {
     ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
 }
 
-fn subdir_files<F>(root: &Path, file_filter: F) -> Vec<PathBuf>
-where
-    F: Fn(&Path) -> bool + Sync + Send,
-{
+fn subdir_files(root: &Path) -> Vec<PathBuf> {
     use indicatif::ProgressIterator;
     use walkdir::WalkDir;
 
@@ -836,7 +820,6 @@ where
             .filter_map(|e| {
                 e.ok()
                     .filter(|e| e.file_type().is_file() && files.insert(e.ino()))
-                    .filter(|e| file_filter(e.path()))
                     .map(|e| e.into_path())
             })
             .collect()
@@ -845,7 +828,6 @@ where
             .filter_map(|e| {
                 e.ok()
                     .filter(|e| e.file_type().is_file())
-                    .filter(|e| file_filter(e.path()))
                     .map(|e| e.into_path())
             })
             .collect()
@@ -1024,15 +1006,14 @@ enum Extracted {
 
 pub type RomSources = FxHashMap<Part, RomSource>;
 
-fn rom_sources<F1, F2>(root: &Path, file_filter: F1, part_filter: F2) -> RomSources
+fn rom_sources<F>(root: &Path, part_filter: F) -> RomSources
 where
-    F1: Fn(&Path) -> bool + Sync + Send,
-    F2: Fn(&Part) -> bool + Sync + Send,
+    F: Fn(&Part) -> bool + Sync + Send,
 {
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    let files = subdir_files(root, file_filter);
+    let files = subdir_files(root);
 
     let pbar = ProgressBar::new(files.len() as u64).with_style(verify_style());
     pbar.set_message("cataloging files");
@@ -1055,28 +1036,11 @@ where
 }
 
 pub fn all_rom_sources(root: &Path) -> RomSources {
-    rom_sources(root, |_| true, |_| true)
+    rom_sources(root, |_| true)
 }
 
 pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
-    use nohash_hasher::IntSet;
-
-    match required
-        .iter()
-        .map(Part::size)
-        .collect::<Option<IntSet<_>>>()
-    {
-        Some(sizes) => rom_sources(
-            root,
-            |path| {
-                path.metadata()
-                    .map(|m| sizes.contains(&m.len()))
-                    .unwrap_or(false)
-            },
-            |part| required.contains(part),
-        ),
-        None => rom_sources(root, |_| true, |part| required.contains(part)),
-    }
+    rom_sources(root, |part| required.contains(part))
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {

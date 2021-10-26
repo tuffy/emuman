@@ -197,8 +197,6 @@ pub fn add_xml_file(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb)
 }
 
 fn xml_to_game(node: &Node) -> Game {
-    use crate::game::parse_int;
-
     let mut game = Game {
         name: node.attribute("name").unwrap().to_string(),
         description: node
@@ -212,10 +210,7 @@ fn xml_to_game(node: &Node) -> Game {
     for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
         game.parts.insert(
             rom.attribute("name").unwrap().to_string(),
-            Part::new_rom(
-                rom.attribute("sha1").unwrap(),
-                parse_int(rom.attribute("size").unwrap()).unwrap(),
-            ),
+            Part::new_rom(rom.attribute("sha1").unwrap()),
         );
     }
 

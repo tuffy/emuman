@@ -481,7 +481,7 @@ fn xml_to_game(node: &Node) -> Game {
                 node.attribute("sha1").map(|sha1| {
                     (
                         node.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1, parse_int(node.attribute("size").unwrap()).unwrap()),
+                        Part::new_rom(sha1),
                     )
                 })
             })
