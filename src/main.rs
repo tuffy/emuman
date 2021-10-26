@@ -126,7 +126,8 @@ impl OptMameCreate {
             xml_data
         };
 
-        let xml = Document::parse(&xml_data)?;
+        let xml =
+            Document::parse_with_options(&xml_data, roxmltree::ParsingOptions { allow_dtd: true })?;
 
         if let Some(db_file) = self.database {
             let mut db = open_db(&db_file)?;

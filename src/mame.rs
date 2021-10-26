@@ -1004,9 +1004,11 @@ fn xml_to_game(node: &Node) -> Game {
             }
             "rom" => {
                 if let Some(sha1) = child.attribute("sha1") {
+                    use crate::game::parse_int;
+
                     game.parts.insert(
                         child.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1),
+                        Part::new_rom(sha1, parse_int(child.attribute("size").unwrap()).unwrap()),
                     );
                 }
             }

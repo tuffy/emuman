@@ -1,4 +1,5 @@
 use super::{is_zip, Error};
+use core::num::ParseIntError;
 use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::Table;
@@ -587,15 +588,16 @@ impl FileId {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Part {
-    Rom { sha1: [u8; 20] },
+    Rom { sha1: [u8; 20], size: u64 },
     Disk { sha1: [u8; 20] },
 }
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str) -> Self {
+    pub fn new_rom(sha1: &str, size: u64) -> Self {
         Part::Rom {
             sha1: parse_sha1(sha1),
+            size,
         }
     }
 
@@ -616,8 +618,16 @@ impl Part {
     #[inline]
     pub fn digest(&self) -> Digest {
         match self {
-            Part::Rom { sha1 } => Digest(sha1),
+            Part::Rom { sha1, .. } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
+        }
+    }
+
+    #[inline]
+    pub fn size(&self) -> Option<u64> {
+        match self {
+            Part::Rom { size, .. } => Some(*size),
+            Part::Disk { .. } => None,
         }
     }
 
@@ -662,7 +672,7 @@ impl Part {
         let mut r = Sha1Reader::new(r);
         match Part::disk_from_reader(&mut r) {
             Ok(Some(part)) => Ok(part),
-            Ok(None) => copy(&mut r, &mut sink()).map(|_| Part::Rom { sha1: r.digest() }),
+            Ok(None) => copy(&mut r, &mut sink()).map(|_| r.into()),
             Err(err) => Err(err),
         }
     }
@@ -712,6 +722,7 @@ impl Part {
 struct Sha1Reader<R> {
     reader: R,
     sha1: Sha1,
+    size: u64,
 }
 
 impl<R> Sha1Reader<R> {
@@ -720,12 +731,8 @@ impl<R> Sha1Reader<R> {
         Sha1Reader {
             reader,
             sha1: Sha1::new(),
+            size: 0,
         }
-    }
-
-    #[inline]
-    fn digest(self) -> [u8; 20] {
-        self.sha1.digest().bytes()
     }
 }
 
@@ -733,7 +740,18 @@ impl<R: Read> Read for Sha1Reader<R> {
     fn read(&mut self, data: &mut [u8]) -> Result<usize, std::io::Error> {
         let bytes = self.reader.read(data)?;
         self.sha1.update(&data[0..bytes]);
+        self.size += bytes as u64;
         Ok(bytes)
+    }
+}
+
+impl<R> From<Sha1Reader<R>> for Part {
+    #[inline]
+    fn from(other: Sha1Reader<R>) -> Part {
+        Part::Rom {
+            size: other.size,
+            sha1: other.sha1.digest().bytes(),
+        }
     }
 }
 
@@ -795,7 +813,10 @@ fn verify_style() -> ProgressStyle {
     ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
 }
 
-fn subdir_files(root: &Path) -> Vec<PathBuf> {
+fn subdir_files<F>(root: &Path, file_filter: F) -> Vec<PathBuf>
+where
+    F: Fn(&Path) -> bool + Sync + Send,
+{
     use indicatif::ProgressIterator;
     use walkdir::WalkDir;
 
@@ -815,6 +836,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
             .filter_map(|e| {
                 e.ok()
                     .filter(|e| e.file_type().is_file() && files.insert(e.ino()))
+                    .filter(|e| file_filter(e.path()))
                     .map(|e| e.into_path())
             })
             .collect()
@@ -823,6 +845,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
             .filter_map(|e| {
                 e.ok()
                     .filter(|e| e.file_type().is_file())
+                    .filter(|e| file_filter(e.path()))
                     .map(|e| e.into_path())
             })
             .collect()
@@ -1001,14 +1024,15 @@ enum Extracted {
 
 pub type RomSources = FxHashMap<Part, RomSource>;
 
-fn rom_sources<F>(root: &Path, filter: F) -> RomSources
+fn rom_sources<F1, F2>(root: &Path, file_filter: F1, part_filter: F2) -> RomSources
 where
-    F: Fn(&Part) -> bool + Sync + Send,
+    F1: Fn(&Path) -> bool + Sync + Send,
+    F2: Fn(&Part) -> bool + Sync + Send,
 {
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    let files = subdir_files(root);
+    let files = subdir_files(root, file_filter);
 
     let pbar = ProgressBar::new(files.len() as u64).with_style(verify_style());
     pbar.set_message("cataloging files");
@@ -1022,7 +1046,7 @@ where
                 .unwrap_or_else(|_| Vec::new())
                 .into_par_iter()
         })
-        .filter(|(part, _)| filter(part))
+        .filter(|(part, _)| part_filter(part))
         .collect();
 
     pbar.finish_and_clear();
@@ -1031,11 +1055,28 @@ where
 }
 
 pub fn all_rom_sources(root: &Path) -> RomSources {
-    rom_sources(root, |_| true)
+    rom_sources(root, |_| true, |_| true)
 }
 
 pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
-    rom_sources(root, |part| required.contains(part))
+    use nohash_hasher::IntSet;
+
+    match required
+        .iter()
+        .map(Part::size)
+        .collect::<Option<IntSet<_>>>()
+    {
+        Some(sizes) => rom_sources(
+            root,
+            |path| {
+                path.metadata()
+                    .map(|m| sizes.contains(&m.len()))
+                    .unwrap_or(false)
+            },
+            |part| required.contains(part),
+        ),
+        None => rom_sources(root, |_| true, |part| required.contains(part)),
+    }
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {
@@ -1082,4 +1123,21 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
             writeln!(&mut handle, "  {}", failure).unwrap();
         }
     }
+}
+
+#[inline]
+pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
+    // MAME's use of integer values is a horror show
+    let s = s.trim();
+
+    u64::from_str(s)
+        .or_else(|_| u64::from_str_radix(s, 16))
+        .or_else(|e| {
+            if let Some(stripped) = s.strip_prefix("0x") {
+                u64::from_str_radix(stripped, 16)
+            } else {
+                dbg!(s);
+                Err(e)
+            }
+        })
 }

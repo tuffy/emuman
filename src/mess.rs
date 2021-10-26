@@ -3,7 +3,7 @@ use super::{
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
-use core::num::ParseIntError;
+use crate::game::parse_int;
 use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
 use std::collections::BTreeMap;
@@ -481,7 +481,7 @@ fn xml_to_game(node: &Node) -> Game {
                 node.attribute("sha1").map(|sha1| {
                     (
                         node.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1),
+                        Part::new_rom(sha1, parse_int(node.attribute("size").unwrap()).unwrap()),
                     )
                 })
             })
@@ -648,23 +648,4 @@ pub fn strip_ines_header(data: &[u8]) -> &[u8] {
     } else {
         data
     }
-}
-
-#[inline]
-pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
-    use std::str::FromStr;
-
-    // MAME's use of integer values is a horror show
-    let s = s.trim();
-
-    u64::from_str(s)
-        .or_else(|_| u64::from_str_radix(s, 16))
-        .or_else(|e| {
-            if let Some(stripped) = s.strip_prefix("0x") {
-                u64::from_str_radix(stripped, 16)
-            } else {
-                dbg!(s);
-                Err(e)
-            }
-        })
 }
