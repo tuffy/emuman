@@ -1699,14 +1699,24 @@ fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> 
 where
     I: Iterator<Item = &'g game::Game>,
 {
+    use indicatif::{ProgressBar, ProgressStyle};
     use std::collections::BTreeMap;
 
-    let results = games
-        .map(|game| {
-            game.add_and_verify(roms, root)
+    let pb = match games.size_hint() {
+        (_, Some(total)) => ProgressBar::new(total as u64)
+            .with_style(ProgressStyle::default_bar().template("{wide_msg} {pos} / {len}")),
+        (_, None) => ProgressBar::new_spinner(),
+    }
+    .with_message("adding and verifying");
+
+    let results = pb
+        .wrap_iter(games.map(|game| {
+            game.add_and_verify(roms, root, &pb)
                 .map(|failures| (game.name.as_str(), failures))
-        })
+        }))
         .collect::<Result<BTreeMap<_, _>, Error>>()?;
+
+    pb.finish_and_clear();
 
     let successes = results.values().filter(|v| v.is_empty()).count();
 
@@ -1714,7 +1724,7 @@ where
         game::display_bad_results(game, failures);
     }
 
-    eprintln!("{} added, {} OK", results.len(), successes);
+    println!("{} added, {} OK", results.len(), successes);
 
     Ok(())
 }

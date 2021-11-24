@@ -33,7 +33,7 @@ impl GameDb {
     }
 
     #[inline]
-    pub fn games_iter(&self) -> impl Iterator<Item = &Game> {
+    pub fn games_iter(&self) -> impl ExactSizeIterator<Item = &Game> {
         self.games.values()
     }
 
@@ -365,6 +365,7 @@ impl Game {
         &self,
         rom_sources: &mut RomSources,
         target_dir: &Path,
+        progress: &ProgressBar,
     ) -> Result<Vec<VerifyFailure<PathBuf>>, Error> {
         use std::fs::read_dir;
 
@@ -407,12 +408,18 @@ impl Game {
                                 remove_file(&target).map_err(Error::IO)?;
                                 match source.extract(&target)? {
                                     Extracted::Copied => {
-                                        println!("{} => {}", source, target.display());
+                                        progress.println(format!(
+                                            "{} => {}",
+                                            source,
+                                            target.display()
+                                        ));
                                         entry.insert(RomSource::Disk(target));
                                     }
-                                    Extracted::Linked => {
-                                        println!("{} -> {}", source, target.display())
-                                    }
+                                    Extracted::Linked => progress.println(format!(
+                                        "{} -> {}",
+                                        source,
+                                        target.display()
+                                    )),
                                 }
                             }
                             Entry::Vacant(_) => {
@@ -437,11 +444,11 @@ impl Game {
                             create_dir_all(target.parent().unwrap())?;
                             match source.extract(&target)? {
                                 Extracted::Copied => {
-                                    println!("{} => {}", source, target.display());
+                                    progress.println(format!("{} => {}", source, target.display()));
                                     entry.insert(RomSource::Disk(target));
                                 }
                                 Extracted::Linked => {
-                                    println!("{} -> {}", source, target.display())
+                                    progress.println(format!("{} -> {}", source, target.display()))
                                 }
                             }
                         }
