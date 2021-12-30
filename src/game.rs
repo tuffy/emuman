@@ -401,7 +401,7 @@ impl Game {
             match files_on_disk.remove(name) {
                 Some(target) => {
                     // if file exists on disk
-                    if let Err(failure) = part.verify(&target) {
+                    if let Err(failure) = part.verify(&target).map_err(|err| err.with_path(())) {
                         // but is not correct
                         match rom_sources.entry(part.clone()) {
                             Entry::Occupied(mut entry) => {
@@ -427,7 +427,7 @@ impl Game {
                             }
                             Entry::Vacant(_) => {
                                 // if part missing in rom_sources, forward error
-                                failures.push(failure.with_path(target.clone()));
+                                failures.push(failure.with_path(target));
                             }
                         }
                     }
@@ -583,7 +583,9 @@ impl<P: AsRef<Path>> VerifyFailure<P> {
             path,
         }
     }
+}
 
+impl<P> VerifyFailure<P> {
     #[inline]
     fn with_path<Q>(self, path: Q) -> VerifyFailure<Q> {
         match self {
