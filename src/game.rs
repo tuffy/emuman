@@ -330,7 +330,7 @@ impl Game {
                     Ok(name) => {
                         files_on_disk.insert(name, entry.path()).map(|_| ());
                     }
-                    Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
+                    Err(_) => failures.push(VerifyFailure::extra(entry.path())),
                 }
             }
         } else if self.parts.is_empty() {
@@ -345,7 +345,10 @@ impl Game {
                 .par_iter()
                 .filter_map(|(name, part)| match files_on_disk.remove(name) {
                     Some((_, pathbuf)) => part.verify(pathbuf).err(),
-                    None => Some(VerifyFailure::Missing(game_root.join(name))),
+                    None => Some(VerifyFailure::Missing {
+                        path: game_root.join(name),
+                        part: part.clone(),
+                    }),
                 })
                 .collect::<Vec<VerifyFailure<PathBuf>>>()
                 .into_iter(),
@@ -355,7 +358,7 @@ impl Game {
         failures.extend(
             files_on_disk
                 .into_iter()
-                .map(|(_, pathbuf)| VerifyFailure::Extra(pathbuf)),
+                .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
         );
 
         failures
@@ -385,7 +388,7 @@ impl Game {
                     Ok(name) => {
                         files_on_disk.insert(name, entry.path());
                     }
-                    Err(_) => failures.push(VerifyFailure::Extra(entry.path())),
+                    Err(_) => failures.push(VerifyFailure::extra(entry.path())),
                 }
             }
         }
@@ -398,7 +401,7 @@ impl Game {
             match files_on_disk.remove(name) {
                 Some(target) => {
                     // if file exists on disk
-                    if part.verify(&target).is_err() {
+                    if let Err(failure) = part.verify(&target) {
                         // but is not correct
                         match rom_sources.entry(part.clone()) {
                             Entry::Occupied(mut entry) => {
@@ -423,8 +426,8 @@ impl Game {
                                 }
                             }
                             Entry::Vacant(_) => {
-                                // if part missing in rom_sources, mark as bad
-                                failures.push(VerifyFailure::Bad(target));
+                                // if part missing in rom_sources, forward error
+                                failures.push(failure.with_path(target.clone()));
                             }
                         }
                     }
@@ -454,7 +457,10 @@ impl Game {
                         }
                         Entry::Vacant(_) => {
                             // otherwise mark as missing
-                            failures.push(VerifyFailure::Missing(target));
+                            failures.push(VerifyFailure::Missing {
+                                path: target,
+                                part: part.clone(),
+                            });
                         }
                     }
                 }
@@ -465,7 +471,7 @@ impl Game {
         failures.extend(
             files_on_disk
                 .into_iter()
-                .map(|(_, pathbuf)| VerifyFailure::Extra(pathbuf)),
+                .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
         );
 
         Ok(failures)
@@ -550,20 +556,63 @@ impl<'a> GameRow<'a> {
 }
 
 pub enum VerifyFailure<P> {
-    Missing(P),
-    Extra(P),
-    Bad(P),
-    Error(P, std::io::Error),
+    Missing {
+        path: P,
+        part: Part,
+    },
+    Extra {
+        path: P,
+        part: Result<Part, std::io::Error>,
+    },
+    Bad {
+        path: P,
+        expected: Part,
+        actual: Part,
+    },
+    Error {
+        path: P,
+        err: std::io::Error,
+    },
+}
+
+impl<P: AsRef<Path>> VerifyFailure<P> {
+    #[inline]
+    fn extra(path: P) -> Self {
+        Self::Extra {
+            part: Part::from_path(path.as_ref()),
+            path,
+        }
+    }
+
+    #[inline]
+    fn with_path<Q>(self, path: Q) -> VerifyFailure<Q> {
+        match self {
+            VerifyFailure::Missing { part, path: _ } => VerifyFailure::Missing { path, part },
+            VerifyFailure::Extra { part, path: _ } => VerifyFailure::Extra { path, part },
+            VerifyFailure::Bad {
+                expected,
+                actual,
+                path: _,
+            } => VerifyFailure::Bad {
+                path,
+                expected,
+                actual,
+            },
+            VerifyFailure::Error { err, path: _ } => VerifyFailure::Error { path, err },
+        }
+    }
 }
 
 impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            VerifyFailure::Missing(pb) => write!(f, "MISSING : {}", pb.as_ref().display()),
-            VerifyFailure::Extra(pb) => write!(f, "EXTRA : {}", pb.as_ref().display()),
-            VerifyFailure::Bad(pb) => write!(f, "BAD : {}", pb.as_ref().display()),
-            VerifyFailure::Error(pb, err) => {
-                write!(f, "ERROR : {} : {}", pb.as_ref().display(), err)
+            VerifyFailure::Missing { path, .. } => {
+                write!(f, "MISSING : {}", path.as_ref().display())
+            }
+            VerifyFailure::Extra { path, .. } => write!(f, "EXTRA : {}", path.as_ref().display()),
+            VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.as_ref().display()),
+            VerifyFailure::Error { path, err } => {
+                write!(f, "ERROR : {} : {}", path.as_ref().display(), err)
             }
         }
     }
@@ -711,8 +760,15 @@ impl Part {
     fn verify<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
         match Part::from_cached_path(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => Ok(()),
-            Ok(_) => Err(VerifyFailure::Bad(part_path)),
-            Err(err) => Err(VerifyFailure::Error(part_path, err)),
+            Ok(ref disk_part) => Err(VerifyFailure::Bad {
+                path: part_path,
+                expected: self.clone(),
+                actual: disk_part.clone(),
+            }),
+            Err(err) => Err(VerifyFailure::Error {
+                path: part_path,
+                err,
+            }),
         }
     }
 }
