@@ -1,3 +1,4 @@
+use clap::{Args, Parser, Subcommand};
 use roxmltree::Document;
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
@@ -6,7 +7,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
-use structopt::StructOpt;
 
 mod extra;
 mod game;
@@ -103,14 +103,14 @@ impl fmt::Display for Error {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameCreate {
     /// SQLite database
-    #[structopt(long = "db", parse(from_os_str))]
+    #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
 
     /// MAME's XML file
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     xml: Option<PathBuf>,
 }
 
@@ -147,14 +147,14 @@ impl OptMameCreate {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameList {
     /// sorting order, use "description", "year" or "creator"
-    #[structopt(short = "s", long = "sort", default_value = "description")]
+    #[clap(short = 's', long = "sort", default_value = "description")]
     sort: game::GameColumn,
 
     /// display simple list with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// search term for querying specific machines
@@ -169,10 +169,10 @@ impl OptMameList {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameGames {
     /// display simple list with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// games to search for, by short name
@@ -187,7 +187,7 @@ impl OptMameGames {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameParts {
     /// game's parts to search for
     game: String,
@@ -200,18 +200,18 @@ impl OptMameParts {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameReport {
     /// sorting order, use "description", "year" or "creator"
-    #[structopt(short = "s", long = "sort", default_value = "description")]
+    #[clap(short = 's', long = "sort", default_value = "description")]
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// display simple report with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// search term for querying specific machines
@@ -232,22 +232,22 @@ impl OptMameReport {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameVerify {
     /// ROMs directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// verify all possible machines
-    #[structopt(long = "all")]
+    #[clap(long = "all")]
     all: bool,
 
     /// verify only working machines
-    #[structopt(long = "working")]
+    #[clap(long = "working")]
     working: bool,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 
     /// machine to verify
@@ -287,14 +287,14 @@ impl OptMameVerify {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// machine to add
@@ -323,14 +323,14 @@ impl OptMameAdd {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMameRename {
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// don't actually rename ROMs
-    #[structopt(long = "dry-run")]
+    #[clap(long = "dry-run")]
     dry_run: bool,
 
     /// machine to rename
@@ -359,39 +359,38 @@ impl OptMameRename {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "mame")]
+#[derive(Subcommand)]
 enum OptMame {
     /// create internal database
-    #[structopt(name = "create")]
+    #[clap(name = "create")]
     Create(OptMameCreate),
 
     /// list all machines
-    #[structopt(name = "list")]
+    #[clap(name = "list")]
     List(OptMameList),
 
     /// list a machine's ROMs
-    #[structopt(name = "parts")]
+    #[clap(name = "parts")]
     Parts(OptMameParts),
 
     /// list given games, in order
-    #[structopt(name = "games")]
+    #[clap(name = "games")]
     Games(OptMameGames),
 
     /// generate report of sets in collection
-    #[structopt(name = "report")]
+    #[clap(name = "report")]
     Report(OptMameReport),
 
     /// verify ROMs in directory
-    #[structopt(name = "verify")]
+    #[clap(name = "verify")]
     Verify(OptMameVerify),
 
     /// add ROMs to directory
-    #[structopt(name = "add")]
+    #[clap(name = "add")]
     Add(OptMameAdd),
 
     /// rename ROMs in game directories, if necessary
-    #[structopt(name = "rename")]
+    #[clap(name = "rename")]
     Rename(OptMameRename),
 }
 
@@ -410,14 +409,14 @@ impl OptMame {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessCreate {
     /// SQLite database
-    #[structopt(long = "db", parse(from_os_str))]
+    #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
 
     /// XML files from hash database
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
 }
 
@@ -460,17 +459,17 @@ impl OptMessCreate {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessList {
     /// software list to use
     software_list: Option<String>,
 
     /// sorting order, use "description", "year" or "publisher"
-    #[structopt(short = "s", long = "sort", default_value = "description")]
+    #[clap(short = 's', long = "sort", default_value = "description")]
     sort: game::GameColumn,
 
     /// display simple list with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// search term for querying specific items
@@ -496,10 +495,10 @@ impl OptMessList {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessGames {
     /// display simple list with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// software list to use
@@ -521,7 +520,7 @@ impl OptMessGames {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessParts {
     /// software list to use
     software_list: String,
@@ -541,21 +540,21 @@ impl OptMessParts {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessReport {
     /// sorting order, use "description", "year" or "creator"
-    #[structopt(short = "s", long = "sort", default_value = "description")]
+    #[clap(short = 's', long = "sort", default_value = "description")]
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// software list to use
     software_list: String,
 
     /// display simple report with less information
-    #[structopt(short = "S", long = "simple")]
+    #[clap(short = 'S', long = "simple")]
     simple: bool,
 
     /// search term for querying specific software
@@ -604,22 +603,22 @@ impl OptMessReport {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessVerify {
     /// ROMs directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// verify all possible machines
-    #[structopt(long = "all")]
+    #[clap(long = "all")]
     all: bool,
 
     /// verify only working machines
-    #[structopt(long = "working")]
+    #[clap(long = "working")]
     working: bool,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 
     /// software list to use
@@ -662,22 +661,22 @@ impl OptMessVerify {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessVerifyAll {
     /// ROMs directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// verify all possible machines
-    #[structopt(long = "all")]
+    #[clap(long = "all")]
     all: bool,
 
     /// verify only working machines
-    #[structopt(long = "working")]
+    #[clap(long = "working")]
     working: bool,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 }
 
@@ -715,14 +714,14 @@ impl OptMessVerifyAll {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// software list to use
@@ -756,14 +755,14 @@ impl OptMessAdd {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessAddAll {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 }
 
@@ -779,14 +778,14 @@ impl OptMessAddAll {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessRename {
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
 
     /// don't actually rename ROMs
-    #[structopt(long = "dry-run")]
+    #[clap(long = "dry-run")]
     dry_run: bool,
 
     /// software list to use
@@ -818,14 +817,14 @@ impl OptMessRename {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptMessSplit {
     /// target directory for split ROMs
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
 
     /// ROMs to split
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     roms: Vec<PathBuf>,
 }
 
@@ -870,51 +869,51 @@ impl OptMessSplit {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "mess")]
+#[derive(Subcommand)]
+#[clap(name = "mess")]
 enum OptMess {
     /// create internal database
-    #[structopt(name = "create")]
+    #[clap(name = "create")]
     Create(OptMessCreate),
 
     /// list all software in software list
-    #[structopt(name = "list")]
+    #[clap(name = "list")]
     List(OptMessList),
 
     /// list given games, in order
-    #[structopt(name = "games")]
+    #[clap(name = "games")]
     Games(OptMessGames),
 
     /// list a machine's ROMs
-    #[structopt(name = "parts")]
+    #[clap(name = "parts")]
     Parts(OptMessParts),
 
     /// generate report of sets in collection
-    #[structopt(name = "report")]
+    #[clap(name = "report")]
     Report(OptMessReport),
 
     /// verify ROMs in directory
-    #[structopt(name = "verify")]
+    #[clap(name = "verify")]
     Verify(OptMessVerify),
 
     /// verify all ROMs in all software lists in directory
-    #[structopt(name = "verify-all")]
+    #[clap(name = "verify-all")]
     VerifyAll(OptMessVerifyAll),
 
     /// add ROMs to directory
-    #[structopt(name = "add")]
+    #[clap(name = "add")]
     Add(OptMessAdd),
 
     /// add all ROMs from all software lists to directory
-    #[structopt(name = "add-all")]
+    #[clap(name = "add-all")]
     AddAll(OptMessAddAll),
 
     /// rename ROMs in directory, if necessary
-    #[structopt(name = "rename")]
+    #[clap(name = "rename")]
     Rename(OptMessRename),
 
     /// split ROM into MESS-compatible parts, if necessary
-    #[structopt(name = "split")]
+    #[clap(name = "split")]
     Split(OptMessSplit),
 }
 
@@ -936,14 +935,14 @@ impl OptMess {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraCreate {
     /// extras .DAT file files
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
 
     /// append new .DAT file to existing set
-    #[structopt(short = "a", long = "append")]
+    #[clap(short = 'a', long = "append")]
     append: bool,
 }
 
@@ -969,7 +968,7 @@ impl OptExtraCreate {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraList {}
 
 impl OptExtraList {
@@ -980,7 +979,7 @@ impl OptExtraList {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraParts {
     /// sections's parts to search for
     section: String,
@@ -1000,10 +999,10 @@ impl OptExtraParts {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraVerify {
     /// extras directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 
     /// extras category to verify
@@ -1013,7 +1012,7 @@ struct OptExtraVerify {
     software: Vec<String>,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 }
 
@@ -1044,18 +1043,18 @@ impl OptExtraVerify {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraVerifyAll {
     /// extras directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 
     /// verify all possible machines
-    #[structopt(long = "all")]
+    #[clap(long = "all")]
     all: bool,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 }
 
@@ -1089,14 +1088,14 @@ impl OptExtraVerifyAll {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 
     /// extra to add
@@ -1130,14 +1129,14 @@ impl OptExtraAdd {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptExtraAddAll {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "d", long = "dir", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
 }
 
@@ -1153,35 +1152,35 @@ impl OptExtraAddAll {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "extra")]
+#[derive(Subcommand)]
+#[clap(name = "extra")]
 enum OptExtra {
     /// create internal database
-    #[structopt(name = "create")]
+    #[clap(name = "create")]
     Create(OptExtraCreate),
 
     /// list all extras categories
-    #[structopt(name = "list")]
+    #[clap(name = "list")]
     List(OptExtraList),
 
     /// list an extra's parts
-    #[structopt(name = "parts")]
+    #[clap(name = "parts")]
     Parts(OptExtraParts),
 
     /// verify parts in directory
-    #[structopt(name = "verify")]
+    #[clap(name = "verify")]
     Verify(OptExtraVerify),
 
     /// add files to directory
-    #[structopt(name = "add")]
+    #[clap(name = "add")]
     Add(OptExtraAdd),
 
     /// add all files to directory
-    #[structopt(name = "add-all")]
+    #[clap(name = "add-all")]
     AddAll(OptExtraAddAll),
 
     /// verify all files in directory
-    #[structopt(name = "verify-all")]
+    #[clap(name = "verify-all")]
     VerifyAll(OptExtraVerifyAll),
 }
 
@@ -1199,14 +1198,14 @@ impl OptExtra {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpCreate {
     /// SQLite database
-    #[structopt(long = "db", parse(from_os_str))]
+    #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
 
     /// redump XML file
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
 }
 
@@ -1243,7 +1242,7 @@ impl OptRedumpCreate {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpList {
     /// software list to use
     software_list: Option<String>,
@@ -1269,7 +1268,7 @@ impl OptRedumpList {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpParts {
     /// software list to use
     software_list: String,
@@ -1289,18 +1288,18 @@ impl OptRedumpParts {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpVerify {
     /// root directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
     /// verify all possible software
-    #[structopt(long = "all")]
+    #[clap(long = "all")]
     all: bool,
 
     /// display only failures
-    #[structopt(long = "failures")]
+    #[clap(long = "failures")]
     failures: bool,
 
     /// software list to use
@@ -1341,14 +1340,14 @@ impl OptRedumpVerify {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpAdd {
     /// input directory
-    #[structopt(short = "i", long = "input", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
     input: PathBuf,
 
     /// output directory
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
 
     /// software list to use
@@ -1382,14 +1381,14 @@ impl OptRedumpAdd {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptRedumpSplit {
     /// directory to place output tracks
-    #[structopt(short = "r", long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     root: PathBuf,
 
     /// input .bin file
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     bins: Vec<PathBuf>,
 }
 
@@ -1414,31 +1413,31 @@ impl OptRedumpSplit {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "redump")]
+#[derive(Subcommand)]
+#[clap(name = "redump")]
 enum OptRedump {
     /// create internal database
-    #[structopt(name = "create")]
+    #[clap(name = "create")]
     Create(OptRedumpCreate),
 
     /// list all software in software list
-    #[structopt(name = "list")]
+    #[clap(name = "list")]
     List(OptRedumpList),
 
     /// list all tracks for a given game
-    #[structopt(name = "parts")]
+    #[clap(name = "parts")]
     Parts(OptRedumpParts),
 
     /// verify files against Redump database
-    #[structopt(name = "verify")]
+    #[clap(name = "verify")]
     Verify(OptRedumpVerify),
 
     /// add tracks to directory
-    #[structopt(name = "add")]
+    #[clap(name = "add")]
     Add(OptRedumpAdd),
 
     /// split .bin file into multiple tracks
-    #[structopt(name = "split")]
+    #[clap(name = "split")]
     Split(OptRedumpSplit),
 }
 
@@ -1455,13 +1454,13 @@ impl OptRedump {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Args)]
 struct OptIdentify {
     /// ROMs or CHDs to identify
     parts: Vec<PathBuf>,
 
     /// perform reverse lookup
-    #[structopt(short = "l", long = "lookup")]
+    #[clap(short = 'l', long = "lookup")]
     lookup: bool,
 }
 
@@ -1539,26 +1538,25 @@ impl OptIdentify {
 }
 
 /// Emulation Database Manager
-#[derive(StructOpt)]
+#[derive(Parser)]
 enum Opt {
     /// arcade software management
-    #[structopt(name = "mame")]
+    #[clap(subcommand)]
     Mame(OptMame),
 
     /// console and portable software management
-    #[structopt(name = "mess")]
+    #[clap(subcommand)]
     Mess(OptMess),
 
     /// extra files management, like snapshots
-    #[structopt(name = "extra")]
+    #[clap(subcommand)]
     Extra(OptExtra),
 
     /// disc image software management
-    #[structopt(name = "redump")]
+    #[clap(subcommand)]
     Redump(OptRedump),
 
     /// identify ROM or CHD by hash
-    #[structopt(name = "identify")]
     Identify(OptIdentify),
 }
 
@@ -1575,7 +1573,7 @@ impl Opt {
 }
 
 fn main() {
-    if let Err(err) = Opt::from_args().execute() {
+    if let Err(err) = Opt::parse().execute() {
         eprintln!("* {}", err);
     }
 }

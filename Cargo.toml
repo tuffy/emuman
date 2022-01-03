@@ -8,7 +8,7 @@ repository = "https://github.com/tuffy/emuman"
 edition = "2018"
 
 [dependencies]
-structopt = "0.3"
+clap = {version = "3.0", features=["derive"]}
 roxmltree = "0.14"
 rusqlite = "0.25"
 sha1 = "0.6"
