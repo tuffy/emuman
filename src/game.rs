@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+const CACHE_XATTR: &str = "user.emupart";
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
     pub description: String,
@@ -416,13 +418,22 @@ impl Game {
                                             source,
                                             target.display()
                                         ));
-                                        entry.insert(RomSource::Disk(target));
+                                        part.set_xattr(&target);
+                                        entry.insert(RomSource::Disk {
+                                            file: target,
+                                            has_xattr: true,
+                                        });
                                     }
-                                    Extracted::Linked => progress.println(format!(
-                                        "{} -> {}",
-                                        source,
-                                        target.display()
-                                    )),
+                                    Extracted::Linked { has_xattr } => {
+                                        if !has_xattr {
+                                            part.set_xattr(&target);
+                                        }
+                                        progress.println(format!(
+                                            "{} -> {}",
+                                            source,
+                                            target.display()
+                                        ))
+                                    }
                                 }
                             }
                             Entry::Vacant(_) => {
@@ -448,9 +459,16 @@ impl Game {
                             match source.extract(&target)? {
                                 Extracted::Copied => {
                                     progress.println(format!("{} => {}", source, target.display()));
-                                    entry.insert(RomSource::Disk(target));
+                                    part.set_xattr(&target);
+                                    entry.insert(RomSource::Disk {
+                                        file: target,
+                                        has_xattr: true,
+                                    });
                                 }
-                                Extracted::Linked => {
+                                Extracted::Linked { has_xattr } => {
+                                    if !has_xattr {
+                                        part.set_xattr(&target);
+                                    }
                                     progress.println(format!("{} -> {}", source, target.display()))
                                 }
                             }
@@ -621,13 +639,13 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
-enum FileId {
+pub enum FileId {
     Posix { dev: u64, ino: u64 },
     Unknown(PathBuf),
 }
 
 impl FileId {
-    fn new(path: &Path) -> Result<Self, std::io::Error> {
+    pub fn new(path: &Path) -> Result<Self, std::io::Error> {
         #[cfg(target_os = "linux")]
         use std::os::linux::fs::MetadataExt;
         #[cfg(target_os = "macos")]
@@ -681,7 +699,7 @@ impl Part {
     }
 
     #[inline]
-    fn from_path(path: &Path) -> Result<Self, std::io::Error> {
+    pub fn from_path(path: &Path) -> Result<Self, std::io::Error> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -708,8 +726,44 @@ impl Part {
         match map.get(&file_id) {
             Some(part) => Ok(part.clone()),
             None => {
-                let part = Self::from_path(path)?;
+                let part = Self::from_disk_cached_path(path)?;
                 map.insert(file_id, part.clone());
+                Ok(part)
+            }
+        }
+    }
+
+    #[inline]
+    pub fn get_xattr(path: &Path) -> Option<Self> {
+        match xattr::get(path, CACHE_XATTR) {
+            Ok(Some(v)) => ciborium::de::from_reader(std::io::Cursor::new(v)).ok(),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn set_xattr(&self, path: &Path) {
+        let mut attr = Vec::new();
+        ciborium::ser::into_writer(self, &mut attr).unwrap();
+        let _ = xattr::set(path, CACHE_XATTR, &attr);
+    }
+
+    #[inline]
+    pub fn has_xattr(path: &Path) -> Result<bool, std::io::Error> {
+        xattr::list(path).map(|mut iter| iter.any(|s| s == CACHE_XATTR))
+    }
+
+    #[inline]
+    pub fn remove_xattr(path: &Path) -> Result<(), std::io::Error> {
+        xattr::remove(path, CACHE_XATTR)
+    }
+
+    fn from_disk_cached_path(path: &Path) -> Result<Self, std::io::Error> {
+        match Part::get_xattr(path) {
+            Some(part) => Ok(part),
+            None => {
+                let part = Self::from_path(path)?;
+                part.set_xattr(path);
                 Ok(part)
             }
         }
@@ -904,7 +958,10 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 }
 
 pub enum RomSource {
-    Disk(PathBuf),
+    Disk {
+        file: PathBuf,
+        has_xattr: bool,
+    },
     Zip {
         file: Arc<PathBuf>,
         index: usize,
@@ -921,9 +978,25 @@ impl RomSource {
         use std::fs::File;
         use std::io::{BufReader, Cursor, Seek, SeekFrom};
 
+        if let Some(part) = Part::get_xattr(&pb) {
+            return Ok(vec![(
+                part,
+                RomSource::Disk {
+                    file: pb,
+                    has_xattr: true,
+                },
+            )]);
+        }
+
         let mut r = File::open(&pb).map(BufReader::new)?;
 
-        let mut result = vec![(Part::from_reader(&mut r)?, RomSource::Disk(pb.clone()))];
+        let mut result = vec![(
+            Part::from_path(&pb)?,
+            RomSource::Disk {
+                file: pb.clone(),
+                has_xattr: false,
+            },
+        )];
 
         // valid ROMs might also be potentially invalid Zip archives
         // so the extra error handling ensures original file(s)
@@ -1000,11 +1073,16 @@ impl RomSource {
 
     fn extract(&self, target: &Path) -> Result<Extracted, Error> {
         match self {
-            RomSource::Disk(source) => {
+            RomSource::Disk {
+                file: source,
+                has_xattr,
+            } => {
                 use std::fs::{copy, hard_link};
 
                 if hard_link(source, &target).is_ok() {
-                    Ok(Extracted::Linked)
+                    Ok(Extracted::Linked {
+                        has_xattr: *has_xattr,
+                    })
                 } else {
                     copy(source, &target)
                         .map_err(Error::IO)
@@ -1053,7 +1131,7 @@ impl RomSource {
 impl fmt::Display for RomSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RomSource::Disk(source) => source.display().fmt(f),
+            RomSource::Disk { file, .. } => file.display().fmt(f),
             RomSource::Zip { file, index } => write!(f, "{}:{}", file.display(), index),
             RomSource::SubZip {
                 file,
@@ -1066,7 +1144,7 @@ impl fmt::Display for RomSource {
 
 enum Extracted {
     Copied,
-    Linked,
+    Linked { has_xattr: bool },
 }
 
 pub type RomSources = FxHashMap<Part, RomSource>;

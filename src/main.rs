@@ -32,7 +32,8 @@ pub enum Error {
     IO(std::io::Error),
     Xml(roxmltree::Error),
     Sql(rusqlite::Error),
-    Cbor(serde_cbor::Error),
+    CborRead(ciborium::de::Error<std::io::Error>),
+    CborWrite(ciborium::ser::Error<std::io::Error>),
     Zip(zip::result::ZipError),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
@@ -57,12 +58,6 @@ impl From<rusqlite::Error> for Error {
     }
 }
 
-impl From<serde_cbor::Error> for Error {
-    fn from(err: serde_cbor::Error) -> Self {
-        Error::Cbor(err)
-    }
-}
-
 impl From<zip::result::ZipError> for Error {
     fn from(err: zip::result::ZipError) -> Self {
         Error::Zip(err)
@@ -75,7 +70,8 @@ impl std::error::Error for Error {
             Error::IO(err) => Some(err),
             Error::Xml(err) => Some(err),
             Error::Sql(err) => Some(err),
-            Error::Cbor(err) => Some(err),
+            Error::CborRead(err) => Some(err),
+            Error::CborWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
             Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) | Error::MissingCache(_) => {
                 None
@@ -90,7 +86,8 @@ impl fmt::Display for Error {
             Error::IO(err) => err.fmt(f),
             Error::Xml(err) => err.fmt(f),
             Error::Sql(err) => err.fmt(f),
-            Error::Cbor(err) => err.fmt(f),
+            Error::CborRead(err) => err.fmt(f),
+            Error::CborWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
@@ -1537,6 +1534,86 @@ impl OptIdentify {
     }
 }
 
+#[derive(Subcommand)]
+enum OptCache {
+    /// add cache entries to files
+    Add(OptCacheAdd),
+
+    /// remove cache entries from files
+    #[clap(name = "delete")]
+    Delete(OptCacheDelete),
+}
+
+impl OptCache {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptCache::Add(o) => o.execute(),
+            OptCache::Delete(o) => o.execute(),
+        }
+    }
+}
+
+#[derive(Args)]
+struct OptCacheAdd {
+    /// files or directories
+    #[clap(parse(from_os_str))]
+    paths: Vec<PathBuf>,
+}
+
+impl OptCacheAdd {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::Part;
+        use indicatif::ProgressBar;
+
+        let pb = ProgressBar::new_spinner().with_message("adding cache entries");
+
+        for file in pb.wrap_iter(
+            self.paths
+                .into_iter()
+                .flat_map(|pb| unique_sub_files(pb))
+                .filter(|pb| matches!(Part::has_xattr(&pb), Ok(false))),
+        ) {
+            match Part::from_path(&file) {
+                Ok(part) => part.set_xattr(&file),
+                Err(err) => pb.println(format!("{} : {}", file.display(), err)),
+            }
+        }
+
+        pb.finish_and_clear();
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptCacheDelete {
+    /// files or directories
+    #[clap(parse(from_os_str))]
+    paths: Vec<PathBuf>,
+}
+
+impl OptCacheDelete {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::Part;
+        use indicatif::ProgressBar;
+
+        let pb = ProgressBar::new_spinner().with_message("removing cache entries");
+
+        for file in pb.wrap_iter(
+            self.paths
+                .into_iter()
+                .flat_map(|pb| unique_sub_files(pb))
+                .filter(|pb| matches!(Part::has_xattr(&pb), Ok(true))),
+        ) {
+            Part::remove_xattr(&file)?;
+        }
+
+        pb.finish_and_clear();
+
+        Ok(())
+    }
+}
+
 /// Emulation Database Manager
 #[derive(Parser)]
 enum Opt {
@@ -1558,6 +1635,10 @@ enum Opt {
 
     /// identify ROM or CHD by hash
     Identify(OptIdentify),
+
+    /// file cache management
+    #[clap(subcommand)]
+    Cache(OptCache),
 }
 
 impl Opt {
@@ -1568,6 +1649,7 @@ impl Opt {
             Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
             Opt::Identify(o) => o.execute(),
+            Opt::Cache(o) => o.execute(),
         }
     }
 }
@@ -1655,7 +1737,7 @@ where
     create_dir_all(dir)?;
     let path = dir.join(db_file);
     let f = BufWriter::new(File::create(&path)?);
-    serde_cbor::to_writer(f, &cache).map_err(Error::Cbor)?;
+    ciborium::ser::into_writer(&cache, f).map_err(Error::CborWrite)?;
     println!("* Wrote \"{}\"", path.display());
     Ok(())
 }
@@ -1672,7 +1754,7 @@ where
         File::open(dirs.data_local_dir().join(db_file))
             .map_err(|_| Error::MissingCache(utility))?,
     );
-    serde_cbor::from_reader(f).map_err(Error::Cbor)
+    ciborium::de::from_reader(f).map_err(Error::CborRead)
 }
 
 fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures: bool) {
@@ -1725,4 +1807,48 @@ where
     println!("{} added, {} OK", results.len(), successes);
 
     Ok(())
+}
+
+fn sub_files(root: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {
+    if root.is_file() {
+        Box::new(std::iter::once(root))
+    } else if root.is_dir() {
+        Box::new(
+            walkdir::WalkDir::new(root)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+                .map(|e| e.into_path()),
+        )
+    } else {
+        Box::new(std::iter::empty())
+    }
+}
+
+struct UniqueSubFiles<I> {
+    iter: I,
+    seen: HashSet<crate::game::FileId>,
+}
+
+impl<I: Iterator<Item = PathBuf>> Iterator for UniqueSubFiles<I> {
+    type Item = PathBuf;
+
+    fn next(&mut self) -> Option<PathBuf> {
+        loop {
+            let next = self.iter.next()?;
+            if let Ok(file_id) = crate::game::FileId::new(&next) {
+                if self.seen.insert(file_id) {
+                    break Some(next);
+                }
+            }
+        }
+    }
+}
+
+#[inline]
+fn unique_sub_files(root: PathBuf) -> impl Iterator<Item = PathBuf> {
+    UniqueSubFiles {
+        iter: sub_files(root),
+        seen: HashSet::default(),
+    }
 }
