@@ -639,26 +639,50 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub enum FileId {
-    Posix { dev: u64, ino: u64 },
-    Unknown(PathBuf),
+pub struct FileId {
+    pub dev: u64,
+    pub ino: u64,
 }
 
 impl FileId {
+    #[cfg(target_os = "linux")]
     pub fn new(path: &Path) -> Result<Self, std::io::Error> {
-        #[cfg(target_os = "linux")]
         use std::os::linux::fs::MetadataExt;
-        #[cfg(target_os = "macos")]
+
+        path.metadata().map(|m| Self {
+            dev: m.st_dev(),
+            ino: m.st_ino(),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn new(path: &Path) -> Result<Self, std::io::Error> {
         use std::os::macos::fs::MetadataExt;
 
-        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-            path.metadata().map(|m| Self::Posix {
-                dev: m.st_dev(),
-                ino: m.st_ino(),
-            })
-        } else {
-            Ok(FileId::Unknown(path.to_path_buf()))
-        }
+        path.metadata().map(|m| Self {
+            dev: m.st_dev(),
+            ino: m.st_ino(),
+        })
+    }
+
+    #[cfg(target_os = "unix")]
+    pub fn new(path: &Path) -> Result<Self, std::io::Error> {
+        use std::os::unix::fs::MetadataExt;
+
+        path.metadata().map(|m| Self {
+            dev: m.dev(),
+            ino: m.ino(),
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn new(path: &Path) -> Result<Self, std::io::Error> {
+        use std::os::windows::fs::MetadataExt;
+
+        path.metadata().map(|m| Self {
+            dev: m.volume_serial_number().unwrap().into(),
+            ino: m.file_index().unwrap(),
+        })
     }
 }
 
@@ -910,12 +934,12 @@ impl FromStr for GameColumn {
 }
 
 #[inline]
-fn find_files_style() -> ProgressStyle {
+pub fn find_files_style() -> ProgressStyle {
     ProgressStyle::default_spinner().template("{spinner} {wide_msg} {pos}")
 }
 
 #[inline]
-fn verify_style() -> ProgressStyle {
+pub fn verify_style() -> ProgressStyle {
     ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
 }
 

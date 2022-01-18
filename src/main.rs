@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
+mod duplicates;
 mod extra;
 mod game;
 mod mame;
@@ -1542,6 +1543,10 @@ enum OptCache {
     /// remove cache entries from files
     #[clap(name = "delete")]
     Delete(OptCacheDelete),
+
+    /// find duplicate files and link them together
+    #[clap(name = "link-dupes")]
+    LinkDupes(OptCacheLinkDupes),
 }
 
 impl OptCache {
@@ -1549,6 +1554,7 @@ impl OptCache {
         match self {
             OptCache::Add(o) => o.execute(),
             OptCache::Delete(o) => o.execute(),
+            OptCache::LinkDupes(o) => o.execute(),
         }
     }
 }
@@ -1563,21 +1569,32 @@ struct OptCacheAdd {
 impl OptCacheAdd {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Part;
-        use indicatif::ProgressBar;
+        use indicatif::{ParallelProgressIterator, ProgressBar};
+        use rayon::prelude::*;
 
-        let pb = ProgressBar::new_spinner().with_message("adding cache entries");
+        let pb = ProgressBar::new_spinner().with_message("locating files");
+        let files = {
+            pb.wrap_iter(
+                self.paths
+                    .into_iter()
+                    .flat_map(|pb| unique_sub_files(pb))
+                    .filter(|pb| matches!(Part::has_xattr(&pb), Ok(false))),
+            )
+            .collect::<Vec<PathBuf>>()
+        };
+        pb.finish_and_clear();
 
-        for file in pb.wrap_iter(
-            self.paths
-                .into_iter()
-                .flat_map(|pb| unique_sub_files(pb))
-                .filter(|pb| matches!(Part::has_xattr(&pb), Ok(false))),
-        ) {
-            match Part::from_path(&file) {
+        let pb = ProgressBar::new(files.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message("adding cache entries");
+
+        files
+            .into_par_iter()
+            .progress_with(pb.clone())
+            .for_each(|file: PathBuf| match Part::from_path(&file) {
                 Ok(part) => part.set_xattr(&file),
                 Err(err) => pb.println(format!("{} : {}", file.display(), err)),
-            }
-        }
+            });
 
         pb.finish_and_clear();
 
@@ -1606,6 +1623,51 @@ impl OptCacheDelete {
                 .filter(|pb| matches!(Part::has_xattr(&pb), Ok(true))),
         ) {
             Part::remove_xattr(&file)?;
+        }
+
+        pb.finish_and_clear();
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptCacheLinkDupes {
+    /// files or directories
+    #[clap(parse(from_os_str))]
+    paths: Vec<PathBuf>,
+}
+
+impl OptCacheLinkDupes {
+    fn execute(self) -> Result<(), Error> {
+        use crate::duplicates::{DuplicateFiles, Duplicates};
+        use indicatif::ProgressBar;
+
+        let mut db = DuplicateFiles::default();
+
+        let pb = ProgressBar::new_spinner()
+            .with_style(crate::game::find_files_style())
+            .with_message("linking duplicate files");
+
+        for file in pb.wrap_iter(self.paths.into_iter().flat_map(|pb| sub_files(pb))) {
+            use std::fs;
+
+            match db.get_or_add(file) {
+                Ok(None) => {}
+                Ok(Some((duplicate, original))) => {
+                    match fs::remove_file(&duplicate)
+                        .and_then(|()| fs::hard_link(&original, &duplicate))
+                    {
+                        Ok(()) => pb.println(format!(
+                            "{} \u{2192} {}",
+                            original.display(),
+                            duplicate.display()
+                        )),
+                        Err(err) => pb.println(format!("{}: {}", duplicate.display(), err)),
+                    }
+                }
+                Err((source, err)) => pb.println(format!("{}: {}", source.display(), err)),
+            }
         }
 
         pb.finish_and_clear();
