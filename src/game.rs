@@ -346,7 +346,7 @@ impl Game {
             self.parts
                 .par_iter()
                 .filter_map(|(name, part)| match files_on_disk.remove(name) {
-                    Some((_, pathbuf)) => part.verify(pathbuf).err(),
+                    Some((_, pathbuf)) => part.verify_cached(pathbuf).err(),
                     None => Some(VerifyFailure::Missing {
                         path: game_root.join(name),
                         part: part.clone(),
@@ -403,7 +403,9 @@ impl Game {
             match files_on_disk.remove(name) {
                 Some(target) => {
                     // if file exists on disk
-                    if let Err(failure) = part.verify(&target).map_err(|err| err.with_path(())) {
+                    if let Err(failure) =
+                        part.verify_cached(&target).map_err(|err| err.with_path(()))
+                    {
                         // but is not correct
                         match rom_sources.entry(part.clone()) {
                             Entry::Occupied(mut entry) => {
@@ -837,8 +839,12 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn verify<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
-        match Part::from_cached_path(part_path.as_ref()) {
+    fn verify<P, F>(&self, from: F, part_path: P) -> Result<(), VerifyFailure<P>>
+    where
+        P: AsRef<Path>,
+        F: FnOnce(&Path) -> Result<Self, std::io::Error>,
+    {
+        match from(part_path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => Ok(()),
             Ok(ref disk_part) => Err(VerifyFailure::Bad {
                 path: part_path,
@@ -850,6 +856,16 @@ impl Part {
                 err,
             }),
         }
+    }
+
+    #[inline]
+    pub fn verify_cached<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
+        self.verify(Part::from_cached_path, part_path)
+    }
+
+    #[inline]
+    pub fn verify_uncached<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
+        self.verify(Part::from_path, part_path)
     }
 }
 

@@ -1544,6 +1544,10 @@ enum OptCache {
     #[clap(name = "delete")]
     Delete(OptCacheDelete),
 
+    /// verify cache entries in files, if any
+    #[clap(name = "verify")]
+    Verify(OptCacheVerify),
+
     /// find duplicate files and link them together
     #[clap(name = "link-dupes")]
     LinkDupes(OptCacheLinkDupes),
@@ -1554,6 +1558,7 @@ impl OptCache {
         match self {
             OptCache::Add(o) => o.execute(),
             OptCache::Delete(o) => o.execute(),
+            OptCache::Verify(o) => o.execute(),
             OptCache::LinkDupes(o) => o.execute(),
         }
     }
@@ -1626,6 +1631,48 @@ impl OptCacheDelete {
         }
 
         pb.finish_and_clear();
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptCacheVerify {
+    /// files or directories
+    #[clap(parse(from_os_str))]
+    paths: Vec<PathBuf>,
+}
+
+impl OptCacheVerify {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::{Part, VerifyFailure};
+        use indicatif::{ParallelProgressIterator, ProgressBar};
+        use rayon::prelude::*;
+
+        let pb = ProgressBar::new_spinner().with_message("locating files");
+        let files = {
+            pb.wrap_iter(self.paths.into_iter().flat_map(|pb| unique_sub_files(pb)))
+                .collect::<Vec<PathBuf>>()
+        };
+        pb.finish_and_clear();
+
+        let pb = ProgressBar::new(files.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message("verifying cache entries");
+
+        let results = files
+            .into_par_iter()
+            .progress_with(pb.clone())
+            .filter_map(|file| {
+                Part::get_xattr(&file).and_then(|part| part.verify_uncached(file).err())
+            })
+            .collect::<Vec<VerifyFailure<PathBuf>>>();
+
+        pb.finish_and_clear();
+
+        for failure in results {
+            println!("{}", failure);
+        }
 
         Ok(())
     }
