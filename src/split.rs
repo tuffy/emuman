@@ -66,7 +66,7 @@ impl SplitPart {
     }
 
     fn matches(&self, data: &[u8]) -> bool {
-        use sha1::Sha1;
+        use sha1_smol::Sha1;
 
         Sha1::from(&data[self.start..self.end]).digest().bytes() == self.sha1
     }

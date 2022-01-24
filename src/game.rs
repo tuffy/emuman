@@ -4,7 +4,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
-use sha1::Sha1;
+use sha1_smol::Sha1;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;

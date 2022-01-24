@@ -1,7 +1,7 @@
 [package]
 name = "emuman"
 description = "Utility for managing emulator ROM files."
-version = "1.14.0"
+version = "1.15.0"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/tuffy/emuman"
@@ -10,8 +10,8 @@ edition = "2018"
 [dependencies]
 clap = {version = "3.0", features=["derive"]}
 roxmltree = "0.14"
-rusqlite = "0.25"
-sha1 = "0.6"
+rusqlite = "0.26"
+sha1_smol = "1.0"
 rayon = "1.5"
 prettytable-rs = "0.8"
 walkdir = "2"
@@ -23,6 +23,6 @@ fxhash = "0.2"
 nohash-hasher = "0.2"
 indicatif = {version = "0.16", features=["with_rayon"]}
 zip = "0.5"
-once_cell = "1.8"
-dashmap = "4.0"
+once_cell = "1.9"
+dashmap = "5.0"
 xattr = "0.2"
