@@ -1218,12 +1218,28 @@ where
     results
 }
 
-pub fn all_rom_sources(root: &Path) -> RomSources {
-    rom_sources(root, |_| true)
+fn multi_rom_sources<F>(roots: &[PathBuf], part_filter: F) -> RomSources
+where
+    F: Fn(&Part) -> bool + Sync + Send + Copy,
+{
+    roots
+        .iter()
+        .map(|root| rom_sources(root, part_filter))
+        .reduce(|mut acc, item| {
+            acc.extend(item);
+            acc
+        })
+        .unwrap_or_else(|| rom_sources(Path::new("."), part_filter))
 }
 
-pub fn get_rom_sources(root: &Path, required: FxHashSet<Part>) -> RomSources {
-    rom_sources(root, |part| required.contains(part))
+#[inline]
+pub fn all_rom_sources(root: &[PathBuf]) -> RomSources {
+    multi_rom_sources(root, |_| true)
+}
+
+#[inline]
+pub fn get_rom_sources(root: &[PathBuf], required: FxHashSet<Part>) -> RomSources {
+    multi_rom_sources(root, |part| required.contains(part))
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {

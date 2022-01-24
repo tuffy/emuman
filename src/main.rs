@@ -288,8 +288,8 @@ impl OptMameVerify {
 #[derive(Args)]
 struct OptMameAdd {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
@@ -715,8 +715,8 @@ impl OptMessVerifyAll {
 #[derive(Args)]
 struct OptMessAdd {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
@@ -756,8 +756,8 @@ impl OptMessAdd {
 #[derive(Args)]
 struct OptMessAddAll {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
@@ -1089,8 +1089,8 @@ impl OptExtraVerifyAll {
 #[derive(Args)]
 struct OptExtraAdd {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
@@ -1130,8 +1130,8 @@ impl OptExtraAdd {
 #[derive(Args)]
 struct OptExtraAddAll {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
@@ -1341,8 +1341,8 @@ impl OptRedumpVerify {
 #[derive(Args)]
 struct OptRedumpAdd {
     /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str), default_value = ".")]
-    input: PathBuf,
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
 
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
