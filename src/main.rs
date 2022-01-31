@@ -683,7 +683,7 @@ impl OptMessVerifyAll {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
 
         for (software_list, mut db) in db.into_iter() {
-            let roms_path = self.roms.join(software_list);
+            let roms_path = self.roms.join(&software_list);
 
             if self.working {
                 db.retain_working();
@@ -705,7 +705,7 @@ impl OptMessVerifyAll {
                     .unwrap_or_default()
             };
 
-            verify(&db, &roms_path, &software, self.failures);
+            verify_all(&software_list, &db, &roms_path, &software, self.failures);
         }
 
         Ok(())
@@ -771,7 +771,12 @@ impl OptMessAddAll {
         let mut roms = game::all_rom_sources(&self.input);
 
         db.into_iter().try_for_each(|(software, db)| {
-            add_and_verify(&mut roms, &self.roms.join(software), db.games_iter())
+            add_and_verify_all(
+                &software,
+                &mut roms,
+                &self.roms.join(&software),
+                db.games_iter(),
+            )
         })
     }
 }
@@ -1061,7 +1066,7 @@ impl OptExtraVerifyAll {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
         for (extra_list, db) in db.into_iter() {
-            let extras_path = self.dir.join(extra_list);
+            let extras_path = self.dir.join(&extra_list);
 
             let software: HashSet<String> = if self.all {
                 db.all_games()
@@ -1079,7 +1084,7 @@ impl OptExtraVerifyAll {
                     .unwrap_or_default()
             };
 
-            verify(&db, &extras_path, &software, self.failures);
+            verify_all(&extra_list, &db, &extras_path, &software, self.failures);
         }
 
         Ok(())
@@ -1145,7 +1150,7 @@ impl OptExtraAddAll {
         let mut parts = game::all_rom_sources(&self.input);
 
         db.into_iter().try_for_each(|(extra, db)| {
-            add_and_verify(&mut parts, &self.dir.join(extra), db.games_iter())
+            add_and_verify_all(&extra, &mut parts, &self.dir.join(&extra), db.games_iter())
         })
     }
 }
@@ -1884,8 +1889,38 @@ fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures
     eprintln!("{} tested, {} OK", games.len(), successes);
 }
 
-fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> Result<(), Error>
+fn verify_all(
+    software_list: &str,
+    db: &game::GameDb,
+    root: &Path,
+    games: &HashSet<String>,
+    only_failures: bool,
+) {
+    let results = db.verify(root, games);
+
+    let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
+
+    let display = if only_failures {
+        game::display_bad_results
+    } else {
+        game::display_all_results
+    };
+
+    for (game, failures) in results.iter() {
+        display(&format!("{software_list}/{game}"), failures);
+    }
+
+    eprintln!("{} tested, {} OK", games.len(), successes);
+}
+
+fn add_and_verify_games<'g, I, F>(
+    results_fn: F,
+    roms: &mut game::RomSources,
+    root: &Path,
+    games: I,
+) -> Result<(), Error>
 where
+    F: Fn(&str, &[game::VerifyFailure<PathBuf>]),
     I: Iterator<Item = &'g game::Game>,
 {
     use indicatif::{ProgressBar, ProgressStyle};
@@ -1910,12 +1945,43 @@ where
     let successes = results.values().filter(|v| v.is_empty()).count();
 
     for (game, failures) in results.iter() {
-        game::display_bad_results(game, failures);
+        results_fn(game, failures);
     }
 
-    println!("{} added, {} OK", results.len(), successes);
+    eprintln!("{} added, {} OK", results.len(), successes);
 
     Ok(())
+}
+
+#[inline]
+fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> Result<(), Error>
+where
+    I: Iterator<Item = &'g game::Game>,
+{
+    add_and_verify_games(
+        |game, failures| game::display_bad_results(game, failures),
+        roms,
+        root,
+        games,
+    )
+}
+
+#[inline]
+fn add_and_verify_all<'g, I>(
+    software_list: &str,
+    roms: &mut game::RomSources,
+    root: &Path,
+    games: I,
+) -> Result<(), Error>
+where
+    I: Iterator<Item = &'g game::Game>,
+{
+    add_and_verify_games(
+        |game, failures| game::display_bad_results(&format!("{software_list}/{game}"), failures),
+        roms,
+        root,
+        games,
+    )
 }
 
 fn sub_files(root: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {

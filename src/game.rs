@@ -1262,15 +1262,7 @@ pub fn display_all_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
     if failures.is_empty() {
         println!("{} : OK", game);
     } else {
-        use std::io::{stdout, Write};
-
-        // ensure results are generated as a unit
-        let stdout = stdout();
-        let mut handle = stdout.lock();
-        writeln!(&mut handle, "{} : BAD", game).unwrap();
-        for failure in failures {
-            writeln!(&mut handle, "  {}", failure).unwrap();
-        }
+        display_bad_results(game, failures)
     }
 }
 
@@ -1281,9 +1273,8 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
         // ensure results are generated as a unit
         let stdout = stdout();
         let mut handle = stdout.lock();
-        writeln!(&mut handle, "{} : BAD", game).unwrap();
         for failure in failures {
-            writeln!(&mut handle, "  {}", failure).unwrap();
+            writeln!(&mut handle, "{game} : {failure}").unwrap();
         }
     }
 }
