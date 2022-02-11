@@ -1471,7 +1471,7 @@ impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::{GameDb, Part, RomSource};
         use prettytable::{cell, format, row, Table};
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::{BTreeMap, BTreeSet, HashMap};
 
         if self.lookup {
             let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
@@ -1492,14 +1492,14 @@ impl OptIdentify {
                 ),
             ];
 
-            let mut lookup: HashMap<&Part, Vec<[&str; 4]>> = HashMap::default();
+            let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
 
             // invert caches into a Part -> [identifiers] lookup table
             for (category, game_dbs) in &all_parts {
                 for (system, game_db) in game_dbs.iter() {
                     for game in game_db.games_iter() {
                         for (rom, part) in game.parts.iter() {
-                            lookup.entry(part).or_default().push([
+                            lookup.entry(part).or_default().insert([
                                 category,
                                 system,
                                 game.name.as_str(),
