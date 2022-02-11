@@ -1473,18 +1473,16 @@ impl OptIdentify {
         use prettytable::{cell, format, row, Table};
         use std::collections::{BTreeMap, HashMap};
 
-        #[inline]
-        fn make_mame(db: game::GameDb) -> BTreeMap<String, GameDb> {
-            let mut map = BTreeMap::default();
-            map.insert("".to_string(), db);
-            map
-        }
-
         if self.lookup {
             let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
                 (
                     "mame",
-                    make_mame(read_cache(MAME, CACHE_MAME).unwrap_or_default()),
+                    BTreeMap::from(
+                        [(
+                            "".to_string(),
+                            read_cache(MAME, CACHE_MAME).unwrap_or_default(),
+                        ); 1],
+                    ),
                 ),
                 ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
                 ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
@@ -1585,8 +1583,8 @@ impl OptCacheAdd {
             pb.wrap_iter(
                 self.paths
                     .into_iter()
-                    .flat_map(|pb| unique_sub_files(pb))
-                    .filter(|pb| matches!(Part::has_xattr(&pb), Ok(false))),
+                    .flat_map(unique_sub_files)
+                    .filter(|pb| matches!(Part::has_xattr(pb), Ok(false))),
             )
             .collect::<Vec<PathBuf>>()
         };
@@ -1627,8 +1625,8 @@ impl OptCacheDelete {
         for file in pb.wrap_iter(
             self.paths
                 .into_iter()
-                .flat_map(|pb| unique_sub_files(pb))
-                .filter(|pb| matches!(Part::has_xattr(&pb), Ok(true))),
+                .flat_map(unique_sub_files)
+                .filter(|pb| matches!(Part::has_xattr(pb), Ok(true))),
         ) {
             Part::remove_xattr(&file)?;
         }
@@ -1654,7 +1652,7 @@ impl OptCacheVerify {
 
         let pb = ProgressBar::new_spinner().with_message("locating files");
         let files = {
-            pb.wrap_iter(self.paths.into_iter().flat_map(|pb| unique_sub_files(pb)))
+            pb.wrap_iter(self.paths.into_iter().flat_map(unique_sub_files))
                 .collect::<Vec<PathBuf>>()
         };
         pb.finish_and_clear();
@@ -1699,7 +1697,7 @@ impl OptCacheLinkDupes {
             .with_style(crate::game::find_files_style())
             .with_message("linking duplicate files");
 
-        for file in pb.wrap_iter(self.paths.into_iter().flat_map(|pb| sub_files(pb))) {
+        for file in pb.wrap_iter(self.paths.into_iter().flat_map(sub_files)) {
             use std::fs;
 
             match db.get_or_add(file) {
@@ -1956,12 +1954,7 @@ fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> 
 where
     I: Iterator<Item = &'g game::Game>,
 {
-    add_and_verify_games(
-        |game, failures| game::display_bad_results(game, failures),
-        roms,
-        root,
-        games,
-    )
+    add_and_verify_games(game::display_bad_results, roms, root, games)
 }
 
 #[inline]

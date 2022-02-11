@@ -330,7 +330,7 @@ impl Game {
             {
                 match entry.file_name().into_string() {
                     Ok(name) => {
-                        files_on_disk.insert(name, entry.path()).map(|_| ());
+                        files_on_disk.insert(name, entry.path());
                     }
                     Err(_) => failures.push(VerifyFailure::extra(entry.path())),
                 }
