@@ -1006,7 +1006,7 @@ fn xml_to_game(node: &Node) -> Game {
                 if let Some(sha1) = child.attribute("sha1") {
                     game.parts.insert(
                         child.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1),
+                        Part::new_rom(sha1).unwrap(),
                     );
                 }
             }
@@ -1014,7 +1014,7 @@ fn xml_to_game(node: &Node) -> Game {
                 if let Some(sha1) = child.attribute("sha1") {
                     game.parts.insert(
                         Part::name_to_chd(child.attribute("name").unwrap()),
-                        Part::new_disk(sha1),
+                        Part::new_disk(sha1).unwrap(),
                     );
                 }
             }

@@ -40,7 +40,7 @@ pub fn dat_to_game_db(tree: &Document) -> (String, GameDb) {
                     if let Some(sha1) = child.attribute("sha1") {
                         game.parts.insert(
                             child.attribute("name").unwrap().to_string(),
-                            Part::new_rom(sha1),
+                            Part::new_rom(sha1).unwrap(),
                         );
                     }
                 }

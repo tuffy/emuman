@@ -1470,7 +1470,7 @@ struct OptIdentify {
 impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::{GameDb, Part, RomSource};
-        use prettytable::Table;
+        use prettytable::{cell, format, row, Table};
         use std::collections::{BTreeMap, HashMap};
 
         #[inline]
@@ -1481,16 +1481,22 @@ impl OptIdentify {
         }
 
         if self.lookup {
-            let all_parts: [(&str, BTreeMap<String, GameDb>); 3] = [
+            let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
                 (
                     "mame",
                     make_mame(read_cache(MAME, CACHE_MAME).unwrap_or_default()),
                 ),
                 ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
                 ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
+                (
+                    "redump",
+                    read_cache(REDUMP, CACHE_REDUMP).unwrap_or_default(),
+                ),
             ];
 
             let mut lookup: HashMap<&Part, Vec<[&str; 4]>> = HashMap::default();
+
+            // invert caches into a Part -> [identifiers] lookup table
             for (category, game_dbs) in &all_parts {
                 for (system, game_db) in game_dbs.iter() {
                     for game in game_db.games_iter() {
@@ -1506,28 +1512,22 @@ impl OptIdentify {
                 }
             }
 
+            let mut table = Table::new();
+            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+            table.get_format().column_separator('\u{2502}');
+
             for path in self.parts.into_iter() {
-                println!("{}:", path.display());
+                let path_str = path.display().to_string();
                 for (part, _) in RomSource::from_path(path)? {
-                    match lookup.get(&part) {
-                        Some(sources) => {
-                            use prettytable::{cell, format, row};
-                            let mut table = Table::new();
-                            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-                            table.get_format().column_separator('\u{2502}');
-
-                            for [category, system, game, rom] in sources {
-                                table.add_row(row![category, system, game, rom]);
-                            }
-
-                            table.printstd();
-                        }
-                        None => {
-                            println!("unknown");
+                    if let Some(sources) = lookup.get(&part) {
+                        for [category, system, game, rom] in sources {
+                            table.add_row(row![&path_str, category, system, game, rom]);
                         }
                     }
                 }
             }
+
+            table.printstd();
         } else {
             for path in self.parts.into_iter() {
                 for (part, source) in RomSource::from_path(path)? {

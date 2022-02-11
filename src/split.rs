@@ -61,7 +61,7 @@ impl SplitPart {
             name: name.to_string(),
             start,
             end,
-            sha1: parse_sha1(sha1),
+            sha1: parse_sha1(sha1).unwrap(),
         }
     }
 

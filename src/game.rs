@@ -696,17 +696,13 @@ pub enum Part {
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str) -> Self {
-        Part::Rom {
-            sha1: parse_sha1(sha1),
-        }
+    pub fn new_rom(sha1: &str) -> Result<Self, Sha1ParseError> {
+        parse_sha1(sha1).map(|sha1| Part::Rom { sha1 })
     }
 
     #[inline]
-    pub fn new_disk(sha1: &str) -> Self {
-        Part::Disk {
-            sha1: parse_sha1(sha1),
-        }
+    pub fn new_disk(sha1: &str) -> Result<Self, Sha1ParseError> {
+        parse_sha1(sha1).map(|sha1| Part::Disk { sha1 })
     }
 
     #[inline]
@@ -901,15 +897,15 @@ impl<R> From<Sha1Reader<R>> for Part {
     }
 }
 
-pub fn parse_sha1(hex: &str) -> [u8; 20] {
+pub fn parse_sha1(hex: &str) -> Result<[u8; 20], Sha1ParseError> {
     let mut hex = hex.trim();
     let mut bin = [0; 20];
 
     if hex.len() != 40 {
-        panic!("sha1 sum \"{}\" not 40 characters", hex);
+        return Err(Sha1ParseError::IncorrectLength);
     }
     if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        panic!("sha1 sum \"{}\" not all hex digits", hex);
+        return Err(Sha1ParseError::NonHexDigits);
     }
 
     for c in bin.iter_mut() {
@@ -918,8 +914,25 @@ pub fn parse_sha1(hex: &str) -> [u8; 20] {
         hex = rest;
     }
 
-    bin
+    Ok(bin)
 }
+
+#[derive(Debug)]
+pub enum Sha1ParseError {
+    IncorrectLength,
+    NonHexDigits,
+}
+
+impl std::fmt::Display for Sha1ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Sha1ParseError::IncorrectLength => write!(f, "incorrect SHA1 hash length"),
+            Sha1ParseError::NonHexDigits => write!(f, "non hex digits in SHA1 hash"),
+        }
+    }
+}
+
+impl std::error::Error for Sha1ParseError {}
 
 pub struct Digest<'a>(&'a [u8]);
 
