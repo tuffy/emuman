@@ -1519,10 +1519,8 @@ impl OptIdentify {
             for path in self.parts.into_iter() {
                 let path_str = path.display().to_string();
                 for (part, _) in RomSource::from_path(path)? {
-                    if let Some(sources) = lookup.get(&part) {
-                        for [category, system, game, rom] in sources {
-                            table.add_row(row![&path_str, category, system, game, rom]);
-                        }
+                    for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
+                        table.add_row(row![&path_str, category, system, game, rom]);
                     }
                 }
             }
