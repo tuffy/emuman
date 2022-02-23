@@ -8,7 +8,7 @@ use sha1_smol::Sha1;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -422,7 +422,7 @@ impl Game {
                                         ));
                                         part.set_xattr(&target);
                                         entry.insert(RomSource::Disk {
-                                            file: target,
+                                            file: Arc::new(target),
                                             has_xattr: true,
                                         });
                                     }
@@ -463,7 +463,7 @@ impl Game {
                                     progress.println(format!("{} => {}", source, target.display()));
                                     part.set_xattr(&target);
                                     entry.insert(RomSource::Disk {
-                                        file: target,
+                                        file: Arc::new(target),
                                         has_xattr: true,
                                     });
                                 }
@@ -1012,7 +1012,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 
 pub enum RomSource {
     Disk {
-        file: PathBuf,
+        file: Arc<PathBuf>,
         has_xattr: bool,
     },
     Zip {
@@ -1026,102 +1026,117 @@ pub enum RomSource {
     },
 }
 
+enum PartialRomSource {
+    Zip { index: usize },
+    SubZip { index: usize, sub_index: usize },
+}
+
 impl RomSource {
+    #[inline]
+    fn from_partial_path(file: Arc<PathBuf>, partial: PartialRomSource) -> Self {
+        match partial {
+            PartialRomSource::Zip { index } => Self::Zip { file, index },
+            PartialRomSource::SubZip { index, sub_index } => Self::SubZip {
+                file,
+                index,
+                sub_index,
+            },
+        }
+    }
+
     pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
         use std::fs::File;
-        use std::io::{BufReader, Cursor, Seek, SeekFrom};
+        use std::io::BufReader;
 
+        // if the file already has a cached xattr set,
+        // return it as-is without any further parsing
+        // and flag it so we don't attempt to set the xattr again
         if let Some(part) = Part::get_xattr(&pb) {
             return Ok(vec![(
                 part,
                 RomSource::Disk {
-                    file: pb,
+                    file: Arc::new(pb),
                     has_xattr: true,
                 },
             )]);
         }
 
         let mut r = File::open(&pb).map(BufReader::new)?;
+        let file = Arc::new(pb);
 
         let mut result = vec![(
-            Part::from_path(&pb)?,
+            Part::from_path(&file)?,
             RomSource::Disk {
-                file: pb.clone(),
+                file: file.clone(),
                 has_xattr: false,
             },
         )];
 
-        // valid ROMs might also be potentially invalid Zip archives
-        // so the extra error handling ensures original file(s)
-        // are returned as part of the result if something goes bad
-        // after the initial read
-
-        if r.seek(SeekFrom::Start(0)).is_err() {
-            return Ok(result);
+        if is_zip(&mut r).unwrap_or(false) {
+            result.extend(
+                Self::from_zip(r).into_iter().map(|(part, source)| {
+                    (part, RomSource::from_partial_path(file.clone(), source))
+                }),
+            )
         }
 
-        if is_zip(&mut r).unwrap_or(false) {
-            let file = Arc::new(pb);
-            let mut zip = match zip::ZipArchive::new(r) {
-                Ok(z) => z,
-                Err(_) => return Ok(result),
-            };
+        Ok(result)
+    }
 
-            for index in 0..zip.len() {
-                let mut file_data = Vec::new();
-                match zip.by_index(index) {
-                    Ok(mut r) => {
-                        if r.read_to_end(&mut file_data).is_err() {
-                            return Ok(result);
-                        }
+    fn from_zip<R>(r: R) -> Vec<(Part, PartialRomSource)>
+    where
+        R: Read + Seek,
+    {
+        use std::io::{Cursor, SeekFrom};
+
+        let mut result = Vec::new();
+
+        let mut zip = match zip::ZipArchive::new(r) {
+            Ok(z) => z,
+            Err(_) => return result,
+        };
+
+        for index in 0..zip.len() {
+            let mut file_data = Vec::new();
+            match zip.by_index(index) {
+                Ok(mut r) => {
+                    if r.read_to_end(&mut file_data).is_err() {
+                        return result;
                     }
-                    Err(_) => return Ok(result),
                 }
+                Err(_) => return result,
+            }
 
-                let mut reader = Cursor::new(file_data);
-                if let Ok(part) = Part::from_reader(&mut reader) {
-                    result.push((
-                        part,
-                        RomSource::Zip {
-                            file: file.clone(),
-                            index,
+            let mut reader = Cursor::new(file_data);
+            if let Ok(part) = Part::from_reader(&mut reader) {
+                result.push((part, PartialRomSource::Zip { index }));
+            }
+
+            if reader.seek(SeekFrom::Start(0)).is_err() {
+                return result;
+            }
+
+            if is_zip(&mut reader).unwrap_or(false) {
+                let mut sub_zip = match zip::ZipArchive::new(reader) {
+                    Ok(z) => z,
+                    Err(_) => return result,
+                };
+
+                for sub_index in 0..sub_zip.len() {
+                    let part = match sub_zip.by_index(sub_index) {
+                        Ok(z) => match Part::from_reader(z) {
+                            Ok(part) => part,
+                            Err(_) => return result,
                         },
-                    ));
-                }
-
-                if reader.seek(SeekFrom::Start(0)).is_err() {
-                    return Ok(result);
-                }
-
-                if is_zip(&mut reader).unwrap_or(false) {
-                    let mut sub_zip = match zip::ZipArchive::new(reader) {
-                        Ok(z) => z,
-                        Err(_) => return Ok(result),
+                        Err(_) => return result,
                     };
 
-                    for sub_index in 0..sub_zip.len() {
-                        let part = match sub_zip.by_index(sub_index) {
-                            Ok(z) => match Part::from_reader(z) {
-                                Ok(part) => part,
-                                Err(_) => return Ok(result),
-                            },
-                            Err(_) => return Ok(result),
-                        };
-
-                        result.push((
-                            part,
-                            RomSource::SubZip {
-                                file: file.clone(),
-                                index,
-                                sub_index,
-                            },
-                        ))
-                    }
+                    result.push((part, PartialRomSource::SubZip { index, sub_index }))
                 }
             }
         }
 
-        Ok(result)
+        result
     }
 
     fn extract(&self, target: &Path) -> Result<Extracted, Error> {
@@ -1132,12 +1147,12 @@ impl RomSource {
             } => {
                 use std::fs::{copy, hard_link};
 
-                if hard_link(source, &target).is_ok() {
+                if hard_link(source.as_path(), &target).is_ok() {
                     Ok(Extracted::Linked {
                         has_xattr: *has_xattr,
                     })
                 } else {
-                    copy(source, &target)
+                    copy(source.as_path(), &target)
                         .map_err(Error::IO)
                         .map(|_| Extracted::Copied)
                 }
@@ -1246,13 +1261,13 @@ where
 }
 
 #[inline]
-pub fn all_rom_sources(root: &[PathBuf]) -> RomSources {
-    multi_rom_sources(root, |_| true)
+pub fn all_rom_sources(roots: &[PathBuf]) -> RomSources {
+    multi_rom_sources(roots, |_| true)
 }
 
 #[inline]
-pub fn get_rom_sources(root: &[PathBuf], required: FxHashSet<Part>) -> RomSources {
-    multi_rom_sources(root, |part| required.contains(part))
+pub fn get_rom_sources(roots: &[PathBuf], required: FxHashSet<Part>) -> RomSources {
+    multi_rom_sources(roots, |part| required.contains(part))
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {
