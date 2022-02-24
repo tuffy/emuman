@@ -3,12 +3,12 @@ use indicatif::ProgressBar;
 
 const RETRIES: u32 = 10;
 
-pub fn fetch_url_data<'s>(source: &str) -> Result<Box<[u8]>, Error> {
+pub fn fetch_url_data(source: &str) -> Result<Box<[u8]>, Error> {
     let mut data = Vec::new();
     retry(|| fetch(source, &mut data), RETRIES).map(|()| data.into_boxed_slice())
 }
 
-fn fetch<'s>(source: &str, zip_data: &mut Vec<u8>) -> Result<(), Error> {
+fn fetch(source: &str, zip_data: &mut Vec<u8>) -> Result<(), Error> {
     use attohttpc::header::CONTENT_LENGTH;
     use std::io::Read;
 
@@ -49,7 +49,7 @@ where
     }
 }
 
-fn progress_bar<'s>(source: &str, total_bytes: Option<u64>) -> ProgressBar {
+fn progress_bar(source: &str, total_bytes: Option<u64>) -> ProgressBar {
     use indicatif::ProgressStyle;
 
     match total_bytes {

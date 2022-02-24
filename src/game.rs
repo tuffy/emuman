@@ -1026,11 +1026,11 @@ pub enum RomSource<'u> {
     },
     Url {
         url: &'u str,
-        data: Arc<Box<[u8]>>,
+        data: Arc<[u8]>,
     },
     ZipUrl {
         url: &'u str,
-        data: Arc<Box<[u8]>>,
+        data: Arc<[u8]>,
         zip_part: ZipPart,
     },
 }
@@ -1080,7 +1080,7 @@ impl<'u> RomSource<'u> {
     }
 
     pub fn from_url(url: &'u str) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
-        let data = crate::http::fetch_url_data(url).map(Arc::new)?;
+        let data: Arc<[u8]> = crate::http::fetch_url_data(url).map(Arc::from)?;
 
         let mut result = vec![(
             Part::from_slice(data.as_ref())?,
