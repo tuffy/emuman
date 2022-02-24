@@ -1020,7 +1020,7 @@ pub enum RomSource {
         file: Arc<PathBuf>,
         has_xattr: bool,
     },
-    Zip {
+    ZipFile {
         file: Arc<PathBuf>,
         zip_part: ZipPart,
     },
@@ -1056,10 +1056,10 @@ impl RomSource {
         )];
 
         if is_zip(&mut r).unwrap_or(false) {
-            result.extend(Self::from_zip(r).into_iter().map(|(part, zip_part)| {
+            result.extend(ZipPart::from_zip(r).into_iter().map(|(part, zip_part)| {
                 (
                     part,
-                    RomSource::Zip {
+                    RomSource::ZipFile {
                         file: file.clone(),
                         zip_part,
                     },
@@ -1070,6 +1070,56 @@ impl RomSource {
         Ok(result)
     }
 
+    fn extract(&self, target: &Path) -> Result<Extracted, Error> {
+        match self {
+            RomSource::File {
+                file: source,
+                has_xattr,
+            } => {
+                use std::fs::{copy, hard_link};
+
+                if hard_link(source.as_path(), &target).is_ok() {
+                    Ok(Extracted::Linked {
+                        has_xattr: *has_xattr,
+                    })
+                } else {
+                    copy(source.as_path(), &target)
+                        .map_err(Error::IO)
+                        .map(|_| Extracted::Copied)
+                }
+            }
+            RomSource::ZipFile { file, zip_part } => zip_part.extract(
+                std::fs::File::open(file.as_ref()).map(std::io::BufReader::new)?,
+                target,
+            ),
+        }
+    }
+}
+
+impl fmt::Display for RomSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RomSource::File { file, .. } => file.display().fmt(f),
+            RomSource::ZipFile { file, zip_part } => write!(f, "{}:{}", file.display(), zip_part),
+        }
+    }
+}
+
+pub enum ZipPart {
+    Zip { index: usize },
+    SubZip { index: usize, sub_index: usize },
+}
+
+impl fmt::Display for ZipPart {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ZipPart::Zip { index } => index.fmt(f),
+            ZipPart::SubZip { index, sub_index } => write!(f, "{}:{}", index, sub_index),
+        }
+    }
+}
+
+impl ZipPart {
     fn from_zip<R>(r: R) -> Vec<(Part, ZipPart)>
     where
         R: Read + Seek,
@@ -1126,56 +1176,6 @@ impl RomSource {
         result
     }
 
-    fn extract(&self, target: &Path) -> Result<Extracted, Error> {
-        match self {
-            RomSource::File {
-                file: source,
-                has_xattr,
-            } => {
-                use std::fs::{copy, hard_link};
-
-                if hard_link(source.as_path(), &target).is_ok() {
-                    Ok(Extracted::Linked {
-                        has_xattr: *has_xattr,
-                    })
-                } else {
-                    copy(source.as_path(), &target)
-                        .map_err(Error::IO)
-                        .map(|_| Extracted::Copied)
-                }
-            }
-            RomSource::Zip { file, zip_part } => zip_part.extract(
-                std::fs::File::open(file.as_ref()).map(std::io::BufReader::new)?,
-                target,
-            ),
-        }
-    }
-}
-
-impl fmt::Display for RomSource {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RomSource::File { file, .. } => file.display().fmt(f),
-            RomSource::Zip { file, zip_part } => write!(f, "{}:{}", file.display(), zip_part),
-        }
-    }
-}
-
-pub enum ZipPart {
-    Zip { index: usize },
-    SubZip { index: usize, sub_index: usize },
-}
-
-impl fmt::Display for ZipPart {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ZipPart::Zip { index } => index.fmt(f),
-            ZipPart::SubZip { index, sub_index } => write!(f, "{}:{}", index, sub_index),
-        }
-    }
-}
-
-impl ZipPart {
     fn extract<R>(&self, r: R, target: &Path) -> Result<Extracted, Error>
     where
         R: Read + Seek,
