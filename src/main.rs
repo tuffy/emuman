@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 mod duplicates;
 mod extra;
 mod game;
+mod http;
 mod mame;
 mod mess;
 mod redump;
@@ -36,6 +37,8 @@ pub enum Error {
     CborRead(ciborium::de::Error<std::io::Error>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
     Zip(zip::result::ZipError),
+    Http(attohttpc::Error),
+    HttpCode(attohttpc::StatusCode),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
     MissingCache(&'static str),
@@ -65,6 +68,13 @@ impl From<zip::result::ZipError> for Error {
     }
 }
 
+impl From<attohttpc::Error> for Error {
+    #[inline]
+    fn from(err: attohttpc::Error) -> Self {
+        Error::Http(err)
+    }
+}
+
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -74,9 +84,8 @@ impl std::error::Error for Error {
             Error::CborRead(err) => Some(err),
             Error::CborWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
-            Error::NoSuchSoftwareList(_) | Error::NoSuchSoftware(_) | Error::MissingCache(_) => {
-                None
-            }
+            Error::Http(err) => Some(err),
+            _ => None,
         }
     }
 }
@@ -90,6 +99,11 @@ impl fmt::Display for Error {
             Error::CborRead(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
+            Error::Http(err) => err.fmt(f),
+            Error::HttpCode(code) => match code.canonical_reason() {
+                Some(reason) => write!(f, "HTTP error {} - {}", code.as_str(), reason),
+                None => write!(f, "HTTP error {}", code.as_str()),
+            },
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::MissingCache(s) => write!(
@@ -291,6 +305,10 @@ struct OptMameAdd {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
@@ -304,9 +322,13 @@ impl OptMameAdd {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
 
         let mut roms = if self.machines.is_empty() {
-            game::all_rom_sources(&self.input)
+            game::all_rom_sources(&self.input, &self.input_url)
         } else {
-            game::get_rom_sources(&self.input, db.required_parts(&self.machines)?)
+            game::get_rom_sources(
+                &self.input,
+                &self.input_url,
+                db.required_parts(&self.machines)?,
+            )
         };
 
         if self.machines.is_empty() {
@@ -718,6 +740,10 @@ struct OptMessAdd {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
@@ -736,9 +762,13 @@ impl OptMessAdd {
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let mut roms = if self.software.is_empty() {
-            game::all_rom_sources(&self.input)
+            game::all_rom_sources(&self.input, &self.input_url)
         } else {
-            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
+            game::get_rom_sources(
+                &self.input,
+                &self.input_url,
+                db.required_parts(&self.software)?,
+            )
         };
 
         if self.software.is_empty() {
@@ -759,6 +789,10 @@ struct OptMessAddAll {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     roms: PathBuf,
@@ -768,7 +802,7 @@ impl OptMessAddAll {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
 
-        let mut roms = game::all_rom_sources(&self.input);
+        let mut roms = game::all_rom_sources(&self.input, &self.input_url);
 
         db.into_iter().try_for_each(|(software, db)| {
             add_and_verify_all(
@@ -1097,6 +1131,10 @@ struct OptExtraAdd {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
@@ -1115,9 +1153,13 @@ impl OptExtraAdd {
             .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
         let mut parts = if self.software.is_empty() {
-            game::all_rom_sources(&self.input)
+            game::all_rom_sources(&self.input, &self.input_url)
         } else {
-            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
+            game::get_rom_sources(
+                &self.input,
+                &self.input_url,
+                db.required_parts(&self.software)?,
+            )
         };
 
         if self.software.is_empty() {
@@ -1138,6 +1180,10 @@ struct OptExtraAddAll {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
     dir: PathBuf,
@@ -1147,7 +1193,7 @@ impl OptExtraAddAll {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
-        let mut parts = game::all_rom_sources(&self.input);
+        let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
         db.into_iter().try_for_each(|(extra, db)| {
             add_and_verify_all(&extra, &mut parts, &self.dir.join(&extra), db.games_iter())
@@ -1349,6 +1395,10 @@ struct OptRedumpAdd {
     #[clap(short = 'i', long = "input", parse(from_os_str))]
     input: Vec<PathBuf>,
 
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
     output: PathBuf,
@@ -1367,9 +1417,13 @@ impl OptRedumpAdd {
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
         let mut roms = if self.software.is_empty() {
-            game::all_rom_sources(&self.input)
+            game::all_rom_sources(&self.input, &self.input_url)
         } else {
-            game::get_rom_sources(&self.input, db.required_parts(&self.software)?)
+            game::get_rom_sources(
+                &self.input,
+                &self.input_url,
+                db.required_parts(&self.software)?,
+            )
         };
 
         if self.software.is_empty() {

@@ -1015,7 +1015,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     results
 }
 
-pub enum RomSource {
+pub enum RomSource<'u> {
     File {
         file: Arc<PathBuf>,
         has_xattr: bool,
@@ -1024,10 +1024,19 @@ pub enum RomSource {
         file: Arc<PathBuf>,
         zip_part: ZipPart,
     },
+    Url {
+        url: &'u str,
+        data: Arc<Box<[u8]>>,
+    },
+    ZipUrl {
+        url: &'u str,
+        data: Arc<Box<[u8]>>,
+        zip_part: ZipPart,
+    },
 }
 
-impl RomSource {
-    pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource)>, Error> {
+impl<'u> RomSource<'u> {
+    pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -1070,14 +1079,44 @@ impl RomSource {
         Ok(result)
     }
 
+    pub fn from_url(url: &'u str) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
+        let data = crate::http::fetch_url_data(url).map(Arc::new)?;
+
+        let mut result = vec![(
+            Part::from_slice(data.as_ref())?,
+            RomSource::Url {
+                url,
+                data: data.clone(),
+            },
+        )];
+
+        let mut r = std::io::Cursor::new(data.as_ref());
+
+        if is_zip(&mut r).unwrap_or(false) {
+            result.extend(ZipPart::from_zip(r).into_iter().map(|(part, zip_part)| {
+                (
+                    part,
+                    RomSource::ZipUrl {
+                        url,
+                        data: data.clone(),
+                        zip_part,
+                    },
+                )
+            }))
+        }
+
+        Ok(result)
+    }
+
     fn extract(&self, target: &Path) -> Result<Extracted, Error> {
+        use std::fs::{copy, hard_link, File};
+        use std::io::{Cursor, Write};
+
         match self {
             RomSource::File {
                 file: source,
                 has_xattr,
             } => {
-                use std::fs::{copy, hard_link};
-
                 if hard_link(source.as_path(), &target).is_ok() {
                     Ok(Extracted::Linked {
                         has_xattr: *has_xattr,
@@ -1088,19 +1127,31 @@ impl RomSource {
                         .map(|_| Extracted::Copied)
                 }
             }
+
             RomSource::ZipFile { file, zip_part } => zip_part.extract(
                 std::fs::File::open(file.as_ref()).map(std::io::BufReader::new)?,
                 target,
             ),
+
+            RomSource::Url { data, .. } => File::create(&target)
+                .and_then(|mut f| f.write_all(data).and_then(|_| f.flush()))
+                .map_err(Error::IO)
+                .map(|()| Extracted::Copied),
+
+            RomSource::ZipUrl { data, zip_part, .. } => {
+                zip_part.extract(Cursor::new(data.as_ref()), target)
+            }
         }
     }
 }
 
-impl fmt::Display for RomSource {
+impl fmt::Display for RomSource<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RomSource::File { file, .. } => file.display().fmt(f),
             RomSource::ZipFile { file, zip_part } => write!(f, "{}:{}", file.display(), zip_part),
+            RomSource::Url { url, .. } => url.fmt(f),
+            RomSource::ZipUrl { url, zip_part, .. } => write!(f, "{}:{}", url, zip_part),
         }
     }
 }
@@ -1191,6 +1242,7 @@ impl ZipPart {
             )
             .map_err(Error::IO)
             .map(|_| Extracted::Copied),
+
             ZipPart::SubZip { index, sub_index } => {
                 let mut file_data = Vec::new();
                 ZipArchive::new(r)?
@@ -1214,9 +1266,9 @@ enum Extracted {
     Linked { has_xattr: bool },
 }
 
-pub type RomSources = FxHashMap<Part, RomSource>;
+pub type RomSources<'u> = FxHashMap<Part, RomSource<'u>>;
 
-fn rom_sources<F>(root: &Path, part_filter: F) -> RomSources
+fn file_rom_sources<F>(root: &Path, part_filter: F) -> RomSources
 where
     F: Fn(&Part) -> bool + Sync + Send,
 {
@@ -1245,28 +1297,51 @@ where
     results
 }
 
-fn multi_rom_sources<F>(roots: &[PathBuf], part_filter: F) -> RomSources
+#[inline]
+fn url_rom_sources<F>(url: &str, part_filter: F) -> RomSources
+where
+    F: Fn(&Part) -> bool + Sync + Send,
+{
+    RomSource::from_url(url)
+        .map(|v| {
+            v.into_iter()
+                .filter(|(part, _)| part_filter(part))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn multi_rom_sources<'u, F>(
+    roots: &'u [PathBuf],
+    urls: &'u [String],
+    part_filter: F,
+) -> RomSources<'u>
 where
     F: Fn(&Part) -> bool + Sync + Send + Copy,
 {
     roots
         .iter()
-        .map(|root| rom_sources(root, part_filter))
+        .map(|root| file_rom_sources(root, part_filter))
+        .chain(urls.iter().map(|url| url_rom_sources(url, part_filter)))
         .reduce(|mut acc, item| {
             acc.extend(item);
             acc
         })
-        .unwrap_or_else(|| rom_sources(Path::new("."), part_filter))
+        .unwrap_or_else(|| file_rom_sources(Path::new("."), part_filter))
 }
 
 #[inline]
-pub fn all_rom_sources(roots: &[PathBuf]) -> RomSources {
-    multi_rom_sources(roots, |_| true)
+pub fn all_rom_sources<'u>(roots: &'u [PathBuf], urls: &'u [String]) -> RomSources<'u> {
+    multi_rom_sources(roots, urls, |_| true)
 }
 
 #[inline]
-pub fn get_rom_sources(roots: &[PathBuf], required: FxHashSet<Part>) -> RomSources {
-    multi_rom_sources(roots, |part| required.contains(part))
+pub fn get_rom_sources<'u>(
+    roots: &'u [PathBuf],
+    urls: &'u [String],
+    required: FxHashSet<Part>,
+) -> RomSources<'u> {
+    multi_rom_sources(roots, urls, |part| required.contains(part))
 }
 
 pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {
