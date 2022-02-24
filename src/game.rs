@@ -494,7 +494,7 @@ impl Game {
                 .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
         );
 
-        Ok(cleanup_failures(failures, progress))
+        Ok(failures)
     }
 
     pub fn rename(
@@ -1396,112 +1396,4 @@ pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
                 Err(e)
             }
         })
-}
-
-fn cleanup_failures<P: AsRef<Path>>(
-    failures: Vec<VerifyFailure<P>>,
-    progress: &ProgressBar,
-) -> Vec<VerifyFailure<P>> {
-    if failures.is_empty() {
-        failures
-    } else {
-        let mut extras = HashMap::new();
-        let mut to_cleanup = Vec::new();
-
-        for failure in failures {
-            match failure {
-                VerifyFailure::Extra {
-                    path,
-                    part: Ok(part),
-                } => {
-                    extras.insert(part, path);
-                }
-                other => {
-                    to_cleanup.push(other);
-                }
-            }
-        }
-
-        if extras.is_empty() {
-            to_cleanup
-        } else {
-            use std::fs::rename;
-
-            let mut failures = Vec::new();
-
-            for cleanup in to_cleanup {
-                match cleanup {
-                    VerifyFailure::Missing {
-                        path: missing_path,
-                        part,
-                    } => match extras.remove(&part) {
-                        Some(extra_path) => {
-                            if rename(extra_path.as_ref(), missing_path.as_ref()).is_ok() {
-                                progress.println(format!(
-                                    "{} -> {}",
-                                    extra_path.as_ref().display(),
-                                    missing_path.as_ref().display()
-                                ));
-                            } else {
-                                failures.push(VerifyFailure::Missing {
-                                    path: missing_path,
-                                    part,
-                                });
-                            }
-                        }
-                        None => failures.push(VerifyFailure::Missing {
-                            path: missing_path,
-                            part,
-                        }),
-                    },
-                    VerifyFailure::Bad {
-                        path: bad_path,
-                        expected,
-                        actual,
-                    } => match extras.remove(&expected) {
-                        Some(extra_path) => {
-                            if std::fs::remove_file(bad_path.as_ref())
-                                .and_then(|()| rename(extra_path.as_ref(), bad_path.as_ref()))
-                                .is_ok()
-                            {
-                                progress.println(format!(
-                                    "{} -> {}",
-                                    extra_path.as_ref().display(),
-                                    bad_path.as_ref().display()
-                                ));
-                            } else {
-                                failures.push(VerifyFailure::Bad {
-                                    path: bad_path,
-                                    expected,
-                                    actual,
-                                });
-                            }
-                        }
-                        None => failures.push(VerifyFailure::Bad {
-                            path: bad_path,
-                            expected,
-                            actual,
-                        }),
-                    },
-                    error @ VerifyFailure::Error { .. } => failures.push(error),
-                    extra @ VerifyFailure::Extra { .. } => failures.push(extra),
-                }
-            }
-
-            failures.extend(extras.into_iter().filter_map(
-                |(part, path)| match std::fs::remove_file(path.as_ref()) {
-                    Ok(()) => {
-                        progress.println(format!("deleted : {}", path.as_ref().display()));
-                        None
-                    }
-                    Err(_) => Some(VerifyFailure::Extra {
-                        part: Ok(part),
-                        path,
-                    }),
-                },
-            ));
-
-            failures
-        }
-    }
 }
