@@ -1245,13 +1245,13 @@ impl ZipPart {
 
             ZipPart::SubZip { index, sub_index } => {
                 let mut file_data = Vec::new();
+
                 ZipArchive::new(r)?
                     .by_index(*index)?
                     .read_to_end(&mut file_data)?;
 
-                let reader = Cursor::new(file_data);
                 copy(
-                    &mut ZipArchive::new(reader)?.by_index(*sub_index)?,
+                    &mut ZipArchive::new(Cursor::new(file_data))?.by_index(*sub_index)?,
                     &mut File::create(&target)?,
                 )
                 .map_err(Error::IO)
