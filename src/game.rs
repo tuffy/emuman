@@ -6,6 +6,7 @@ use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::cmp::Ordering;
+use std::collections::hash_map::OccupiedEntry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::{Read, Seek};
@@ -397,91 +398,24 @@ impl Game {
 
         // verify all game parts
         for (name, part) in self.parts.iter() {
-            use std::collections::hash_map::Entry;
-            use std::fs::remove_file;
-
             match files_on_disk.remove(name) {
                 Some(target) => {
-                    // if file exists on disk
-                    if let Err(failure) =
-                        part.verify_cached(&target).map_err(|err| err.with_path(()))
-                    {
-                        // but is not correct
-                        match rom_sources.entry(part.clone()) {
-                            Entry::Occupied(mut entry) => {
-                                // if part exists in rom_sources
-                                // replace incorrect file with file from rom_sources
-                                let source = entry.get();
-                                remove_file(&target).map_err(Error::IO)?;
-                                match source.extract(&target)? {
-                                    Extracted::Copied => {
-                                        progress.println(format!(
-                                            "{} => {}",
-                                            source,
-                                            target.display()
-                                        ));
-                                        part.set_xattr(&target);
-                                        entry.insert(RomSource::File {
-                                            file: Arc::new(target),
-                                            has_xattr: true,
-                                        });
-                                    }
-                                    Extracted::Linked { has_xattr } => {
-                                        if !has_xattr {
-                                            part.set_xattr(&target);
-                                        }
-                                        progress.println(format!(
-                                            "{} -> {}",
-                                            source,
-                                            target.display()
-                                        ))
-                                    }
-                                }
-                            }
-                            Entry::Vacant(_) => {
-                                // if part missing in rom_sources, forward error
-                                failures.push(failure.with_path(target));
-                            }
+                    if let Err(failure) = part.verify_cached(target) {
+                        match failure.populate(rom_sources)? {
+                            Ok(d) => progress.println(d.to_string()),
+                            Err(failure) => failures.push(failure),
                         }
                     }
                 }
                 None => {
-                    // if file does not already exist on disk
-
-                    use std::fs::create_dir_all;
-
-                    let target = game_root.join(name);
-
-                    match rom_sources.entry(part.clone()) {
-                        Entry::Occupied(mut entry) => {
-                            // and if part exists in rom_sources
-                            // link/copy file from rom_sources
-                            let source = entry.get();
-                            create_dir_all(target.parent().unwrap())?;
-                            match source.extract(&target)? {
-                                Extracted::Copied => {
-                                    progress.println(format!("{} => {}", source, target.display()));
-                                    part.set_xattr(&target);
-                                    entry.insert(RomSource::File {
-                                        file: Arc::new(target),
-                                        has_xattr: true,
-                                    });
-                                }
-                                Extracted::Linked { has_xattr } => {
-                                    if !has_xattr {
-                                        part.set_xattr(&target);
-                                    }
-                                    progress.println(format!("{} -> {}", source, target.display()))
-                                }
-                            }
-                        }
-                        Entry::Vacant(_) => {
-                            // otherwise mark as missing
-                            failures.push(VerifyFailure::Missing {
-                                path: target,
-                                part: part.clone(),
-                            });
-                        }
+                    match (VerifyFailure::Missing {
+                        part: part.clone(),
+                        path: game_root.join(name),
+                    })
+                    .populate(rom_sources)?
+                    {
+                        Ok(d) => progress.println(d.to_string()),
+                        Err(failure) => failures.push(failure),
                     }
                 }
             }
@@ -605,22 +539,79 @@ impl<P: AsRef<Path>> VerifyFailure<P> {
     }
 }
 
-impl<P> VerifyFailure<P> {
-    #[inline]
-    fn with_path<Q>(self, path: Q) -> VerifyFailure<Q> {
+impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
+    // attempt to fix failure by populating missing/bad ROMs from rom_sources
+    fn populate<'u>(
+        self,
+        rom_sources: &mut RomSources<'u>,
+    ) -> Result<Result<ExtractedPart<'u, P>, Self>, Error> {
+        use std::collections::hash_map::Entry;
+
         match self {
-            VerifyFailure::Missing { part, path: _ } => VerifyFailure::Missing { path, part },
-            VerifyFailure::Extra { part, path: _ } => VerifyFailure::Extra { path, part },
             VerifyFailure::Bad {
-                expected,
-                actual,
-                path: _,
-            } => VerifyFailure::Bad {
                 path,
                 expected,
                 actual,
+            } => match rom_sources.entry(expected.clone()) {
+                Entry::Occupied(entry) => {
+                    std::fs::remove_file(path.as_ref()).map_err(Error::IO)?;
+                    Self::extract_to(entry, path, &expected).map(Ok)
+                }
+
+                Entry::Vacant(_) => Ok(Err(VerifyFailure::Bad {
+                    path,
+                    expected,
+                    actual,
+                })),
             },
-            VerifyFailure::Error { err, path: _ } => VerifyFailure::Error { path, err },
+
+            VerifyFailure::Missing { path, part } => match rom_sources.entry(part.clone()) {
+                Entry::Occupied(entry) => {
+                    std::fs::create_dir_all(path.as_ref().parent().unwrap())?;
+                    Self::extract_to(entry, path, &part).map(Ok)
+                }
+
+                Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part })),
+            },
+
+            extra @ VerifyFailure::Extra { .. } => Ok(Err(extra)),
+
+            err @ VerifyFailure::Error { .. } => Ok(Err(err)),
+        }
+    }
+
+    fn extract_to<'u>(
+        mut entry: OccupiedEntry<'_, Part, RomSource<'u>>,
+        target: P,
+        part: &Part,
+    ) -> Result<ExtractedPart<'u, P>, Error> {
+        let source = entry.get();
+
+        match source.extract(target.as_ref())? {
+            extracted @ Extracted::Copied => {
+                part.set_xattr(target.as_ref());
+
+                Ok(ExtractedPart {
+                    extracted,
+                    source: entry.insert(RomSource::File {
+                        file: Arc::new(target.to_owned()),
+                        has_xattr: true,
+                    }),
+                    target,
+                })
+            }
+
+            extracted @ Extracted::Linked { has_xattr } => {
+                if !has_xattr {
+                    part.set_xattr(target.as_ref());
+                }
+
+                Ok(ExtractedPart {
+                    extracted,
+                    source: source.clone(),
+                    target,
+                })
+            }
         }
     }
 }
@@ -635,6 +626,23 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
             VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.as_ref().display()),
             VerifyFailure::Error { path, err } => {
                 write!(f, "ERROR : {} : {}", path.as_ref().display(), err)
+            }
+        }
+    }
+}
+
+struct ExtractedPart<'u, P> {
+    extracted: Extracted,
+    source: RomSource<'u>,
+    target: P,
+}
+
+impl<'u, P: AsRef<Path>> fmt::Display for ExtractedPart<'u, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.extracted {
+            Extracted::Copied => write!(f, "{} => {}", self.source, self.target.as_ref().display()),
+            Extracted::Linked { .. } => {
+                write!(f, "{} -> {}", self.source, self.target.as_ref().display())
             }
         }
     }
@@ -1015,6 +1023,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     results
 }
 
+#[derive(Clone)]
 pub enum RomSource<'u> {
     File {
         file: Arc<PathBuf>,
@@ -1156,6 +1165,7 @@ impl fmt::Display for RomSource<'_> {
     }
 }
 
+#[derive(Clone)]
 pub enum ZipPart {
     Zip { index: usize },
     SubZip { index: usize, sub_index: usize },
@@ -1261,6 +1271,7 @@ impl ZipPart {
     }
 }
 
+#[derive(Copy, Clone)]
 enum Extracted {
     Copied,
     Linked { has_xattr: bool },
