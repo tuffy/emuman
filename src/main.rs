@@ -1985,7 +1985,7 @@ where
 
     let results = pb
         .wrap_iter(games.map(|game| {
-            game.add_and_verify(roms, root, &pb)
+            game.add_and_verify(roms, root, |p| pb.println(p.to_string()))
                 .map(|failures| (game.name.as_str(), failures))
         }))
         .collect::<Result<BTreeMap<_, _>, Error>>()?;

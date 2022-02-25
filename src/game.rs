@@ -367,12 +367,15 @@ impl Game {
         failures
     }
 
-    pub fn add_and_verify(
+    pub fn add_and_verify<F>(
         &self,
         rom_sources: &mut RomSources,
         target_dir: &Path,
-        progress: &ProgressBar,
-    ) -> Result<Vec<VerifyFailure<PathBuf>>, Error> {
+        mut progress: F,
+    ) -> Result<Vec<VerifyFailure<PathBuf>>, Error>
+    where
+        F: FnMut(ExtractedPart<'_, PathBuf>),
+    {
         use std::fs::read_dir;
 
         let mut failures = Vec::new();
@@ -402,7 +405,7 @@ impl Game {
                 Some(target) => {
                     if let Err(failure) = part.verify_cached(target) {
                         match failure.populate(rom_sources)? {
-                            Ok(d) => progress.println(d.to_string()),
+                            Ok(d) => progress(d),
                             Err(failure) => failures.push(failure),
                         }
                     }
@@ -414,7 +417,7 @@ impl Game {
                     })
                     .populate(rom_sources)?
                     {
-                        Ok(d) => progress.println(d.to_string()),
+                        Ok(d) => progress(d),
                         Err(failure) => failures.push(failure),
                     }
                 }
@@ -631,7 +634,7 @@ impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
     }
 }
 
-struct ExtractedPart<'u, P> {
+pub struct ExtractedPart<'u, P> {
     extracted: Extracted,
     source: RomSource<'u>,
     target: P,
