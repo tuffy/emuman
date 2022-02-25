@@ -1721,7 +1721,7 @@ impl OptCacheVerify {
             .filter_map(|file| {
                 Part::get_xattr(&file).and_then(|part| part.verify_uncached(file).err())
             })
-            .collect::<Vec<VerifyFailure<PathBuf>>>();
+            .collect::<Vec<VerifyFailure>>();
 
         pb.finish_and_clear();
 
@@ -1964,13 +1964,13 @@ fn verify_all(
 }
 
 fn add_and_verify_games<'g, I, F>(
-    results_fn: F,
+    mut display: F,
     roms: &mut game::RomSources,
     root: &Path,
     games: I,
 ) -> Result<(), Error>
 where
-    F: Fn(&str, &[game::VerifyFailure<PathBuf>]),
+    F: FnMut(&str, &[game::VerifyFailure]),
     I: Iterator<Item = &'g game::Game>,
 {
     use indicatif::{ProgressBar, ProgressStyle};
@@ -1995,7 +1995,7 @@ where
     let successes = results.values().filter(|v| v.is_empty()).count();
 
     for (game, failures) in results.iter() {
-        results_fn(game, failures);
+        display(game, failures);
     }
 
     eprintln!("{} added, {} OK", results.len(), successes);

@@ -87,7 +87,7 @@ impl GameDb {
         &self,
         root: &Path,
         games: &'a HashSet<String>,
-    ) -> BTreeMap<&'a str, Vec<VerifyFailure<PathBuf>>> {
+    ) -> BTreeMap<&'a str, Vec<VerifyFailure>> {
         use indicatif::ParallelProgressIterator;
         use rayon::prelude::*;
 
@@ -101,7 +101,7 @@ impl GameDb {
             .collect()
     }
 
-    fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure<PathBuf>> {
+    fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
         if let Some(game) = self.games.get(game_name) {
             let mut results = game.verify(&root.join(game_name));
             results.extend(
@@ -314,7 +314,7 @@ impl Game {
         }
     }
 
-    fn verify(&self, game_root: &Path) -> Vec<VerifyFailure<PathBuf>> {
+    fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
         use dashmap::DashMap;
         use rayon::prelude::*;
         use std::fs::read_dir;
@@ -353,7 +353,7 @@ impl Game {
                         part: part.clone(),
                     }),
                 })
-                .collect::<Vec<VerifyFailure<PathBuf>>>()
+                .collect::<Vec<VerifyFailure>>()
                 .into_iter(),
         );
 
@@ -372,9 +372,9 @@ impl Game {
         rom_sources: &mut RomSources,
         target_dir: &Path,
         mut progress: F,
-    ) -> Result<Vec<VerifyFailure<PathBuf>>, Error>
+    ) -> Result<Vec<VerifyFailure>, Error>
     where
-        F: FnMut(ExtractedPart<'_, PathBuf>),
+        F: FnMut(ExtractedPart<'_>),
     {
         use std::fs::read_dir;
 
@@ -512,42 +512,42 @@ impl<'a> GameRow<'a> {
     }
 }
 
-pub enum VerifyFailure<P> {
+pub enum VerifyFailure {
     Missing {
-        path: P,
+        path: PathBuf,
         part: Part,
     },
     Extra {
-        path: P,
+        path: PathBuf,
         part: Result<Part, std::io::Error>,
     },
     Bad {
-        path: P,
+        path: PathBuf,
         expected: Part,
         actual: Part,
     },
     Error {
-        path: P,
+        path: PathBuf,
         err: std::io::Error,
     },
 }
 
-impl<P: AsRef<Path>> VerifyFailure<P> {
+impl VerifyFailure {
     #[inline]
-    fn extra(path: P) -> Self {
+    fn extra(path: PathBuf) -> Self {
         Self::Extra {
-            part: Part::from_path(path.as_ref()),
+            part: Part::from_path(&path),
             path,
         }
     }
 }
 
-impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
+impl VerifyFailure {
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
     fn populate<'u>(
         self,
         rom_sources: &mut RomSources<'u>,
-    ) -> Result<Result<ExtractedPart<'u, P>, Self>, Error> {
+    ) -> Result<Result<ExtractedPart<'u>, Self>, Error> {
         use std::collections::hash_map::Entry;
 
         match self {
@@ -557,7 +557,7 @@ impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
                 actual,
             } => match rom_sources.entry(expected.clone()) {
                 Entry::Occupied(entry) => {
-                    std::fs::remove_file(path.as_ref()).map_err(Error::IO)?;
+                    std::fs::remove_file(&path).map_err(Error::IO)?;
                     Self::extract_to(entry, path, &expected).map(Ok)
                 }
 
@@ -570,7 +570,7 @@ impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
 
             VerifyFailure::Missing { path, part } => match rom_sources.entry(part.clone()) {
                 Entry::Occupied(entry) => {
-                    std::fs::create_dir_all(path.as_ref().parent().unwrap())?;
+                    std::fs::create_dir_all(path.parent().unwrap())?;
                     Self::extract_to(entry, path, &part).map(Ok)
                 }
 
@@ -585,9 +585,9 @@ impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
 
     fn extract_to<'u>(
         mut entry: OccupiedEntry<'_, Part, RomSource<'u>>,
-        target: P,
+        target: PathBuf,
         part: &Part,
-    ) -> Result<ExtractedPart<'u, P>, Error> {
+    ) -> Result<ExtractedPart<'u>, Error> {
         let source = entry.get();
 
         match source.extract(target.as_ref())? {
@@ -619,33 +619,33 @@ impl<P: AsRef<Path> + ToOwned<Owned = PathBuf>> VerifyFailure<P> {
     }
 }
 
-impl<P: AsRef<Path>> fmt::Display for VerifyFailure<P> {
+impl fmt::Display for VerifyFailure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             VerifyFailure::Missing { path, .. } => {
-                write!(f, "MISSING : {}", path.as_ref().display())
+                write!(f, "MISSING : {}", path.display())
             }
-            VerifyFailure::Extra { path, .. } => write!(f, "EXTRA : {}", path.as_ref().display()),
-            VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.as_ref().display()),
+            VerifyFailure::Extra { path, .. } => write!(f, "EXTRA : {}", path.display()),
+            VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
-                write!(f, "ERROR : {} : {}", path.as_ref().display(), err)
+                write!(f, "ERROR : {} : {}", path.display(), err)
             }
         }
     }
 }
 
-pub struct ExtractedPart<'u, P> {
+pub struct ExtractedPart<'u> {
     extracted: Extracted,
     source: RomSource<'u>,
-    target: P,
+    target: PathBuf,
 }
 
-impl<'u, P: AsRef<Path>> fmt::Display for ExtractedPart<'u, P> {
+impl<'u> fmt::Display for ExtractedPart<'u> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.extracted {
-            Extracted::Copied => write!(f, "{} => {}", self.source, self.target.as_ref().display()),
+            Extracted::Copied => write!(f, "{} => {}", self.source, self.target.display()),
             Extracted::Linked { .. } => {
-                write!(f, "{} -> {}", self.source, self.target.as_ref().display())
+                write!(f, "{} -> {}", self.source, self.target.display())
             }
         }
     }
@@ -851,9 +851,8 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn verify<P, F>(&self, from: F, part_path: P) -> Result<(), VerifyFailure<P>>
+    fn verify<F>(&self, from: F, part_path: PathBuf) -> Result<(), VerifyFailure>
     where
-        P: AsRef<Path>,
         F: FnOnce(&Path) -> Result<Self, std::io::Error>,
     {
         match from(part_path.as_ref()) {
@@ -871,12 +870,12 @@ impl Part {
     }
 
     #[inline]
-    pub fn verify_cached<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
+    pub fn verify_cached(&self, part_path: PathBuf) -> Result<(), VerifyFailure> {
         self.verify(Part::from_cached_path, part_path)
     }
 
     #[inline]
-    pub fn verify_uncached<P: AsRef<Path>>(&self, part_path: P) -> Result<(), VerifyFailure<P>> {
+    pub fn verify_uncached(&self, part_path: PathBuf) -> Result<(), VerifyFailure> {
         self.verify(Part::from_path, part_path)
     }
 }
@@ -1374,7 +1373,7 @@ pub fn file_move_dry_run(source: &Path, target: &Path) -> Result<(), std::io::Er
     Ok(())
 }
 
-pub fn display_all_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
+pub fn display_all_results(game: &str, failures: &[VerifyFailure]) {
     if failures.is_empty() {
         println!("{} : OK", game);
     } else {
@@ -1382,7 +1381,7 @@ pub fn display_all_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
     }
 }
 
-pub fn display_bad_results(game: &str, failures: &[VerifyFailure<PathBuf>]) {
+pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
     if !failures.is_empty() {
         use std::io::{stdout, Write};
 
