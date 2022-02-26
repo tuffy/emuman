@@ -1332,10 +1332,9 @@ fn multi_rom_sources<'u, F>(
 where
     F: Fn(&Part) -> bool + Sync + Send + Copy,
 {
-    roots
-        .iter()
-        .map(|root| file_rom_sources(root, part_filter))
-        .chain(urls.iter().map(|url| url_rom_sources(url, part_filter)))
+    urls.iter()
+        .map(|url| url_rom_sources(url, part_filter))
+        .chain(roots.iter().map(|root| file_rom_sources(root, part_filter)))
         .reduce(|mut acc, item| {
             acc.extend(item);
             acc
