@@ -557,7 +557,7 @@ impl VerifyFailure {
                 actual,
             } => match rom_sources.entry(expected.clone()) {
                 Entry::Occupied(entry) => {
-                    std::fs::remove_file(&path).map_err(Error::IO)?;
+                    std::fs::remove_file(&path)?;
                     Self::extract_to(entry, path, &expected).map(Ok)
                 }
 
@@ -592,12 +592,12 @@ impl VerifyFailure {
 
         match source.extract(target.as_ref())? {
             extracted @ Extracted::Copied => {
-                part.set_xattr(target.as_ref());
+                part.set_xattr(&target);
 
                 Ok(ExtractedPart {
                     extracted,
                     source: entry.insert(RomSource::File {
-                        file: Arc::new(target.to_owned()),
+                        file: Arc::new(target.clone()),
                         has_xattr: true,
                         zip_parts: ZipParts::default(),
                     }),
@@ -607,7 +607,7 @@ impl VerifyFailure {
 
             extracted @ Extracted::Linked { has_xattr } => {
                 if !has_xattr {
-                    part.set_xattr(target.as_ref());
+                    part.set_xattr(&target);
                 }
 
                 Ok(ExtractedPart {
@@ -1061,7 +1061,6 @@ impl<'u> RomSource<'u> {
             )]);
         }
 
-        let mut r = File::open(&pb).map(BufReader::new)?;
         let file = Arc::new(pb);
 
         let mut result = vec![(
@@ -1073,6 +1072,7 @@ impl<'u> RomSource<'u> {
             },
         )];
 
+        let mut r = File::open(file.as_ref()).map(BufReader::new)?;
         if is_zip(&mut r).unwrap_or(false) {
             result.extend(zip_parts_from_file(r).into_iter().map(|(part, zip_parts)| {
                 (
