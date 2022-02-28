@@ -324,22 +324,18 @@ impl Game {
         // turn files on disk into a map, so extra files can be located
         let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
 
-        if let Ok(dir) = read_dir(game_root) {
-            for entry in dir
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-            {
-                match entry.file_name().into_string() {
-                    Ok(name) => {
-                        files_on_disk.insert(name, entry.path());
-                    }
-                    Err(_) => failures.push(VerifyFailure::extra(entry.path())),
-                }
-            }
-        } else if self.parts.is_empty() {
+        match read_dir(game_root) {
+            Ok(dir) => read_game_dir(
+                dir,
+                |name, pb| {
+                    files_on_disk.insert(name, pb);
+                },
+                &mut failures,
+            ),
+
             // no directory to read and no parts to check,
             // so no failures are possible
-            return failures;
+            Err(_) => return failures,
         }
 
         // verify all game parts
@@ -386,17 +382,13 @@ impl Game {
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
         if let Ok(dir) = read_dir(&game_root) {
-            for entry in dir
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-            {
-                match entry.file_name().into_string() {
-                    Ok(name) => {
-                        files_on_disk.insert(name, entry.path());
-                    }
-                    Err(_) => failures.push(VerifyFailure::extra(entry.path())),
-                }
-            }
+            read_game_dir(
+                dir,
+                |name, pb| {
+                    files_on_disk.insert(name, pb);
+                },
+                &mut failures,
+            );
         }
 
         // verify all game parts
@@ -479,6 +471,24 @@ impl Game {
             for (name, part) in parts {
                 table.add_row(row![name, part.digest()]);
             }
+        }
+    }
+}
+
+fn read_game_dir<I, F>(dir: I, mut insert: F, failures: &mut Vec<VerifyFailure>)
+where
+    I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+    F: FnMut(String, PathBuf),
+{
+    for entry in dir
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+    {
+        match entry.file_name().into_string() {
+            Ok(name) => {
+                insert(name, entry.path());
+            }
+            Err(_) => failures.push(VerifyFailure::extra(entry.path())),
         }
     }
 }
