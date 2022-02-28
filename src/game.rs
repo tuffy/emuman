@@ -1062,9 +1062,10 @@ impl<'u> RomSource<'u> {
         }
 
         let file = Arc::new(pb);
+        let mut r = File::open(file.as_ref()).map(BufReader::new)?;
 
         let mut result = vec![(
-            Part::from_path(&file)?,
+            Part::from_reader(&mut r)?,
             RomSource::File {
                 file: file.clone(),
                 has_xattr: false,
@@ -1072,7 +1073,6 @@ impl<'u> RomSource<'u> {
             },
         )];
 
-        let mut r = File::open(file.as_ref()).map(BufReader::new)?;
         if is_zip(&mut r).unwrap_or(false) {
             result.extend(zip_parts_from_file(r).into_iter().map(|(part, zip_parts)| {
                 (
