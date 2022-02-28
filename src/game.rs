@@ -1116,17 +1116,15 @@ impl<'u> RomSource<'u> {
                 has_xattr,
                 zip_parts,
             } => match zip_parts.split_first() {
-                None => {
-                    if hard_link(source.as_path(), &target).is_ok() {
-                        Ok(Extracted::Linked {
-                            has_xattr: *has_xattr,
-                        })
-                    } else {
+                None => hard_link(source.as_path(), &target)
+                    .map(|()| Extracted::Linked {
+                        has_xattr: *has_xattr,
+                    })
+                    .or_else(|_| {
                         copy(source.as_path(), &target)
                             .map_err(Error::IO)
                             .map(|_| Extracted::Copied)
-                    }
-                }
+                    }),
 
                 Some((index, rest)) => {
                     let mut zip_data = Vec::new();
@@ -1141,7 +1139,7 @@ impl<'u> RomSource<'u> {
 
             RomSource::Url {
                 data, zip_parts, ..
-            } => extract_from_zip(zip_parts, &data, target),
+            } => extract_from_zip(zip_parts, data, target),
         }
     }
 }
