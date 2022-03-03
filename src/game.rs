@@ -601,7 +601,7 @@ impl VerifyFailure {
         let source = entry.get();
 
         match source.extract(target.as_ref())? {
-            extracted @ Extracted::Copied => {
+            extracted @ Extracted::Copied { .. } => {
                 part.set_xattr(&target);
 
                 Ok(ExtractedPart {
@@ -654,7 +654,12 @@ pub struct ExtractedPart<'u> {
 impl<'u> fmt::Display for ExtractedPart<'u> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.extracted {
-            Extracted::Copied => write!(f, "{} => {}", self.source, self.target.display()),
+            Extracted::Copied { rate: None } => {
+                write!(f, "{} => {}", self.source, self.target.display())
+            }
+            Extracted::Copied { rate: Some(rate) } => {
+                write!(f, "{} => {} ({})", self.source, self.target.display(), rate)
+            }
             Extracted::Linked { .. } => {
                 write!(f, "{} -> {}", self.source, self.target.display())
             }
@@ -1147,9 +1152,9 @@ impl<'u> RomSource<'u> {
                         has_xattr: *has_xattr,
                     })
                     .or_else(|_| {
-                        copy(source.as_path(), &target)
+                        Rate::from_copy(|| copy(source.as_path(), &target))
+                            .map(|rate| Extracted::Copied { rate })
                             .map_err(Error::IO)
-                            .map(|_| Extracted::Copied)
                     }),
 
                 Some((index, rest)) => extract_from_zip_file(
@@ -1189,9 +1194,9 @@ fn extract_from_zip_file<R: Read>(
 ) -> Result<Extracted, Error> {
     match indexes.split_first() {
         None => std::fs::File::create(target)
-            .and_then(|mut w| std::io::copy(&mut r, &mut w))
-            .map_err(Error::IO)
-            .map(|_| Extracted::Copied),
+            .and_then(|mut w| Rate::from_copy(|| std::io::copy(&mut r, &mut w)))
+            .map(|rate| Extracted::Copied { rate })
+            .map_err(Error::IO),
 
         Some((index, rest)) => {
             let mut zip_data = Vec::new();
@@ -1249,8 +1254,53 @@ fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
 
 #[derive(Copy, Clone)]
 enum Extracted {
-    Copied,
+    Copied { rate: Option<Rate> },
     Linked { has_xattr: bool },
+}
+
+#[derive(Copy, Clone)]
+pub struct Rate {
+    bytes_per_sec: f64,
+}
+
+impl Rate {
+    #[inline]
+    fn new(bytes: u64, dur: std::time::Duration) -> Rate {
+        Rate {
+            bytes_per_sec: bytes as f64 / dur.as_secs_f64(),
+        }
+    }
+
+    #[inline]
+    fn from_copy<F>(copy: F) -> Result<Option<Self>, std::io::Error>
+    where
+        F: FnOnce() -> Result<u64, std::io::Error>,
+    {
+        use std::time::SystemTime;
+
+        let start = SystemTime::now();
+        let bytes = copy()?;
+        Ok(SystemTime::now()
+            .duration_since(start)
+            .ok()
+            .map(|duration| Self::new(bytes, duration)))
+    }
+}
+
+impl fmt::Display for Rate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        const K: f64 = (1 << 10) as f64;
+        const M: f64 = (1 << 20) as f64;
+        const G: f64 = (1 << 30) as f64;
+
+        match self.bytes_per_sec {
+            b if (b.is_infinite() || b.is_nan()) => write!(f, "N/A"),
+            b if b < K => write!(f, "{:.2} B/s", b),
+            b if b < M => write!(f, "{:.2} KiB/s", b / K),
+            b if b < G => write!(f, "{:.2} MiB/s", b / M),
+            b => write!(f, "{:2} GiB/s", b / G),
+        }
+    }
 }
 
 pub type RomSources<'u> = FxHashMap<Part, RomSource<'u>>;
