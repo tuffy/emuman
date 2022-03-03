@@ -1525,7 +1525,16 @@ impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::{GameDb, Part, RomSource};
         use prettytable::{cell, format, row, Table};
+        use rayon::iter::{IntoParallelIterator, ParallelIterator};
         use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+        let sources = self
+            .parts
+            .into_par_iter()
+            .map(RomSource::from_path)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten();
 
         if self.lookup {
             let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
@@ -1568,20 +1577,16 @@ impl OptIdentify {
             table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
             table.get_format().column_separator('\u{2502}');
 
-            for path in self.parts.into_iter() {
-                for (part, source) in RomSource::from_path(path)? {
-                    for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
-                        table.add_row(row![source, category, system, game, rom]);
-                    }
+            for (part, source) in sources {
+                for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
+                    table.add_row(row![source, category, system, game, rom]);
                 }
             }
 
             table.printstd();
         } else {
-            for path in self.parts.into_iter() {
-                for (part, source) in RomSource::from_path(path)? {
-                    println!("{}  {}", part.digest(), source);
-                }
+            for (part, source) in sources {
+                println!("{}  {}", part.digest(), source);
             }
         }
 
