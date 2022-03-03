@@ -1569,10 +1569,9 @@ impl OptIdentify {
             table.get_format().column_separator('\u{2502}');
 
             for path in self.parts.into_iter() {
-                let path_str = path.display().to_string();
-                for (part, _) in RomSource::from_path(path)? {
+                for (part, source) in RomSource::from_path(path)? {
                     for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
-                        table.add_row(row![&path_str, category, system, game, rom]);
+                        table.add_row(row![source, category, system, game, rom]);
                     }
                 }
             }

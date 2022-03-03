@@ -1083,8 +1083,10 @@ impl<'u> RomSource<'u> {
             },
         )];
 
+        r.seek(std::io::SeekFrom::Start(0))?;
+
         if is_zip(&mut r).unwrap_or(false) {
-            result.extend(zip_parts_from_file(r).into_iter().map(|(part, zip_parts)| {
+            result.extend(unpack_zip_parts(r).into_iter().map(|(part, zip_parts)| {
                 (
                     part,
                     RomSource::File {
@@ -1102,19 +1104,33 @@ impl<'u> RomSource<'u> {
     pub fn from_url(url: &'u str) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
         let data: Arc<[u8]> = crate::http::fetch_url_data(url).map(Arc::from)?;
 
-        Ok(zip_parts_from_data(&data)
-            .into_iter()
-            .map(|(part, zip_parts)| {
-                (
-                    part,
-                    RomSource::Url {
-                        url,
-                        data: data.clone(),
-                        zip_parts,
-                    },
-                )
-            })
-            .collect())
+        let mut result = vec![(
+            Part::from_slice(&data)?,
+            RomSource::Url {
+                url,
+                data: data.clone(),
+                zip_parts: ZipParts::default(),
+            },
+        )];
+
+        if matches!(data[..], [0x50, 0x4B, 0x03, 0x04, ..]) {
+            result.extend(
+                unpack_zip_parts(std::io::Cursor::new(data.clone()))
+                    .into_iter()
+                    .map(|(part, zip_parts)| {
+                        (
+                            part,
+                            RomSource::Url {
+                                url,
+                                data: data.clone(),
+                                zip_parts,
+                            },
+                        )
+                    }),
+            );
+        }
+
+        Ok(result)
     }
 
     fn extract(&self, target: &Path) -> Result<Extracted, Error> {
@@ -1136,20 +1152,16 @@ impl<'u> RomSource<'u> {
                             .map(|_| Extracted::Copied)
                     }),
 
-                Some((index, rest)) => {
-                    let mut zip_data = Vec::new();
-
-                    zip::ZipArchive::new(File::open(source.as_ref())?)?
-                        .by_index(*index)?
-                        .read_to_end(&mut zip_data)?;
-
-                    extract_from_zip(rest, &zip_data, target)
-                }
+                Some((index, rest)) => extract_from_zip_file(
+                    rest,
+                    zip::ZipArchive::new(File::open(source.as_ref())?)?.by_index(*index)?,
+                    target,
+                ),
             },
 
             RomSource::Url {
                 data, zip_parts, ..
-            } => extract_from_zip(zip_parts, data, target),
+            } => extract_from_zip_file(zip_parts, std::io::Cursor::new(data), target),
         }
     }
 }
@@ -1170,72 +1182,69 @@ impl fmt::Display for RomSource<'_> {
     }
 }
 
-fn extract_from_zip(indexes: &[usize], data: &[u8], target: &Path) -> Result<Extracted, Error> {
-    use std::io::{Cursor, Write};
-
+fn extract_from_zip_file<R: Read>(
+    indexes: &[usize],
+    mut r: R,
+    target: &Path,
+) -> Result<Extracted, Error> {
     match indexes.split_first() {
         None => std::fs::File::create(target)
-            .and_then(|mut f| f.write_all(data).and_then(|_| f.flush()))
+            .and_then(|mut w| std::io::copy(&mut r, &mut w))
             .map_err(Error::IO)
             .map(|_| Extracted::Copied),
 
         Some((index, rest)) => {
             let mut zip_data = Vec::new();
-
-            zip::ZipArchive::new(Cursor::new(data))?
-                .by_index(*index)?
-                .read_to_end(&mut zip_data)?;
-
-            extract_from_zip(rest, &zip_data, target)
+            r.read_to_end(&mut zip_data)?;
+            extract_from_zip_file(
+                rest,
+                zip::ZipArchive::new(std::io::Cursor::new(zip_data))?.by_index(*index)?,
+                target,
+            )
         }
     }
 }
 
-fn zip_parts_from_data(data: &[u8]) -> Vec<(Part, ZipParts)> {
-    Part::from_slice(data)
-        .map(|part| {
-            let mut result = vec![(part, ZipParts::default())];
+fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
+    // a valid ROM might be an invalid Zip file
+    // so a failure to unpack Zip parts from a file
+    // should not be considered a fatal error
 
-            if matches!(data, [0x50, 0x4B, 0x03, 0x04, ..]) {
-                let _ = unpack_zip_parts(std::io::Cursor::new(data), &mut result);
-            }
-
-            result
-        })
-        .unwrap_or_default()
-}
-
-fn zip_parts_from_file<F>(f: F) -> Vec<(Part, ZipParts)>
-where
-    F: Read + Seek,
-{
-    let mut result = Vec::new();
-    let _ = unpack_zip_parts(f, &mut result);
-    result
-}
-
-fn unpack_zip_parts<F>(f: F, result: &mut Vec<(Part, ZipParts)>) -> Result<(), Error>
-where
-    F: Read + Seek,
-{
-    let mut zip = zip::ZipArchive::new(f)?;
-
-    for index in 0..zip.len() {
-        let mut zip_data = Vec::new();
-
-        zip.by_index(index)?.read_to_end(&mut zip_data)?;
-
-        result.extend(
-            zip_parts_from_data(&zip_data)
-                .into_iter()
-                .map(|(part, mut zip_parts)| {
-                    zip_parts.insert(0, index);
-                    (part, zip_parts)
-                }),
-        );
+    fn is_zip<R: Read>(mut reader: R) -> bool {
+        let mut buf = [0; 4];
+        match reader.read_exact(&mut buf) {
+            Ok(()) => &buf == b"\x50\x4b\x03\x04",
+            Err(_) => false,
+        }
     }
 
-    Ok(())
+    fn unpack<F: Read + Seek>(zip: F) -> Result<Vec<(Part, ZipParts)>, Error> {
+        let mut zip = zip::ZipArchive::new(zip)?;
+        let mut results = Vec::new();
+
+        for index in 0..zip.len() {
+            if is_zip(zip.by_index(index)?) {
+                let mut zip_data = Vec::new();
+
+                zip.by_index(index)?.read_to_end(&mut zip_data)?;
+
+                results.extend(
+                    unpack_zip_parts(std::io::Cursor::new(zip_data))
+                        .into_iter()
+                        .map(|(part, mut zip_parts)| {
+                            zip_parts.insert(0, index);
+                            (part, zip_parts)
+                        }),
+                )
+            } else {
+                results.push((Part::from_reader(zip.by_index(index)?)?, vec![index]))
+            }
+        }
+
+        Ok(results)
+    }
+
+    unpack(zip).unwrap_or_default()
 }
 
 #[derive(Copy, Clone)]
