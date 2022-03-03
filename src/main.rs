@@ -14,6 +14,7 @@ mod game;
 mod http;
 mod mame;
 mod mess;
+mod nointro;
 mod redump;
 mod split;
 
@@ -21,11 +22,13 @@ static MAME: &str = "mame";
 static MESS: &str = "mess";
 static EXTRA: &str = "extra";
 static REDUMP: &str = "redump";
+static NOINTRO: &str = "nointro";
 
 static CACHE_MAME: &str = "mame.cbor";
 static CACHE_MESS: &str = "mess.cbor";
 static CACHE_EXTRA: &str = "extra.cbor";
 static CACHE_REDUMP: &str = "redump.cbor";
+static CACHE_NOINTRO: &str = "nointro.cbor";
 static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
 static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
 
@@ -988,7 +991,7 @@ impl OptExtraCreate {
         let new_games = self
             .dats
             .into_iter()
-            .map(read_dat_or_zip)
+            .map(|file| read_dat_or_zip(file, extra::dat_to_game_db))
             .collect::<Result<Vec<Vec<(String, game::GameDb)>>, Error>>()?;
 
         let mut db = if self.append {
@@ -1511,6 +1514,153 @@ impl OptRedump {
     }
 }
 
+#[derive(Subcommand)]
+#[clap(name = "nointro")]
+enum OptNointro {
+    /// create internal database
+    #[clap(name = "create")]
+    Create(OptNointroCreate),
+
+    /// list categories or ROMs
+    #[clap(name = "list")]
+    List(OptNointroList),
+
+    /// verify category's ROMs
+    #[clap(name = "verify")]
+    Verify(OptNointroVerify),
+
+    /// add and verify category's ROMs
+    #[clap(name = "add")]
+    Add(OptNointroAdd),
+}
+
+impl OptNointro {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptNointro::Create(o) => o.execute(),
+            OptNointro::List(o) => o.execute(),
+            OptNointro::Verify(o) => o.execute(),
+            OptNointro::Add(o) => o.execute(),
+        }
+    }
+}
+
+#[derive(Args)]
+struct OptNointroCreate {
+    /// No-Intro XML file
+    #[clap(parse(from_os_str))]
+    xml: Vec<PathBuf>,
+}
+
+impl OptNointroCreate {
+    fn execute(self) -> Result<(), Error> {
+        let db = self
+            .xml
+            .into_iter()
+            .map(|path| {
+                read_raw_or_zip(path).and_then(|xml_data| {
+                    Document::parse(&xml_data)
+                        .map_err(Error::Xml)
+                        .map(|tree| nointro::dat_to_nointro_db(&tree))
+                })
+            })
+            .collect::<Result<nointro::NointroDb, Error>>()?;
+
+        // FIXME - add append option
+
+        write_cache(CACHE_NOINTRO, db)
+    }
+}
+
+#[derive(Args)]
+struct OptNointroList {
+    /// category name
+    name: Option<String>,
+}
+
+impl OptNointroList {
+    fn execute(self) -> Result<(), Error> {
+        let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+
+        match self.name {
+            Some(name) => {
+                nointro::list(&db.remove(&name).ok_or(Error::NoSuchSoftwareList(name))?);
+            }
+            None => {
+                nointro::list_all(&db);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroVerify {
+    /// ROMs directory
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// category name to verify
+    name: String,
+}
+
+impl OptNointroVerify {
+    fn execute(self) -> Result<(), Error> {
+        let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+
+        let game = db.remove(&self.name).ok_or(Error::NoSuchSoftwareList(self.name))?;
+
+        let results = game.verify(&self.roms);
+
+        for result in results {
+            println!("{}", result);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroAdd {
+    /// input directory
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
+
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+
+    /// output directory
+    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
+    roms: PathBuf,
+
+    /// category name to add ROMs to
+    name: String,
+}
+
+impl OptNointroAdd {
+    fn execute(self) -> Result<(), Error> {
+        let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+
+        let game = db.remove(&self.name).ok_or(Error::NoSuchSoftwareList(self.name))?;
+
+        let mut roms = game::get_rom_sources(
+            &self.input,
+            &self.input_url,
+            game.required_parts(),
+        );
+
+        let results = game.add_and_verify_root(&mut roms, &self.roms, |p| eprintln!("{}", p))?;
+
+        for failure in results {
+            println!("{}", failure);
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Args)]
 struct OptIdentify {
     /// ROMs or CHDs to identify
@@ -1801,6 +1951,10 @@ enum Opt {
     #[clap(subcommand)]
     Redump(OptRedump),
 
+    /// nointro game management
+    #[clap(subcommand)]
+    Nointro(OptNointro),
+
     /// identify ROM or CHD by hash
     Identify(OptIdentify),
 
@@ -1816,6 +1970,7 @@ impl Opt {
             Opt::Mess(o) => o.execute(),
             Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
+            Opt::Nointro(o) => o.execute(),
             Opt::Identify(o) => o.execute(),
             Opt::Cache(o) => o.execute(),
         }
@@ -1857,7 +2012,11 @@ fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
 
 // attempts to read all .dat files in a .zip file
 // or the whole raw file if it is not a .zip
-fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Vec<(String, game::GameDb)>, Error> {
+fn read_dat_or_zip<F, P>(file: F, mut parse: P) -> Result<Vec<(String, game::GameDb)>, Error>
+where
+    F: AsRef<Path>,
+    P: FnMut(&Document) -> (String, game::GameDb),
+{
     let mut f = File::open(file)?;
     if is_zip(&mut f)? {
         use zip::ZipArchive;
@@ -1875,14 +2034,14 @@ fn read_dat_or_zip<P: AsRef<Path>>(file: P) -> Result<Vec<(String, game::GameDb)
                 let mut data = String::new();
                 zip.by_name(&name)?.read_to_string(&mut data)?;
                 let tree = Document::parse(&data)?;
-                Ok(extra::dat_to_game_db(&tree))
+                Ok(parse(&tree))
             })
             .collect()
     } else {
         let mut data = String::new();
         f.read_to_string(&mut data)?;
         let tree = Document::parse(&data)?;
-        Ok(vec![extra::dat_to_game_db(&tree)])
+        Ok(vec![parse(&tree)])
     }
 }
 

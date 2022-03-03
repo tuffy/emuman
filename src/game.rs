@@ -314,7 +314,7 @@ impl Game {
         }
     }
 
-    fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
+    pub fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
         use dashmap::DashMap;
         use rayon::prelude::*;
         use std::fs::read_dir;
@@ -363,25 +363,35 @@ impl Game {
         failures
     }
 
+    // appends game's name to root automatically
+    #[inline]
     pub fn add_and_verify<F>(
         &self,
         rom_sources: &mut RomSources,
         target_dir: &Path,
+        progress: F,
+    ) -> Result<Vec<VerifyFailure>, Error>
+    where
+        F: FnMut(ExtractedPart<'_>),
+    {
+        self.add_and_verify_root(rom_sources, &target_dir.join(&self.name), progress)
+    }
+
+    pub fn add_and_verify_root<F>(
+        &self,
+        rom_sources: &mut RomSources,
+        game_root: &Path,
         mut progress: F,
     ) -> Result<Vec<VerifyFailure>, Error>
     where
         F: FnMut(ExtractedPart<'_>),
     {
-        use std::fs::read_dir;
-
         let mut failures = Vec::new();
-
-        let game_root = target_dir.join(&self.name);
 
         // turn files on disk into a map, so extra files can be located
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
-        if let Ok(dir) = read_dir(&game_root) {
+        if let Ok(dir) = std::fs::read_dir(&game_root) {
             read_game_dir(
                 dir,
                 |name, pb| {
@@ -431,11 +441,9 @@ impl Game {
         target: &Path,
         file_move: fn(&Path, &Path) -> Result<(), std::io::Error>,
     ) -> Result<(), Error> {
-        use std::fs::read_dir;
-
         let target_dir = target.join(&self.name);
 
-        let dir = match read_dir(&target_dir) {
+        let dir = match std::fs::read_dir(&target_dir) {
             Ok(dir) => dir,
             Err(_) => return Ok(()),
         };
@@ -472,6 +480,11 @@ impl Game {
                 table.add_row(row![name, part.digest()]);
             }
         }
+    }
+
+    #[inline]
+    pub fn required_parts(&self) -> FxHashSet<Part> {
+        self.parts.values().cloned().collect()
     }
 }
 
@@ -522,6 +535,7 @@ impl<'a> GameRow<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum VerifyFailure {
     Missing {
         path: PathBuf,
