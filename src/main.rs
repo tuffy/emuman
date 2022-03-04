@@ -1678,6 +1678,14 @@ impl OptIdentify {
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
         use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+        fn no_intro_to_game_db(map: nointro::NointroDb) -> BTreeMap<String, GameDb> {
+            let mut db: BTreeMap<String, GameDb> = BTreeMap::default();
+            for (system, game) in map {
+                db.entry(system).or_default().games.insert(game.name.clone(), game);
+            }
+            db
+        }
+
         let sources = self
             .parts
             .into_par_iter()
@@ -1687,7 +1695,7 @@ impl OptIdentify {
             .flatten();
 
         if self.lookup {
-            let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
+            let all_parts: [(&str, BTreeMap<String, GameDb>); 5] = [
                 (
                     "mame",
                     BTreeMap::from(
@@ -1702,6 +1710,10 @@ impl OptIdentify {
                 (
                     "redump",
                     read_cache(REDUMP, CACHE_REDUMP).unwrap_or_default(),
+                ),
+                (
+                    "nointro",
+                    no_intro_to_game_db(read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()),
                 ),
             ];
 
