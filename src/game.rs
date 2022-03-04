@@ -335,7 +335,9 @@ impl Game {
 
             // no directory to read and no parts to check,
             // so no failures are possible
-            Err(_) => return failures,
+            Err(_) if self.parts.is_empty() => return failures,
+
+            Err(_) => {}
         }
 
         // verify all game parts
@@ -434,36 +436,6 @@ impl Game {
         );
 
         Ok(failures)
-    }
-
-    pub fn rename(
-        &self,
-        target: &Path,
-        file_move: fn(&Path, &Path) -> Result<(), std::io::Error>,
-    ) -> Result<(), Error> {
-        let target_dir = target.join(&self.name);
-
-        let dir = match std::fs::read_dir(&target_dir) {
-            Ok(dir) => dir,
-            Err(_) => return Ok(()),
-        };
-
-        let parts: FxHashMap<Part, PathBuf> = self
-            .parts
-            .iter()
-            .map(|(name, part)| (part.clone(), target_dir.join(name)))
-            .collect();
-
-        for entry in dir.filter_map(|e| e.ok()) {
-            let entry_path = entry.path();
-            if let Ok(part) = Part::from_path(&entry_path) {
-                if let Some(target_path) = parts.get(&part) {
-                    file_move(&entry_path, target_path)?;
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub fn display_parts(&self, table: &mut Table) {
@@ -1392,22 +1364,6 @@ pub fn get_rom_sources<'u>(
     required: FxHashSet<Part>,
 ) -> RomSources<'u> {
     multi_rom_sources(roots, urls, |part| required.contains(part))
-}
-
-pub fn file_move(source: &Path, target: &Path) -> Result<(), std::io::Error> {
-    if (source != target) && !target.exists() {
-        use std::fs::rename;
-        rename(source, target)?;
-        println!("{} -> {}", source.display(), target.display());
-    }
-    Ok(())
-}
-
-pub fn file_move_dry_run(source: &Path, target: &Path) -> Result<(), std::io::Error> {
-    if (source != target) && !target.exists() {
-        println!("{} -> {}", source.display(), target.display());
-    }
-    Ok(())
 }
 
 pub fn display_all_results(game: &str, failures: &[VerifyFailure]) {

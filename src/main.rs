@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
+mod dirs;
 mod duplicates;
 mod extra;
 mod game;
@@ -39,12 +40,14 @@ pub enum Error {
     Sql(rusqlite::Error),
     CborRead(ciborium::de::Error<std::io::Error>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
+    TomlWrite(toml::ser::Error),
     Zip(zip::result::ZipError),
     Http(attohttpc::Error),
     HttpCode(attohttpc::StatusCode),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
     MissingCache(&'static str),
+    InvalidPath,
 }
 
 impl From<std::io::Error> for Error {
@@ -78,6 +81,13 @@ impl From<attohttpc::Error> for Error {
     }
 }
 
+impl From<toml::ser::Error> for Error {
+    #[inline]
+    fn from(err: toml::ser::Error) -> Self {
+        Error::TomlWrite(err)
+    }
+}
+
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -86,6 +96,7 @@ impl std::error::Error for Error {
             Error::Sql(err) => Some(err),
             Error::CborRead(err) => Some(err),
             Error::CborWrite(err) => Some(err),
+            Error::TomlWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
             Error::Http(err) => Some(err),
             _ => None,
@@ -101,6 +112,7 @@ impl fmt::Display for Error {
             Error::Sql(err) => err.fmt(f),
             Error::CborRead(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
+            Error::TomlWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
             Error::Http(err) => err.fmt(f),
             Error::HttpCode(code) => match code.canonical_reason() {
@@ -114,6 +126,7 @@ impl fmt::Display for Error {
                 "missing cache files, please run \"emuman {} create\" to populate",
                 s
             ),
+            Error::InvalidPath => write!(f, "invalid UTF-8 path"),
         }
     }
 }
@@ -222,8 +235,8 @@ struct OptMameReport {
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// display simple report with less information
     #[clap(short = 'S', long = "simple")]
@@ -235,14 +248,15 @@ struct OptMameReport {
 
 impl OptMameReport {
     fn execute(self) -> Result<(), Error> {
-        let machines: HashSet<String> = self
-            .roms
+        let machines: HashSet<String> = dirs::mame_roms(self.roms)
+            .as_ref()
             .read_dir()?
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
 
         let db = read_cache::<game::GameDb>(MAME, CACHE_MAME)?;
         db.report(&machines, self.search.as_deref(), self.sort, self.simple);
+
         Ok(())
     }
 }
@@ -250,8 +264,8 @@ impl OptMameReport {
 #[derive(Args)]
 struct OptMameVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -277,6 +291,8 @@ impl OptMameVerify {
             db.retain_working();
         }
 
+        let roms_dir = dirs::mame_roms(self.roms);
+
         let games: HashSet<String> = if self.all {
             db.all_games()
         } else if !self.machines.is_empty() {
@@ -286,7 +302,8 @@ impl OptMameVerify {
             machines
         } else {
             // ignore stuff that's on disk but not valid machines
-            self.roms
+            roms_dir
+                .as_ref()
                 .read_dir()?
                 .filter_map(|e| {
                     e.ok()
@@ -296,7 +313,7 @@ impl OptMameVerify {
                 .collect()
         };
 
-        verify(&db, &self.roms, &games, self.failures);
+        verify(&db, roms_dir, &games, self.failures);
 
         Ok(())
     }
@@ -313,8 +330,8 @@ struct OptMameAdd {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// machine to add
     machines: Vec<String>,
@@ -323,6 +340,8 @@ struct OptMameAdd {
 impl OptMameAdd {
     fn execute(self) -> Result<(), Error> {
         let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
+
+        let roms_dir = dirs::mame_roms(self.roms);
 
         let mut roms = if self.machines.is_empty() {
             game::all_rom_sources(&self.input, &self.input_url)
@@ -335,50 +354,16 @@ impl OptMameAdd {
         };
 
         if self.machines.is_empty() {
-            add_and_verify(&mut roms, &self.roms, db.games_iter())
+            add_and_verify(&mut roms, &roms_dir, db.games_iter())?;
         } else {
             add_and_verify(
                 &mut roms,
-                &self.roms,
+                &roms_dir,
                 self.machines.iter().filter_map(|game| db.game(game)),
-            )
-        }
-    }
-}
-
-#[derive(Args)]
-struct OptMameRename {
-    /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
-
-    /// don't actually rename ROMs
-    #[clap(long = "dry-run")]
-    dry_run: bool,
-
-    /// machine to rename
-    machines: Vec<String>,
-}
-
-impl OptMameRename {
-    fn execute(mut self) -> Result<(), Error> {
-        let db: game::GameDb = read_cache(MAME, CACHE_MAME)?;
-
-        if self.machines.is_empty() {
-            self.machines = db.all_games();
-        } else {
-            db.validate_games(&self.machines)?;
+            )?;
         }
 
-        let file_move = if self.dry_run {
-            game::file_move_dry_run
-        } else {
-            game::file_move
-        };
-
-        self.machines
-            .iter()
-            .try_for_each(|game| db.games[game].rename(&self.roms, file_move))
+        Ok(())
     }
 }
 
@@ -411,10 +396,6 @@ enum OptMame {
     /// add ROMs to directory
     #[clap(name = "add")]
     Add(OptMameAdd),
-
-    /// rename ROMs in game directories, if necessary
-    #[clap(name = "rename")]
-    Rename(OptMameRename),
 }
 
 impl OptMame {
@@ -427,7 +408,6 @@ impl OptMame {
             OptMame::Report(o) => o.execute(),
             OptMame::Verify(o) => o.execute(),
             OptMame::Add(o) => o.execute(),
-            OptMame::Rename(o) => o.execute(),
         }
     }
 }
@@ -570,8 +550,8 @@ struct OptMessReport {
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// software list to use
     software_list: String,
@@ -591,9 +571,13 @@ impl OptMessReport {
         let mut mess_db: mess::MessDb = read_cache(MESS, CACHE_MESS)?;
 
         if self.software_list == "any" {
+            let sort = self.sort;
+            let roms_dir = dirs::mess_roms_all(self.roms);
+
             let mut results: Vec<(&str, GameRow)> = Vec::new();
+
             for (name, db) in mess_db.iter() {
-                let roms = self.roms.join(name);
+                let roms = roms_dir.as_ref().join(name);
                 if let Ok(dir) = roms.read_dir() {
                     let software: HashSet<String> = dir
                         .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
@@ -606,15 +590,17 @@ impl OptMessReport {
                     );
                 }
             }
-            results.sort_by(|(_, a), (_, b)| a.compare(b, self.sort));
+
+            results.sort_by(|(_, a), (_, b)| a.compare(b, sort));
+
             mess::display_results(&results);
         } else {
             let db = mess_db
                 .remove(&self.software_list)
                 .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-            let software: HashSet<String> = self
-                .roms
+            let software: HashSet<String> = dirs::mess_roms(self.roms, &self.software_list)
+                .as_ref()
                 .read_dir()?
                 .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
                 .collect();
@@ -629,8 +615,8 @@ impl OptMessReport {
 #[derive(Args)]
 struct OptMessVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -657,6 +643,8 @@ impl OptMessVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
+        let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
+
         if self.working {
             db.retain_working();
         }
@@ -668,7 +656,8 @@ impl OptMessVerify {
             db.validate_games(&software)?;
             software
         } else {
-            self.roms
+            roms_dir
+                .as_ref()
                 .read_dir()?
                 .filter_map(|e| {
                     e.ok()
@@ -678,7 +667,7 @@ impl OptMessVerify {
                 .collect()
         };
 
-        verify(&db, &self.roms, &software, self.failures);
+        verify(&db, &roms_dir, &software, self.failures);
 
         Ok(())
     }
@@ -687,8 +676,8 @@ impl OptMessVerify {
 #[derive(Args)]
 struct OptMessVerifyAll {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -707,8 +696,10 @@ impl OptMessVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
 
+        let roms_dir = dirs::mess_roms_all(self.roms);
+
         for (software_list, mut db) in db.into_iter() {
-            let roms_path = self.roms.join(&software_list);
+            let roms_path = roms_dir.as_ref().join(&software_list);
 
             if self.working {
                 db.retain_working();
@@ -748,8 +739,8 @@ struct OptMessAdd {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// software list to use
     software_list: String,
@@ -774,12 +765,14 @@ impl OptMessAdd {
             )
         };
 
+        let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
+
         if self.software.is_empty() {
-            add_and_verify(&mut roms, &self.roms, db.games_iter())
+            add_and_verify(&mut roms, &roms_dir, db.games_iter())
         } else {
             add_and_verify(
                 &mut roms,
-                &self.roms,
+                &roms_dir,
                 self.software.iter().filter_map(|game| db.game(game)),
             )
         }
@@ -797,8 +790,8 @@ struct OptMessAddAll {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 }
 
 impl OptMessAddAll {
@@ -807,53 +800,16 @@ impl OptMessAddAll {
 
         let mut roms = game::all_rom_sources(&self.input, &self.input_url);
 
+        let roms_dir = dirs::mess_roms_all(self.roms);
+
         db.into_iter().try_for_each(|(software, db)| {
             add_and_verify_all(
                 &software,
                 &mut roms,
-                &self.roms.join(&software),
+                &roms_dir.as_ref().join(&software),
                 db.games_iter(),
             )
         })
-    }
-}
-
-#[derive(Args)]
-struct OptMessRename {
-    /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
-
-    /// don't actually rename ROMs
-    #[clap(long = "dry-run")]
-    dry_run: bool,
-
-    /// software list to use
-    software_list: String,
-
-    /// software to rename
-    software: Vec<String>,
-}
-
-impl OptMessRename {
-    fn execute(mut self) -> Result<(), Error> {
-        let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?
-            .remove(&self.software_list)
-            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
-
-        if self.software.is_empty() {
-            self.software = db.all_games();
-        }
-
-        let file_move = if self.dry_run {
-            game::file_move_dry_run
-        } else {
-            game::file_move
-        };
-
-        self.software
-            .iter()
-            .try_for_each(|game| db.games[game].rename(&self.roms, file_move))
     }
 }
 
@@ -948,10 +904,6 @@ enum OptMess {
     #[clap(name = "add-all")]
     AddAll(OptMessAddAll),
 
-    /// rename ROMs in directory, if necessary
-    #[clap(name = "rename")]
-    Rename(OptMessRename),
-
     /// split ROM into MESS-compatible parts, if necessary
     #[clap(name = "split")]
     Split(OptMessSplit),
@@ -969,7 +921,6 @@ impl OptMess {
             OptMess::VerifyAll(o) => o.execute(),
             OptMess::Add(o) => o.execute(),
             OptMess::AddAll(o) => o.execute(),
-            OptMess::Rename(o) => o.execute(),
             OptMess::Split(o) => o.execute(),
         }
     }
@@ -1042,8 +993,8 @@ impl OptExtraParts {
 #[derive(Args)]
 struct OptExtraVerify {
     /// extras directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
-    dir: PathBuf,
+    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    dir: Option<PathBuf>,
 
     /// extras category to verify
     extra: String,
@@ -1062,12 +1013,14 @@ impl OptExtraVerify {
             .remove(&self.extra)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
+        let dir = dirs::extra_dir(self.dir, &self.extra);
+
         let software: HashSet<String> = if !self.software.is_empty() {
             let software = self.software.iter().cloned().collect();
             db.validate_games(&software)?;
             software
         } else {
-            self.dir
+            dir.as_ref()
                 .read_dir()?
                 .filter_map(|e| {
                     e.ok()
@@ -1077,7 +1030,7 @@ impl OptExtraVerify {
                 .collect()
         };
 
-        verify(&db, &self.dir, &software, self.failures);
+        verify(&db, &dir, &software, self.failures);
 
         Ok(())
     }
@@ -1086,8 +1039,8 @@ impl OptExtraVerify {
 #[derive(Args)]
 struct OptExtraVerifyAll {
     /// extras directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
-    dir: PathBuf,
+    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    dir: Option<PathBuf>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -1102,8 +1055,10 @@ impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
+        let dir = dirs::extra_dir_all(self.dir);
+
         for (extra_list, db) in db.into_iter() {
-            let extras_path = self.dir.join(&extra_list);
+            let extras_path = dir.as_ref().join(&extra_list);
 
             let software: HashSet<String> = if self.all {
                 db.all_games()
@@ -1139,8 +1094,8 @@ struct OptExtraAdd {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
-    dir: PathBuf,
+    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    dir: Option<PathBuf>,
 
     /// extra to add
     extra: String,
@@ -1155,6 +1110,8 @@ impl OptExtraAdd {
             .remove(&self.extra)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
 
+        let dir = dirs::extra_dir(self.dir, &self.extra);
+
         let mut parts = if self.software.is_empty() {
             game::all_rom_sources(&self.input, &self.input_url)
         } else {
@@ -1166,11 +1123,11 @@ impl OptExtraAdd {
         };
 
         if self.software.is_empty() {
-            add_and_verify(&mut parts, &self.dir, db.games_iter())
+            add_and_verify(&mut parts, dir, db.games_iter())
         } else {
             add_and_verify(
                 &mut parts,
-                &self.dir,
+                dir,
                 self.software.iter().filter_map(|game| db.game(game)),
             )
         }
@@ -1188,8 +1145,8 @@ struct OptExtraAddAll {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str), default_value = ".")]
-    dir: PathBuf,
+    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    dir: Option<PathBuf>,
 }
 
 impl OptExtraAddAll {
@@ -1197,9 +1154,15 @@ impl OptExtraAddAll {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
+        let dir = dirs::extra_dir_all(self.dir);
 
         db.into_iter().try_for_each(|(extra, db)| {
-            add_and_verify_all(&extra, &mut parts, &self.dir.join(&extra), db.games_iter())
+            add_and_verify_all(
+                &extra,
+                &mut parts,
+                dir.as_ref().join(&extra),
+                db.games_iter(),
+            )
         })
     }
 }
@@ -1343,8 +1306,8 @@ impl OptRedumpParts {
 #[derive(Args)]
 struct OptRedumpVerify {
     /// root directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    root: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    root: Option<PathBuf>,
 
     /// verify all possible software
     #[clap(long = "all")]
@@ -1367,6 +1330,8 @@ impl OptRedumpVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
+        let root = dirs::redump_roms(self.root, &self.software_list);
+
         let games: HashSet<String> = if self.all {
             db.all_games()
         } else if !self.software.is_empty() {
@@ -1376,7 +1341,7 @@ impl OptRedumpVerify {
             games
         } else {
             // ignore stuff that's on disk but not valid games
-            self.root
+            root.as_ref()
                 .read_dir()?
                 .filter_map(|e| {
                     e.ok()
@@ -1386,7 +1351,7 @@ impl OptRedumpVerify {
                 .collect()
         };
 
-        verify(&db, &self.root, &games, self.failures);
+        verify(&db, root, &games, self.failures);
 
         Ok(())
     }
@@ -1403,8 +1368,8 @@ struct OptRedumpAdd {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    output: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    output: Option<PathBuf>,
 
     /// software list to use
     software_list: String,
@@ -1419,6 +1384,8 @@ impl OptRedumpAdd {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
+        let roms_dir = dirs::redump_roms(self.output, &self.software_list);
+
         let mut roms = if self.software.is_empty() {
             game::all_rom_sources(&self.input, &self.input_url)
         } else {
@@ -1430,11 +1397,11 @@ impl OptRedumpAdd {
         };
 
         if self.software.is_empty() {
-            add_and_verify(&mut roms, &self.output, db.games_iter())
+            add_and_verify(&mut roms, roms_dir, db.games_iter())
         } else {
             add_and_verify(
                 &mut roms,
-                &self.output,
+                roms_dir,
                 self.software.iter().filter_map(|game| db.game(game)),
             )
         }
@@ -1598,8 +1565,8 @@ impl OptNointroList {
 #[derive(Args)]
 struct OptNointroVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// category name to verify
     name: String,
@@ -1609,11 +1576,12 @@ impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = db
-            .remove(&self.name)
-            .ok_or(Error::NoSuchSoftwareList(self.name))?;
+        let game = match db.remove(&self.name) {
+            Some(game) => game,
+            None => return Err(Error::NoSuchSoftwareList(self.name)),
+        };
 
-        let results = game.verify(&self.roms);
+        let results = game.verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
 
         for result in results {
             println!("{}", result);
@@ -1634,8 +1602,8 @@ struct OptNointroAdd {
     input_url: Vec<String>,
 
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
-    roms: PathBuf,
+    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    roms: Option<PathBuf>,
 
     /// category name to add ROMs to
     name: String,
@@ -1645,13 +1613,18 @@ impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = db
-            .remove(&self.name)
-            .ok_or(Error::NoSuchSoftwareList(self.name))?;
+        let game = match db.remove(&self.name) {
+            Some(game) => game,
+            None => return Err(Error::NoSuchSoftwareList(self.name)),
+        };
 
         let mut roms = game::get_rom_sources(&self.input, &self.input_url, game.required_parts());
 
-        let results = game.add_and_verify_root(&mut roms, &self.roms, |p| eprintln!("{}", p))?;
+        let results = game.add_and_verify_root(
+            &mut roms,
+            dirs::nointro_roms(self.roms, &self.name).as_ref(),
+            |p| eprintln!("{}", p),
+        )?;
 
         for failure in results {
             println!("{}", failure);
@@ -2099,8 +2072,13 @@ where
     ciborium::de::from_reader(f).map_err(Error::CborRead)
 }
 
-fn verify(db: &game::GameDb, root: &Path, games: &HashSet<String>, only_failures: bool) {
-    let results = db.verify(root, games);
+fn verify<P: AsRef<Path>>(
+    db: &game::GameDb,
+    root: P,
+    games: &HashSet<String>,
+    only_failures: bool,
+) {
+    let results = db.verify(root.as_ref(), games);
 
     let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
 
@@ -2141,13 +2119,14 @@ fn verify_all(
     eprintln!("{} tested, {} OK", games.len(), successes);
 }
 
-fn add_and_verify_games<'g, I, F>(
+fn add_and_verify_games<'g, I, F, P>(
     mut display: F,
     roms: &mut game::RomSources,
-    root: &Path,
+    root: P,
     games: I,
 ) -> Result<(), Error>
 where
+    P: AsRef<Path>,
     F: FnMut(&str, &[game::VerifyFailure]),
     I: Iterator<Item = &'g game::Game>,
 {
@@ -2163,7 +2142,7 @@ where
 
     let results = pb
         .wrap_iter(games.map(|game| {
-            game.add_and_verify(roms, root, |p| pb.println(p.to_string()))
+            game.add_and_verify(roms, root.as_ref(), |p| pb.println(p.to_string()))
                 .map(|failures| (game.name.as_str(), failures))
         }))
         .collect::<Result<BTreeMap<_, _>, Error>>()?;
@@ -2182,21 +2161,23 @@ where
 }
 
 #[inline]
-fn add_and_verify<'g, I>(roms: &mut game::RomSources, root: &Path, games: I) -> Result<(), Error>
+fn add_and_verify<'g, I, P>(roms: &mut game::RomSources, root: P, games: I) -> Result<(), Error>
 where
+    P: AsRef<Path>,
     I: Iterator<Item = &'g game::Game>,
 {
     add_and_verify_games(game::display_bad_results, roms, root, games)
 }
 
 #[inline]
-fn add_and_verify_all<'g, I>(
+fn add_and_verify_all<'g, I, P>(
     software_list: &str,
     roms: &mut game::RomSources,
-    root: &Path,
+    root: P,
     games: I,
 ) -> Result<(), Error>
 where
+    P: AsRef<Path>,
     I: Iterator<Item = &'g game::Game>,
 {
     add_and_verify_games(
