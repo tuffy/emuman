@@ -1554,19 +1554,19 @@ struct OptNointroCreate {
 
 impl OptNointroCreate {
     fn execute(self) -> Result<(), Error> {
-        let db = self
+        let dats = self
             .xml
             .into_iter()
-            .map(|path| {
-                read_raw_or_zip(path).and_then(|xml_data| {
-                    Document::parse(&xml_data)
-                        .map_err(Error::Xml)
-                        .map(|tree| nointro::dat_to_nointro_db(&tree))
-                })
-            })
-            .collect::<Result<nointro::NointroDb, Error>>()?;
+            .map(|file| read_dat_or_zip(file, nointro::dat_to_nointro_db))
+            .collect::<Result<Vec<Vec<(String, game::Game)>>, Error>>()?;
 
         // FIXME - add append option
+
+        let mut db = nointro::NointroDb::default();
+
+        for (name, game) in dats.into_iter().flatten() {
+            db.insert(name, game);
+        }
 
         write_cache(CACHE_NOINTRO, db)
     }
@@ -1609,7 +1609,9 @@ impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = db.remove(&self.name).ok_or(Error::NoSuchSoftwareList(self.name))?;
+        let game = db
+            .remove(&self.name)
+            .ok_or(Error::NoSuchSoftwareList(self.name))?;
 
         let results = game.verify(&self.roms);
 
@@ -1643,13 +1645,11 @@ impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = db.remove(&self.name).ok_or(Error::NoSuchSoftwareList(self.name))?;
+        let game = db
+            .remove(&self.name)
+            .ok_or(Error::NoSuchSoftwareList(self.name))?;
 
-        let mut roms = game::get_rom_sources(
-            &self.input,
-            &self.input_url,
-            game.required_parts(),
-        );
+        let mut roms = game::get_rom_sources(&self.input, &self.input_url, game.required_parts());
 
         let results = game.add_and_verify_root(&mut roms, &self.roms, |p| eprintln!("{}", p))?;
 
@@ -1681,7 +1681,10 @@ impl OptIdentify {
         fn no_intro_to_game_db(map: nointro::NointroDb) -> BTreeMap<String, GameDb> {
             let mut db: BTreeMap<String, GameDb> = BTreeMap::default();
             for (system, game) in map {
-                db.entry(system).or_default().games.insert(game.name.clone(), game);
+                db.entry(system)
+                    .or_default()
+                    .games
+                    .insert(game.name.clone(), game);
             }
             db
         }
@@ -2024,10 +2027,10 @@ fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
 
 // attempts to read all .dat files in a .zip file
 // or the whole raw file if it is not a .zip
-fn read_dat_or_zip<F, P>(file: F, mut parse: P) -> Result<Vec<(String, game::GameDb)>, Error>
+fn read_dat_or_zip<F, P, T>(file: F, mut parse: P) -> Result<Vec<T>, Error>
 where
     F: AsRef<Path>,
-    P: FnMut(&Document) -> (String, game::GameDb),
+    P: FnMut(&Document) -> T,
 {
     let mut f = File::open(file)?;
     if is_zip(&mut f)? {
