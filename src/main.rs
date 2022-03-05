@@ -1496,6 +1496,10 @@ enum OptNointro {
     #[clap(name = "verify")]
     Verify(OptNointroVerify),
 
+    /// verify all ROMs in all categories
+    #[clap(name = "verify-all")]
+    VerifyAll(OptNointroVerifyAll),
+
     /// add and verify category's ROMs
     #[clap(name = "add")]
     Add(OptNointroAdd),
@@ -1507,6 +1511,7 @@ impl OptNointro {
             OptNointro::Create(o) => o.execute(),
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
+            OptNointro::VerifyAll(o) => o.execute(),
             OptNointro::Add(o) => o.execute(),
         }
     }
@@ -1585,6 +1590,25 @@ impl OptNointroVerify {
 
         for result in results {
             println!("{}", result);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroVerifyAll;
+
+impl OptNointroVerifyAll {
+    fn execute(self) -> Result<(), Error> {
+        let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+
+        for (name, dir) in dirs::nointro_dirs() {
+            if let Some(game) = db.get(&name) {
+                for result in game.verify(&dir) {
+                    println!("{}", result);
+                }
+            }
         }
 
         Ok(())
