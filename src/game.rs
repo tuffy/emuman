@@ -103,7 +103,7 @@ impl GameDb {
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
         if let Some(game) = self.games.get(game_name) {
-            let mut results = game.verify(&root.join(game_name));
+            let mut results = game.parts.verify(&root.join(game_name));
             results.extend(
                 game.devices
                     .iter()
@@ -265,7 +265,7 @@ pub struct Game {
     pub year: String,
     pub status: Status,
     pub is_device: bool,
-    pub parts: HashMap<String, Part>,
+    pub parts: GameParts,
     pub devices: Vec<String>,
 }
 
@@ -312,6 +312,102 @@ impl Game {
             year: &self.year,
             status: self.status,
         }
+    }
+    // appends game's name to root automatically
+    #[inline]
+    pub fn add_and_verify<F>(
+        &self,
+        rom_sources: &mut RomSources,
+        target_dir: &Path,
+        progress: F,
+    ) -> Result<Vec<VerifyFailure>, Error>
+    where
+        F: FnMut(ExtractedPart<'_>),
+    {
+        self.parts
+            .add_and_verify_root(rom_sources, &target_dir.join(&self.name), progress)
+    }
+
+    pub fn display_parts(&self, table: &mut Table) {
+        use prettytable::{cell, row};
+
+        let parts: BTreeMap<&str, &Part> = self
+            .parts
+            .iter()
+            .map(|(name, part)| (name.as_str(), part))
+            .collect();
+
+        if !parts.is_empty() {
+            for (name, part) in parts {
+                table.add_row(row![name, part.digest()]);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn required_parts(&self) -> FxHashSet<Part> {
+        self.parts.values().cloned().collect()
+    }
+}
+
+fn read_game_dir<I, F>(dir: I, mut insert: F, failures: &mut Vec<VerifyFailure>)
+where
+    I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+    F: FnMut(String, PathBuf),
+{
+    for entry in dir
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+    {
+        match entry.file_name().into_string() {
+            Ok(name) => {
+                insert(name, entry.path());
+            }
+            Err(_) => failures.push(VerifyFailure::extra(entry.path())),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GameParts {
+    parts: HashMap<String, Part>,
+}
+
+impl Extend<(String, Part)> for GameParts {
+    #[inline]
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = (String, Part)>,
+    {
+        self.parts.extend(iter)
+    }
+}
+
+impl GameParts {
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Part)> {
+        self.parts.iter()
+    }
+
+    #[inline]
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.parts.keys()
+    }
+
+    #[inline]
+    pub fn values(&self) -> impl Iterator<Item = &Part> {
+        self.parts.values()
+    }
+
+    #[inline]
+    pub fn insert(&mut self, k: String, v: Part) -> Option<Part> {
+        self.parts.insert(k, v)
     }
 
     pub fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
@@ -363,20 +459,6 @@ impl Game {
         );
 
         failures
-    }
-
-    // appends game's name to root automatically
-    #[inline]
-    pub fn add_and_verify<F>(
-        &self,
-        rom_sources: &mut RomSources,
-        target_dir: &Path,
-        progress: F,
-    ) -> Result<Vec<VerifyFailure>, Error>
-    where
-        F: FnMut(ExtractedPart<'_>),
-    {
-        self.add_and_verify_root(rom_sources, &target_dir.join(&self.name), progress)
     }
 
     pub fn add_and_verify_root<F>(
@@ -436,45 +518,6 @@ impl Game {
         );
 
         Ok(failures)
-    }
-
-    pub fn display_parts(&self, table: &mut Table) {
-        use prettytable::{cell, row};
-
-        let parts: BTreeMap<&str, &Part> = self
-            .parts
-            .iter()
-            .map(|(name, part)| (name.as_str(), part))
-            .collect();
-
-        if !parts.is_empty() {
-            for (name, part) in parts {
-                table.add_row(row![name, part.digest()]);
-            }
-        }
-    }
-
-    #[inline]
-    pub fn required_parts(&self) -> FxHashSet<Part> {
-        self.parts.values().cloned().collect()
-    }
-}
-
-fn read_game_dir<I, F>(dir: I, mut insert: F, failures: &mut Vec<VerifyFailure>)
-where
-    I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    F: FnMut(String, PathBuf),
-{
-    for entry in dir
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-    {
-        match entry.file_name().into_string() {
-            Ok(name) => {
-                insert(name, entry.path());
-            }
-            Err(_) => failures.push(VerifyFailure::extra(entry.path())),
-        }
     }
 }
 

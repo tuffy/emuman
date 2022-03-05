@@ -1586,7 +1586,9 @@ impl OptNointroVerify {
             None => return Err(Error::NoSuchSoftwareList(self.name)),
         };
 
-        let results = game.verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
+        let results = game
+            .parts
+            .verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
 
         for result in results {
             println!("{}", result);
@@ -1605,7 +1607,7 @@ impl OptNointroVerifyAll {
 
         for (name, dir) in dirs::nointro_dirs() {
             if let Some(game) = db.get(&name) {
-                for result in game.verify(&dir) {
+                for result in game.parts.verify(&dir) {
                     println!("{}", result);
                 }
             }
@@ -1644,7 +1646,7 @@ impl OptNointroAdd {
 
         let mut roms = game::get_rom_sources(&self.input, &self.input_url, game.required_parts());
 
-        let results = game.add_and_verify_root(
+        let results = game.parts.add_and_verify_root(
             &mut roms,
             dirs::nointro_roms(self.roms, &self.name).as_ref(),
             |p| eprintln!("{}", p),
