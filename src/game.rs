@@ -374,6 +374,18 @@ pub struct GameParts {
     parts: HashMap<String, Part>,
 }
 
+impl FromIterator<(String, Part)> for GameParts {
+    #[inline]
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (String, Part)>,
+    {
+        Self {
+            parts: HashMap::from_iter(iter),
+        }
+    }
+}
+
 impl Extend<(String, Part)> for GameParts {
     #[inline]
     fn extend<T>(&mut self, iter: T)

@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
+mod dat;
 mod dirs;
 mod duplicates;
 mod extra;
@@ -33,10 +34,27 @@ static CACHE_NOINTRO: &str = "nointro.cbor";
 static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
 static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
 
+// FIXME - add context to a lot more errors
+#[derive(Debug)]
+pub struct FileError<E> {
+    file: PathBuf,
+    error: E,
+}
+
+impl<E: std::error::Error> std::error::Error for FileError<E> {}
+
+impl<E: std::error::Error> std::fmt::Display for FileError<E> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}: {}", self.file.display(), self.error)
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
     Xml(roxmltree::Error),
+    SerdeXml(FileError<quick_xml::de::DeError>),
     Sql(rusqlite::Error),
     CborRead(ciborium::de::Error<std::io::Error>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
@@ -48,6 +66,7 @@ pub enum Error {
     NoSuchSoftware(String),
     MissingCache(&'static str),
     InvalidPath,
+    InvalidSha1(FileError<game::Sha1ParseError>),
 }
 
 impl From<std::io::Error> for Error {
@@ -93,12 +112,14 @@ impl std::error::Error for Error {
         match self {
             Error::IO(err) => Some(err),
             Error::Xml(err) => Some(err),
+            err @ Error::SerdeXml(_) => err.source(),
             Error::Sql(err) => Some(err),
             Error::CborRead(err) => Some(err),
             Error::CborWrite(err) => Some(err),
             Error::TomlWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
             Error::Http(err) => Some(err),
+            err @ Error::InvalidSha1(_) => err.source(),
             _ => None,
         }
     }
@@ -109,6 +130,7 @@ impl fmt::Display for Error {
         match self {
             Error::IO(err) => err.fmt(f),
             Error::Xml(err) => err.fmt(f),
+            Error::SerdeXml(err) => err.fmt(f),
             Error::Sql(err) => err.fmt(f),
             Error::CborRead(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
@@ -127,6 +149,7 @@ impl fmt::Display for Error {
                 s
             ),
             Error::InvalidPath => write!(f, "invalid UTF-8 path"),
+            Error::InvalidSha1(err) => err.fmt(f),
         }
     }
 }
@@ -1526,18 +1549,12 @@ struct OptNointroCreate {
 
 impl OptNointroCreate {
     fn execute(self) -> Result<(), Error> {
-        let dats = self
-            .xml
-            .into_iter()
-            .map(|file| read_dat_or_zip(file, nointro::dat_to_nointro_db))
-            .collect::<Result<Vec<Vec<(String, game::Game)>>, Error>>()?;
-
-        // FIXME - add append option
-
         let mut db = nointro::NointroDb::default();
 
-        for (name, game) in dats.into_iter().flatten() {
-            db.insert(name, game);
+        for dats in self.xml.into_iter().map(dat::read_dats) {
+            for dat in dats? {
+                db.insert(dat.name().to_owned(), dat);
+            }
         }
 
         write_cache(CACHE_NOINTRO, db)
@@ -1581,14 +1598,12 @@ impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = match db.remove(&self.name) {
-            Some(game) => game,
+        let datfile = match db.remove(&self.name) {
+            Some(datfile) => datfile,
             None => return Err(Error::NoSuchSoftwareList(self.name)),
         };
 
-        let results = game
-            .parts
-            .verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
+        let results = datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
 
         for result in results {
             println!("{}", result);
@@ -1606,8 +1621,8 @@ impl OptNointroVerifyAll {
         let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
         for (name, dir) in dirs::nointro_dirs() {
-            if let Some(game) = db.get(&name) {
-                for result in game.parts.verify(&dir) {
+            if let Some(datfile) = db.get(&name) {
+                for result in datfile.verify(&dir) {
                     println!("{}", result);
                 }
             }
@@ -1639,14 +1654,15 @@ impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let game = match db.remove(&self.name) {
-            Some(game) => game,
+        let datfile = match db.remove(&self.name) {
+            Some(datfile) => datfile,
             None => return Err(Error::NoSuchSoftwareList(self.name)),
         };
 
-        let mut roms = game::get_rom_sources(&self.input, &self.input_url, game.required_parts());
+        let mut roms =
+            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
-        let results = game.parts.add_and_verify_root(
+        let results = datfile.add_and_verify(
             &mut roms,
             dirs::nointro_roms(self.roms, &self.name).as_ref(),
             |p| eprintln!("{}", p),
@@ -1677,17 +1693,6 @@ impl OptIdentify {
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
         use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-        fn no_intro_to_game_db(map: nointro::NointroDb) -> BTreeMap<String, GameDb> {
-            let mut db: BTreeMap<String, GameDb> = BTreeMap::default();
-            for (system, game) in map {
-                db.entry(system)
-                    .or_default()
-                    .games
-                    .insert(game.name.clone(), game);
-            }
-            db
-        }
-
         let sources = self
             .parts
             .into_par_iter()
@@ -1697,7 +1702,7 @@ impl OptIdentify {
             .flatten();
 
         if self.lookup {
-            let all_parts: [(&str, BTreeMap<String, GameDb>); 5] = [
+            let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
                 (
                     "mame",
                     BTreeMap::from(
@@ -1713,10 +1718,10 @@ impl OptIdentify {
                     "redump",
                     read_cache(REDUMP, CACHE_REDUMP).unwrap_or_default(),
                 ),
-                (
-                    "nointro",
-                    no_intro_to_game_db(read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()),
-                ),
+                //                (
+                //                    "nointro",
+                //                    no_intro_to_game_db(read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()),
+                //                ),
             ];
 
             let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
