@@ -1,19 +1,16 @@
 use super::{
-    game::{Game, GameColumn, GameDb, Part},
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
-use roxmltree::{Document, Node};
+use crate::dat::{DatFile, Datafile};
 use rusqlite::{named_params, Transaction};
 use std::collections::BTreeMap;
-use std::path::Path;
 
 const CREATE_DATAFILE: &str = "CREATE TABLE IF NOT EXISTS Datafile (
     datafile_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(80) NOT NULL,
     description VARCHAR(80) NOT NULL,
     version VARCHAR(80) NOT NULL,
-    date VARCHAR(80) NOT NULL,
     author VARCHAR(80) NOT NULL,
     homepage VARCHAR(80) NOT NULL,
     url VARCHAR(80) NOT NULL
@@ -27,7 +24,6 @@ const CREATE_GAME: &str = "CREATE TABLE IF NOT EXISTS Game (
     game_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     datafile_id INTEGER NOT NULL,
     name VARCHAR(80) NOT NULL,
-    category VARCHAR(80) NOT NULL,
     description VARCHAR(80) NOT NULL,
     FOREIGN KEY (datafile_id) REFERENCES Datafile (datafile_id) ON DELETE CASCADE
 )";
@@ -72,118 +68,64 @@ pub fn clear_tables(db: &Transaction) -> Result<(), Error> {
         .map_err(Error::Sql)
 }
 
-pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let mut xml_file = String::new();
-
-    File::open(xml_path)
-        .and_then(|mut f| f.read_to_string(&mut xml_file))
-        .map_err(Error::IO)?;
-
-    let tree = Document::parse(&xml_file).map_err(Error::Xml)?;
-
-    add_data_file(db, &tree.root_element()).map_err(Error::Sql)
-}
-
-#[inline]
-fn child_text<'a>(node: &'a Node, child_name: &str) -> Option<&'a str> {
-    node.children()
-        .find(|c| c.tag_name().name() == child_name)
-        .and_then(|c| c.text())
-}
-
-fn add_data_file(db: &Transaction, node: &Node) -> Result<(), rusqlite::Error> {
-    let header = node.children().find(|c| c.tag_name().name() == "header");
-
+pub fn add_data_file_to_db(db: &Transaction, file: &Datafile) -> Result<(), rusqlite::Error> {
     db.prepare_cached(INSERT_DATAFILE).and_then(|mut stmt| {
         stmt.execute(named_params! {
-            ":name":
-                header.as_ref().and_then(|node| child_text(node, "name")),
-            ":description":
-                header.as_ref().and_then(|node| child_text(node, "description")),
-            ":version":
-                header.as_ref().and_then(|node| child_text(node, "version")),
-            ":date":
-                header.as_ref().and_then(|node| child_text(node, "date")),
-            ":author":
-                header.as_ref().and_then(|node| child_text(node, "author")),
-            ":homepage":
-                header.as_ref().and_then(|node| child_text(node, "homepage")),
-            ":url":
-                header.as_ref().and_then(|node| child_text(node, "url")),
+            ":name": file.header.name,
+            ":description": file.header.description,
+            ":version": file.header.version,
+            ":author": file.header.author,
+            ":homepage": file.header.homepage,
+            ":url": file.header.url,
         })
     })?;
 
     let data_file_id = db.last_insert_rowid();
 
-    node.children()
-        .filter(|c| c.tag_name().name() == "game")
-        .try_for_each(|c| add_game(db, data_file_id, &c))
+    file.game
+        .iter()
+        .flatten()
+        .try_for_each(|game| add_game(db, data_file_id, game))
 }
 
-fn add_game(db: &Transaction, data_file_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
+fn add_game(
+    db: &Transaction,
+    data_file_id: i64,
+    game: &crate::dat::Game,
+) -> Result<(), rusqlite::Error> {
     db.prepare_cached(INSERT_GAME).and_then(|mut stmt| {
         stmt.execute(named_params! {
         ":datafile_id": data_file_id,
-        ":name": node.attribute("name"),
-        ":category": child_text(node, "category"),
-        ":description": child_text(node, "description")})
+        ":name": game.name,
+        ":description": game.description})
     })?;
 
     let game_id = db.last_insert_rowid();
 
-    node.children()
-        .filter(|c| c.tag_name().name() == "rom")
-        .try_for_each(|c| add_rom(db, game_id, &c))
+    game.rom
+        .iter()
+        .try_for_each(|rom| add_rom(db, game_id, rom))
 }
 
-fn add_rom(db: &Transaction, game_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    use std::str::FromStr;
-
+fn add_rom(db: &Transaction, game_id: i64, rom: &crate::dat::Rom) -> Result<(), rusqlite::Error> {
     db.prepare_cached(INSERT_ROM)
-    .and_then(|mut stmt|
-        stmt.execute(named_params! {
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
             ":game_id": game_id,
-            ":name": node.attribute("name"),
-            ":size": node.attribute("size").map(|s| i64::from_str(s).expect("invalid rom size integer")),
-            ":crc": node.attribute("crc"),
-            ":md5": node.attribute("md5"),
-            ":sha1": node.attribute("sha1")}))
-    .map(|_| ())
+            ":name": rom.name,
+            ":size": rom.size,
+            ":crc": rom.crc,
+            ":md5": rom.md5,
+            ":sha1": rom.sha1})
+        })
+        .map(|_| ())
 }
 
-pub type RedumpDb = BTreeMap<String, GameDb>;
+pub type RedumpDb = BTreeMap<String, DatFile>;
 
-pub fn add_xml_file(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb) {
-    let root = tree.root_element();
-    let header = root
-        .children()
-        .find(|c| c.tag_name().name() == "header")
-        .unwrap();
-    let name = header
-        .children()
-        .find(|c| c.tag_name().name() == "name")
-        .and_then(|s| s.text().map(|s| s.to_string()))
-        .unwrap_or_default();
-    let description = header
-        .children()
-        .find(|c| c.tag_name().name() == "description")
-        .and_then(|s| s.text().map(|s| s.to_string()))
-        .unwrap_or_default();
-    let mut game_db = GameDb {
-        description,
-        ..GameDb::default()
-    };
-
-    for game in root.children().filter(|c| c.tag_name().name() == "game") {
-        game_db.games.insert(
-            game.attribute("name").unwrap().to_string(),
-            xml_to_game(&game),
-        );
-
-        let (total_size, split) = xml_to_split(&game);
+pub fn populate_split_db(split_db: &mut SplitDb, datafile: &Datafile) {
+    for game in datafile.game.iter().flatten() {
+        let (total_size, split) = game_to_split(game);
         if split.tracks.len() > 1 {
             split_db
                 .games
@@ -192,55 +134,29 @@ pub fn add_xml_file(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb)
                 .push(split);
         }
     }
-
-    (name, game_db)
 }
 
-fn xml_to_game(node: &Node) -> Game {
-    let mut game = Game {
-        name: node.attribute("name").unwrap().to_string(),
-        description: node
-            .children()
-            .find(|c| c.tag_name().name() == "description")
-            .and_then(|c| c.text().map(|s| s.to_string()))
-            .unwrap_or_default(),
-        ..Game::default()
-    };
-
-    for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
-        game.parts.insert(
-            rom.attribute("name").unwrap().to_string(),
-            Part::new_rom(rom.attribute("sha1").unwrap()).unwrap(),
-        );
-    }
-
-    game
-}
-
-fn xml_to_split(node: &Node) -> (u64, SplitGame) {
+fn game_to_split(game: &crate::dat::Game) -> (u64, SplitGame) {
     let mut offset = 0;
-    let mut game = SplitGame {
-        name: node.attribute("name").unwrap().to_string(),
+    let mut split_game = SplitGame {
+        name: game.name.clone(),
         ..SplitGame::default()
     };
 
-    for rom in node.children().filter(|c| c.tag_name().name() == "rom") {
-        use std::str::FromStr;
-
-        let name = rom.attribute("name").unwrap();
-        if name.ends_with(".bin") {
-            let size = usize::from_str(rom.attribute("size").unwrap()).unwrap();
-            game.tracks.push(SplitPart::new(
-                name,
+    for rom in &game.rom {
+        if rom.name.ends_with(".bin") {
+            let size = rom.size.unwrap() as usize;
+            split_game.tracks.push(SplitPart::new(
+                &rom.name,
                 offset,
                 offset + size,
-                rom.attribute("sha1").unwrap(),
+                rom.sha1.as_ref().unwrap(),
             ));
             offset += size;
         }
     }
 
-    (offset as u64, game)
+    (offset as u64, split_game)
 }
 
 pub fn list_all(db: &RedumpDb) {
@@ -249,33 +165,24 @@ pub fn list_all(db: &RedumpDb) {
 
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 
-    for (name, game_db) in db.iter() {
-        table.add_row(row![game_db.description, name]);
+    for (_, datfile) in db.iter() {
+        table.add_row(row![datfile.name(), datfile.version()]);
     }
 
     table.printstd();
 }
 
-pub fn list(db: &GameDb, search: Option<&str>) {
-    use super::game::GameRow;
+pub fn list(datfile: &DatFile) {
     use prettytable::{cell, format, row, Table};
 
-    let mut results: Vec<GameRow> = if let Some(search) = search {
-        db.games
-            .values()
-            .map(|g| g.report(false))
-            .filter(|g| g.matches(search))
-            .collect()
-    } else {
-        db.games.values().map(|g| g.report(false)).collect()
-    };
-
-    results.sort_by(|a, b| a.compare(b, GameColumn::Description));
+    let games = datfile.games().collect::<Vec<_>>();
 
     let mut table = Table::new();
+
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    for game in results {
-        table.add_row(row![game.description]);
+
+    for game in games {
+        table.add_row(row![game]);
     }
 
     table.printstd();

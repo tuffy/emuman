@@ -17,10 +17,11 @@ pub fn list_all(db: &NointroDb) {
 }
 
 pub fn list(datfile: &DatFile) {
+    use prettytable::{cell, format, row, Table};
+
     let mut games = datfile.games().collect::<Vec<_>>();
     games.sort_unstable();
 
-    use prettytable::{cell, format, row, Table};
     let mut table = Table::new();
 
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);

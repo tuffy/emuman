@@ -343,11 +343,6 @@ impl Game {
             }
         }
     }
-
-    #[inline]
-    pub fn required_parts(&self) -> FxHashSet<Part> {
-        self.parts.values().cloned().collect()
-    }
 }
 
 fn read_game_dir<I, F>(dir: I, mut insert: F, failures: &mut Vec<VerifyFailure>)

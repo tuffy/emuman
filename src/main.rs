@@ -1255,21 +1255,38 @@ impl OptRedumpCreate {
 
             redump::create_tables(&trans)?;
             redump::clear_tables(&trans)?;
-            self.xml
-                .iter()
-                .try_for_each(|p| redump::add_file(p, &trans))?;
+
+            for file in self.xml {
+                for dat in dat::read_datafiles(file)? {
+                    redump::add_data_file_to_db(&trans, &dat)?;
+                }
+            }
+
             trans.commit()?;
 
             println!("* Wrote \"{}\"", db_file.display());
         } else {
+            use std::convert::TryInto;
+
             let mut redump_db = redump::RedumpDb::default();
             let mut split_db = split::SplitDb::default();
 
-            for file in self.xml.iter() {
-                let xml_data = read_raw_or_zip(file)?;
-                let tree = Document::parse(&xml_data)?;
-                let (name, game_db) = redump::add_xml_file(&mut split_db, &tree);
-                redump_db.insert(name, game_db);
+            for file in self.xml.into_iter() {
+                for (file, data) in dat::read_dats_from_file(file)? {
+                    let datafile: crate::dat::Datafile =
+                        match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
+                            Ok(dat) => dat,
+                            Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
+                        };
+
+                    redump::populate_split_db(&mut split_db, &datafile);
+
+                    let dat: crate::dat::DatFile = datafile
+                        .try_into()
+                        .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
+
+                    redump_db.insert(dat.name().to_owned(), dat);
+                }
             }
 
             write_cache(CACHE_REDUMP, &redump_db)?;
@@ -1284,9 +1301,6 @@ impl OptRedumpCreate {
 struct OptRedumpList {
     /// software list to use
     software_list: Option<String>,
-
-    /// search term for querying specific items
-    search: Option<String>,
 }
 
 impl OptRedumpList {
@@ -1297,7 +1311,7 @@ impl OptRedumpList {
             let db = db
                 .remove(&software_list)
                 .ok_or(Error::NoSuchSoftwareList(software_list))?;
-            redump::list(&db, self.search.as_deref())
+            redump::list(&db)
         } else {
             redump::list_all(&db)
         }
@@ -1332,49 +1346,24 @@ struct OptRedumpVerify {
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     root: Option<PathBuf>,
 
-    /// verify all possible software
-    #[clap(long = "all")]
-    all: bool,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-
     /// software list to use
     software_list: String,
-
-    /// software to verify
-    software: Vec<String>,
 }
 
 impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?
-            .remove(&self.software_list)
-            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+        let mut db: nointro::NointroDb = read_cache(REDUMP, CACHE_REDUMP)?;
 
-        let root = dirs::redump_roms(self.root, &self.software_list);
-
-        let games: HashSet<String> = if self.all {
-            db.all_games()
-        } else if !self.software.is_empty() {
-            // only validate user-specified games
-            let games = self.software.clone().into_iter().collect();
-            db.validate_games(&games)?;
-            games
-        } else {
-            // ignore stuff that's on disk but not valid games
-            root.as_ref()
-                .read_dir()?
-                .filter_map(|e| {
-                    e.ok()
-                        .and_then(|e| e.file_name().into_string().ok())
-                        .filter(|s| db.is_game(s))
-                })
-                .collect()
+        let datfile = match db.remove(&self.software_list) {
+            Some(datfile) => datfile,
+            None => return Err(Error::NoSuchSoftwareList(self.software_list)),
         };
 
-        verify(&db, root, &games, self.failures);
+        let results = datfile.verify(dirs::nointro_roms(self.root, &self.software_list).as_ref());
+
+        for result in results {
+            println!("{}", result);
+        }
 
         Ok(())
     }
@@ -1396,38 +1385,31 @@ struct OptRedumpAdd {
 
     /// software list to use
     software_list: String,
-
-    /// software to add
-    software: Vec<String>,
 }
 
 impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?
-            .remove(&self.software_list)
-            .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
+        let mut db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?;
 
-        let roms_dir = dirs::redump_roms(self.output, &self.software_list);
-
-        let mut roms = if self.software.is_empty() {
-            game::all_rom_sources(&self.input, &self.input_url)
-        } else {
-            game::get_rom_sources(
-                &self.input,
-                &self.input_url,
-                db.required_parts(&self.software)?,
-            )
+        let datfile = match db.remove(&self.software_list) {
+            Some(datfile) => datfile,
+            None => return Err(Error::NoSuchSoftwareList(self.software_list)),
         };
 
-        if self.software.is_empty() {
-            add_and_verify(&mut roms, roms_dir, db.games_iter())
-        } else {
-            add_and_verify(
-                &mut roms,
-                roms_dir,
-                self.software.iter().filter_map(|game| db.game(game)),
-            )
+        let mut roms =
+            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
+
+        let results = datfile.add_and_verify(
+            &mut roms,
+            dirs::redump_roms(self.output, &self.software_list).as_ref(),
+            |p| eprintln!("{}", p),
+        )?;
+
+        for failure in results {
+            println!("{}", failure);
         }
+
+        Ok(())
     }
 }
 
@@ -1707,19 +1689,21 @@ impl OptIdentify {
 
             let mame_db: GameDb = read_cache(MAME, CACHE_MAME).unwrap_or_default();
 
-            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 3] = [
+            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 2] = [
                 ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
                 ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
+            ];
+
+            let dat_parts: [(&str, BTreeMap<String, DatFile>); 2] = [
+                (
+                    "nointro",
+                    read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default(),
+                ),
                 (
                     "redump",
                     read_cache(REDUMP, CACHE_REDUMP).unwrap_or_default(),
                 ),
             ];
-
-            let dat_parts: [(&str, BTreeMap<String, DatFile>); 1] = [(
-                "nointro",
-                read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default(),
-            )];
 
             for game in mame_db.games_iter() {
                 for (rom, part) in game.parts.iter() {

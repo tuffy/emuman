@@ -8,30 +8,35 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Datafile {
-    header: Header,
-    game: Option<Vec<Game>>,
+    pub header: Header,
+    pub game: Option<Vec<Game>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Header {
-    name: String,
-    version: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub author: String,
+    pub homepage: String,
+    pub url: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Game {
-    name: String,
-    rom: Vec<Rom>,
+    pub name: String,
+    pub description: String,
+    pub rom: Vec<Rom>,
 }
 
 impl Game {
     #[inline]
-    fn to_parts(self) -> Result<(String, GameParts), Sha1ParseError> {
+    fn into_parts(self) -> Result<(String, GameParts), Sha1ParseError> {
         Ok((
             self.name,
             self.rom
                 .into_iter()
-                .filter_map(|rom| rom.to_part())
+                .filter_map(|rom| rom.into_part())
                 .collect::<Result<GameParts, _>>()?,
         ))
     }
@@ -39,13 +44,16 @@ impl Game {
 
 #[derive(Debug, Deserialize)]
 pub struct Rom {
-    name: String,
-    sha1: Option<String>,
+    pub name: String,
+    pub size: Option<u64>,
+    pub crc: Option<String>,
+    pub md5: Option<String>,
+    pub sha1: Option<String>,
 }
 
 impl Rom {
     #[inline]
-    fn to_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
+    fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
         match self.sha1 {
             Some(sha1) => match Part::new_rom(&sha1) {
                 Ok(part) => Some(Ok((self.name, part))),
@@ -127,12 +135,12 @@ impl TryFrom<Datafile> for DatFile {
 
         for mut game in datafile.game.into_iter().flatten() {
             if game.rom.len() == 1 {
-                if let Some(p) = game.rom.pop().and_then(|r| r.to_part()) {
+                if let Some(p) = game.rom.pop().and_then(|r| r.into_part()) {
                     let (name, part) = p?;
                     flat.insert(name, part);
                 }
             } else {
-                let (name, parts) = game.to_parts()?;
+                let (name, parts) = game.into_parts()?;
                 tree.insert(name, parts);
             }
         }
@@ -158,7 +166,13 @@ fn parse_dat(file: PathBuf, data: Box<[u8]>) -> Result<DatFile, Error> {
         .map_err(|error| Error::InvalidSha1(FileError { file, error }))
 }
 
-fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, Error> {
+#[inline]
+fn parse_datafile(file: PathBuf, data: Box<[u8]>) -> Result<Datafile, Error> {
+    quick_xml::de::from_reader(std::io::Cursor::new(data))
+        .map_err(|error| Error::SerdeXml(FileError { file, error }))
+}
+
+pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, Error> {
     use super::is_zip;
     use std::io::Read;
 
@@ -196,6 +210,15 @@ pub fn read_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
     read_dats_from_file(file).and_then(|v| {
         v.into_iter()
             .map(|(file, data)| parse_dat(file, data))
+            .collect()
+    })
+}
+
+#[inline]
+pub fn read_datafiles(file: PathBuf) -> Result<Vec<Datafile>, Error> {
+    read_dats_from_file(file).and_then(|v| {
+        v.into_iter()
+            .map(|(file, data)| parse_datafile(file, data))
             .collect()
     })
 }
