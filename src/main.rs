@@ -1705,32 +1705,30 @@ impl OptIdentify {
         if self.lookup {
             let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
 
-            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
-                (
-                    "mame",
-                    BTreeMap::from(
-                        [(
-                            "".to_string(),
-                            read_cache(MAME, CACHE_MAME).unwrap_or_default(),
-                        ); 1],
-                    ),
-                ),
+            let mame_db: GameDb = read_cache(MAME, CACHE_MAME).unwrap_or_default();
+
+            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 3] = [
                 ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
                 ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
                 (
                     "redump",
                     read_cache(REDUMP, CACHE_REDUMP).unwrap_or_default(),
                 ),
-                //                (
-                //                    "nointro",
-                //                    no_intro_to_game_db(read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()),
-                //                ),
             ];
 
             let dat_parts: [(&str, BTreeMap<String, DatFile>); 1] = [(
                 "nointro",
                 read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default(),
             )];
+
+            for game in mame_db.games_iter() {
+                for (rom, part) in game.parts.iter() {
+                    lookup
+                        .entry(part)
+                        .or_default()
+                        .insert(["mame", "", game.name.as_str(), rom]);
+                }
+            }
 
             // invert caches into a Part -> [identifiers] lookup table
             for (category, game_dbs) in &gamedb_parts {
