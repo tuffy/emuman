@@ -79,6 +79,11 @@ impl DatFile {
         self.flat.keys().chain(self.tree.keys()).map(|s| s.as_str())
     }
 
+    pub fn game_parts(&self) -> impl Iterator<Item = (&str, &GameParts)> {
+        std::iter::once(("", &self.flat))
+            .chain(self.tree.iter().map(|(game, parts)| (game.as_str(), parts)))
+    }
+
     pub fn verify(&self, root: &Path) -> Vec<VerifyFailure> {
         let mut failures = self.flat.verify(root);
         for (name, game) in self.tree.iter() {

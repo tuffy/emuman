@@ -1688,6 +1688,7 @@ struct OptIdentify {
 
 impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
+        use crate::dat::DatFile;
         use crate::game::{GameDb, Part, RomSource};
         use prettytable::{cell, format, row, Table};
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -1702,7 +1703,9 @@ impl OptIdentify {
             .flatten();
 
         if self.lookup {
-            let all_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
+            let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
+
+            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 4] = [
                 (
                     "mame",
                     BTreeMap::from(
@@ -1724,10 +1727,13 @@ impl OptIdentify {
                 //                ),
             ];
 
-            let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
+            let dat_parts: [(&str, BTreeMap<String, DatFile>); 1] = [(
+                "nointro",
+                read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default(),
+            )];
 
             // invert caches into a Part -> [identifiers] lookup table
-            for (category, game_dbs) in &all_parts {
+            for (category, game_dbs) in &gamedb_parts {
                 for (system, game_db) in game_dbs.iter() {
                     for game in game_db.games_iter() {
                         for (rom, part) in game.parts.iter() {
@@ -1737,6 +1743,19 @@ impl OptIdentify {
                                 game.name.as_str(),
                                 rom,
                             ]);
+                        }
+                    }
+                }
+            }
+
+            for (category, datfiles) in &dat_parts {
+                for (system, datfile) in datfiles.iter() {
+                    for (game, parts) in datfile.game_parts() {
+                        for (rom, part) in parts.iter() {
+                            lookup
+                                .entry(part)
+                                .or_default()
+                                .insert([category, system, game, rom]);
                         }
                     }
                 }
