@@ -57,51 +57,34 @@ impl Rom {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum DatFile {
-    Tree {
-        name: String,
-        version: String,
-        games: BTreeMap<String, GameParts>,
-    },
-    Flat {
-        name: String,
-        version: String,
-        games: GameParts,
-    },
+pub struct DatFile {
+    name: String,
+    version: String,
+    // games with a single ROM
+    flat: GameParts,
+    // games with multiple ROMs
+    tree: BTreeMap<String, GameParts>,
 }
 
 impl DatFile {
     pub fn name(&self) -> &str {
-        match self {
-            DatFile::Tree { name, .. } => name.as_str(),
-            DatFile::Flat { name, .. } => name.as_str(),
-        }
+        self.name.as_str()
     }
 
     pub fn version(&self) -> &str {
-        match self {
-            DatFile::Tree { version, .. } => version.as_str(),
-            DatFile::Flat { version, .. } => version.as_str(),
-        }
+        self.version.as_str()
     }
 
-    pub fn games(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        match self {
-            DatFile::Tree { games, .. } => Box::new(games.keys().map(|k| k.as_str())),
-            DatFile::Flat { games, .. } => Box::new(games.keys().map(|k| k.as_str())),
-        }
+    pub fn games(&self) -> impl Iterator<Item = &str> {
+        self.flat.keys().chain(self.tree.keys()).map(|s| s.as_str())
     }
 
     pub fn verify(&self, root: &Path) -> Vec<VerifyFailure> {
-        // FIXME - group failures by game?
-        match self {
-            DatFile::Tree { games, .. } => games
-                .iter()
-                .map(|(name, game)| game.verify(&root.join(name)))
-                .flatten()
-                .collect(),
-            DatFile::Flat { games, .. } => games.verify(root),
+        let mut failures = self.flat.verify(root);
+        for (name, game) in self.tree.iter() {
+            failures.extend(game.verify(&root.join(name)));
         }
+        failures
     }
 
     pub fn add_and_verify<F>(
@@ -113,27 +96,20 @@ impl DatFile {
     where
         F: FnMut(ExtractedPart<'_>),
     {
-        match self {
-            DatFile::Tree { games, .. } => {
-                let mut failures = Vec::new();
-                for (name, game) in games.iter() {
-                    failures
-                        .extend(game.add_and_verify_root(roms, &root.join(name), |p| progress(p))?);
-                }
-                Ok(failures)
-            }
-            DatFile::Flat { games, .. } => games.add_and_verify_root(roms, root, progress),
+        let mut failures = Vec::new();
+        for (name, game) in self.tree.iter() {
+            failures.extend(game.add_and_verify_root(roms, &root.join(name), |p| progress(p))?);
         }
+        failures.extend(self.flat.add_and_verify_root(roms, root, progress)?);
+        Ok(failures)
     }
 
     pub fn required_parts(&self) -> FxHashSet<Part> {
-        match self {
-            DatFile::Tree { games, .. } => games
-                .values()
-                .flat_map(|game| game.values().cloned())
-                .collect(),
-            DatFile::Flat { games, .. } => games.values().cloned().collect(),
-        }
+        self.flat
+            .values()
+            .chain(self.tree.values().flat_map(|game| game.values()))
+            .cloned()
+            .collect()
     }
 }
 
@@ -141,35 +117,27 @@ impl TryFrom<Datafile> for DatFile {
     type Error = Sha1ParseError;
 
     fn try_from(datafile: Datafile) -> Result<Self, Sha1ParseError> {
-        if datafile
-            .game
-            .iter()
-            .flatten()
-            .all(|game| game.rom.len() == 1)
-        {
-            Ok(DatFile::Flat {
-                name: datafile.header.name,
-                version: datafile.header.version,
-                games: datafile
-                    .game
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|game| game.rom.into_iter())
-                    .filter_map(|rom| rom.to_part())
-                    .collect::<Result<GameParts, _>>()?,
-            })
-        } else {
-            Ok(DatFile::Tree {
-                name: datafile.header.name,
-                version: datafile.header.version,
-                games: datafile
-                    .game
-                    .into_iter()
-                    .flatten()
-                    .map(|game| game.to_parts())
-                    .collect::<Result<BTreeMap<String, GameParts>, _>>()?,
-            })
+        let mut flat = GameParts::default();
+        let mut tree = BTreeMap::default();
+
+        for mut game in datafile.game.into_iter().flatten() {
+            if game.rom.len() == 1 {
+                if let Some(p) = game.rom.pop().and_then(|r| r.to_part()) {
+                    let (name, part) = p?;
+                    flat.insert(name, part);
+                }
+            } else {
+                let (name, parts) = game.to_parts()?;
+                tree.insert(name, parts);
+            }
         }
+
+        Ok(Self {
+            name: datafile.header.name,
+            version: datafile.header.version,
+            flat,
+            tree,
+        })
     }
 }
 
