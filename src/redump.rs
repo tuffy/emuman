@@ -104,6 +104,7 @@ fn add_game(
 
     game.rom
         .iter()
+        .flatten()
         .try_for_each(|rom| add_rom(db, game_id, rom))
 }
 
@@ -143,7 +144,7 @@ fn game_to_split(game: &crate::dat::Game) -> (u64, SplitGame) {
         ..SplitGame::default()
     };
 
-    for rom in &game.rom {
+    for rom in game.rom.iter().flatten() {
         if rom.name.ends_with(".bin") {
             let size = rom.size.unwrap() as usize;
             split_game.tracks.push(SplitPart::new(

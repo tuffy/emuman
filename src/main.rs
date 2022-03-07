@@ -1359,7 +1359,7 @@ impl OptRedumpVerify {
             None => return Err(Error::NoSuchSoftwareList(self.software_list)),
         };
 
-        let results = datfile.verify(dirs::nointro_roms(self.root, &self.software_list).as_ref());
+        let results = datfile.verify(dirs::redump_roms(self.root, &self.software_list).as_ref());
 
         for result in results {
             println!("{}", result);
@@ -1524,16 +1524,24 @@ impl OptNointro {
 
 #[derive(Args)]
 struct OptNointroCreate {
-    /// No-Intro XML file
+    /// No-Intro DAT file
     #[clap(parse(from_os_str))]
-    xml: Vec<PathBuf>,
+    dat: Vec<PathBuf>,
+
+    /// completely replace old dat files
+    #[clap(long = "replace")]
+    replace: bool,
 }
 
 impl OptNointroCreate {
     fn execute(self) -> Result<(), Error> {
-        let mut db = nointro::NointroDb::default();
+        let mut db = if self.replace {
+            nointro::NointroDb::default()
+        } else {
+            read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()
+        };
 
-        for dats in self.xml.into_iter().map(dat::read_dats) {
+        for dats in self.dat.into_iter().map(dat::read_dats) {
             for dat in dats? {
                 db.insert(dat.name().to_owned(), dat);
             }

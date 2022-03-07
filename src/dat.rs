@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 pub struct Datafile {
     pub header: Header,
     pub game: Option<Vec<Game>>,
+    pub machine: Option<Vec<Game>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +27,8 @@ pub struct Header {
 pub struct Game {
     pub name: String,
     pub description: String,
-    pub rom: Vec<Rom>,
+    pub rom: Option<Vec<Rom>>,
+    pub disk: Option<Vec<Disk>>,
 }
 
 impl Game {
@@ -36,9 +38,51 @@ impl Game {
             self.name,
             self.rom
                 .into_iter()
+                .flatten()
                 .filter_map(|rom| rom.into_part())
+                .chain(
+                    self.disk
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|disk| disk.into_part()),
+                )
                 .collect::<Result<GameParts, _>>()?,
         ))
+    }
+
+    // if the game has exactly one ROM with a defined SHA1 field,
+    // or it has exactly one disk with a defined SHA1 field,
+    // flatten it into a single (rom_name, part) tuple,
+    // otherwise return a (game_name, GameParts) tuple
+    // of all the game parts it contains
+    fn try_flatten(self) -> Result<Result<(String, Part), (String, GameParts)>, Sha1ParseError> {
+        match &self {
+            Game {
+                rom: Some(roms),
+                disk: None,
+                ..
+            } => match &roms[..] {
+                [Rom {
+                    name,
+                    sha1: Some(sha1),
+                    ..
+                }] => Part::new_rom(sha1).map(|part| Ok((name.clone(), part))),
+                _ => self.into_parts().map(Err),
+            },
+            Game {
+                rom: None,
+                disk: Some(disks),
+                ..
+            } => match &disks[..] {
+                [Disk {
+                    name,
+                    sha1: Some(sha1),
+                    ..
+                }] => Part::new_disk(sha1).map(|part| Ok((name.clone(), part))),
+                _ => self.into_parts().map(Err),
+            },
+            _ => self.into_parts().map(Err),
+        }
     }
 }
 
@@ -56,6 +100,25 @@ impl Rom {
     fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
         match self.sha1 {
             Some(sha1) => match Part::new_rom(&sha1) {
+                Ok(part) => Some(Ok((self.name, part))),
+                Err(err) => Some(Err(err)),
+            },
+            None => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Disk {
+    pub name: String,
+    pub sha1: Option<String>,
+}
+
+impl Disk {
+    #[inline]
+    fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
+        match self.sha1 {
+            Some(sha1) => match Part::new_disk(&sha1) {
                 Ok(part) => Some(Ok((self.name, part))),
                 Err(err) => Some(Err(err)),
             },
@@ -133,15 +196,19 @@ impl TryFrom<Datafile> for DatFile {
         let mut flat = GameParts::default();
         let mut tree = BTreeMap::default();
 
-        for mut game in datafile.game.into_iter().flatten() {
-            if game.rom.len() == 1 {
-                if let Some(p) = game.rom.pop().and_then(|r| r.into_part()) {
-                    let (name, part) = p?;
+        for game in datafile
+            .game
+            .into_iter()
+            .flatten()
+            .chain(datafile.machine.into_iter().flatten())
+        {
+            match game.try_flatten()? {
+                Ok((name, part)) => {
                     flat.insert(name, part);
                 }
-            } else {
-                let (name, parts) = game.into_parts()?;
-                tree.insert(name, parts);
+                Err((name, parts)) => {
+                    tree.insert(name, parts);
+                }
             }
         }
 
