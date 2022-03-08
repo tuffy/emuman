@@ -9,7 +9,7 @@ const DIR_CONFIG_FILE: &str = "dirs.toml";
 struct DirectoryConfig {
     mame: Option<String>,
     mess: Option<String>,
-    extra: Option<String>,
+    extra: BTreeMap<String, String>,
     redump: BTreeMap<String, String>,
     nointro: BTreeMap<String, String>,
 }
@@ -228,16 +228,15 @@ pub fn mess_roms(roms: Option<PathBuf>, software_list: &str) -> MessRoms<'_> {
 }
 
 pub struct ExtraParts<'e> {
-    roms: RomSource,
-    extra: Option<&'e str>,
+    extras: RomSource,
+    extra: &'e str,
 }
 
 impl<'e> ExtraParts<'e> {
-    fn new(roms: Option<PathBuf>, extra: Option<&'e str>) -> Self {
+    fn new(extras: Option<PathBuf>, extra: &'e str) -> Self {
         Self {
-            roms: RomSource::new(roms, || match extra {
-                None => DirectoryConfig::get(|d| d.extra),
-                Some(list) => DirectoryConfig::get(|d| d.extra).map(|d| d.join(list)),
+            extras: RomSource::new(extras, || {
+                DirectoryConfig::get(|mut d| d.extra.remove(extra))
             }),
             extra,
         }
@@ -247,51 +246,47 @@ impl<'e> ExtraParts<'e> {
 impl<'e> AsRef<Path> for ExtraParts<'e> {
     #[inline]
     fn as_ref(&self) -> &Path {
-        self.roms.as_ref()
+        self.extras.as_ref()
     }
 }
 
 impl<'e> Drop for ExtraParts<'e> {
     fn drop(&mut self) {
-        if let RomSource::UserProvided(provided) = &self.roms {
-            if let Some(roms) = if self.extra.is_some() {
-                provided.parent()
-            } else {
-                Some(provided.as_path())
-            } {
-                match roms.canonicalize().map_err(Error::IO).and_then(|pb| {
-                    DirectoryConfig::set(
-                        |d, s| {
-                            if d.extra.as_ref() != Some(&s) {
-                                d.extra = Some(s);
-                                Set::Changed
-                            } else {
-                                Set::Unchanged
-                            }
-                        },
-                        pb,
-                    )
-                }) {
-                    Ok(Set::Changed) => eprintln!(
-                        "* default MAME extras directory updated to : \"{}\"",
-                        roms.display()
-                    ),
-                    Ok(Set::Unchanged) => {}
-                    Err(err) => eprintln!("* {}", err),
-                }
+        if let RomSource::UserProvided(extras) = &self.extras {
+            match extras.canonicalize().map_err(Error::IO).and_then(|pb| {
+                DirectoryConfig::set(
+                    |d, s| match d.extra.insert(self.extra.to_owned(), s.clone()) {
+                        Some(old_value) if s == old_value => Set::Unchanged,
+                        _ => Set::Changed,
+                    },
+                    pb,
+                )
+            }) {
+                Ok(Set::Changed) => eprintln!(
+                    "* default \"{}\" directory updated to : \"{}\"",
+                    self.extra,
+                    extras.display()
+                ),
+                Ok(Set::Unchanged) => {}
+                Err(err) => eprintln!("* {}", err),
             }
         }
     }
 }
 
 #[inline]
-pub fn extra_dir_all(root: Option<PathBuf>) -> ExtraParts<'static> {
-    ExtraParts::new(root, None)
+pub fn extra_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
+    match DirectoryConfig::new() {
+        Some(DirectoryConfig { extra, .. }) => {
+            Box::new(extra.into_iter().map(|(k, v)| (k, PathBuf::from(v))))
+        }
+        None => Box::new(std::iter::empty()),
+    }
 }
 
 #[inline]
 pub fn extra_dir(dir: Option<PathBuf>, extra: &str) -> ExtraParts<'_> {
-    ExtraParts::new(dir, Some(extra))
+    ExtraParts::new(dir, extra)
 }
 
 pub struct NointroRoms<'s> {

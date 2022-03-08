@@ -75,11 +75,19 @@ pub enum Error {
     Zip(zip::result::ZipError),
     Http(attohttpc::Error),
     HttpCode(attohttpc::StatusCode),
+    NoSuchDatFile(String),
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
     MissingCache(&'static str),
     InvalidPath,
     InvalidSha1(FileError<game::Sha1ParseError>),
+}
+
+impl Error {
+    #[inline]
+    fn no_such_dat(s: &str) -> Self {
+        Error::NoSuchDatFile(s.to_owned())
+    }
 }
 
 impl From<std::io::Error> for Error {
@@ -154,6 +162,7 @@ impl fmt::Display for Error {
                 Some(reason) => write!(f, "HTTP error {} - {}", code.as_str(), reason),
                 None => write!(f, "HTTP error {}", code.as_str()),
             },
+            Error::NoSuchDatFile(s) => write!(f, "no such dat file \"{}\"", s),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::MissingCache(s) => write!(
@@ -968,27 +977,23 @@ struct OptExtraCreate {
     #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
 
-    /// append new .DAT file to existing set
-    #[clap(short = 'a', long = "append")]
-    append: bool,
+    /// completely replace old dat files
+    #[clap(long = "replace")]
+    replace: bool,
 }
 
 impl OptExtraCreate {
     fn execute(self) -> Result<(), Error> {
-        let new_games = self
-            .dats
-            .into_iter()
-            .map(|file| read_dat_or_zip(file, extra::dat_to_game_db))
-            .collect::<Result<Vec<Vec<(String, game::GameDb)>>, Error>>()?;
-
-        let mut db = if self.append {
-            read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
-        } else {
+        let mut db = if self.replace {
             extra::ExtraDb::default()
+        } else {
+            read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()
         };
 
-        for (name, game_db) in new_games.into_iter().flatten() {
-            db.insert(name, game_db);
+        for dats in self.dats.into_iter().map(dat::read_dats) {
+            for dat in dats? {
+                db.insert(dat.name().to_owned(), dat);
+            }
         }
 
         write_cache(CACHE_EXTRA, db)
@@ -996,33 +1001,21 @@ impl OptExtraCreate {
 }
 
 #[derive(Args)]
-struct OptExtraList {}
+struct OptExtraList {
+    /// extras name
+    name: Option<String>,
+}
 
 impl OptExtraList {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
-        mess::list_all(&db);
+
+        match self.name.as_deref() {
+            Some(name) => db.get(name).ok_or_else(|| Error::no_such_dat(name))?.list(),
+            None => dat::DatFile::list_all(db),
+        }
+
         Ok(())
-    }
-}
-
-#[derive(Args)]
-struct OptExtraParts {
-    /// sections's parts to search for
-    section: String,
-
-    /// section's name to search for
-    name: String,
-}
-
-impl OptExtraParts {
-    fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA).and_then(|mut db| {
-            db.remove(&self.name)
-                .ok_or_else(|| Error::NoSuchSoftwareList(self.name.clone()))
-        })?;
-
-        db.display_parts(&self.section)
     }
 }
 
@@ -1034,85 +1027,39 @@ struct OptExtraVerify {
 
     /// extras category to verify
     extra: String,
-
-    /// machine to verify
-    software: Vec<String>,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
 }
 
 impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
+        let mut db: extra::ExtraDb = read_cache(EXTRA, CACHE_EXTRA)?;
+
+        let datfile = db
             .remove(&self.extra)
-            .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
+            .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
-        let dir = dirs::extra_dir(self.dir, &self.extra);
+        let results = datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref());
 
-        let software: HashSet<String> = if !self.software.is_empty() {
-            let software = self.software.iter().cloned().collect();
-            db.validate_games(&software)?;
-            software
-        } else {
-            dir.as_ref()
-                .read_dir()?
-                .filter_map(|e| {
-                    e.ok()
-                        .and_then(|e| e.file_name().into_string().ok())
-                        .filter(|s| db.is_game(s))
-                })
-                .collect()
-        };
-
-        verify(&db, &dir, &software, self.failures);
+        for result in results {
+            println!("{}", result);
+        }
 
         Ok(())
     }
 }
 
 #[derive(Args)]
-struct OptExtraVerifyAll {
-    /// extras directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str))]
-    dir: Option<PathBuf>,
-
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-}
+struct OptExtraVerifyAll;
 
 impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
+        let db: extra::ExtraDb = read_cache(EXTRA, CACHE_EXTRA)?;
 
-        let dir = dirs::extra_dir_all(self.dir);
-
-        for (extra_list, db) in db.into_iter() {
-            let extras_path = dir.as_ref().join(&extra_list);
-
-            let software: HashSet<String> = if self.all {
-                db.all_games()
-            } else {
-                extras_path
-                    .read_dir()
-                    .map(|dir| {
-                        dir.filter_map(|e| {
-                            e.ok()
-                                .and_then(|e| e.file_name().into_string().ok())
-                                .filter(|s| db.is_game(s))
-                        })
-                        .collect()
-                    })
-                    .unwrap_or_default()
-            };
-
-            verify_all(&extra_list, &db, &extras_path, &software, self.failures);
+        for (name, dir) in dirs::extra_dirs() {
+            if let Some(datfile) = db.get(&name) {
+                for result in datfile.verify(&dir) {
+                    println!("{}", result);
+                }
+            }
         }
 
         Ok(())
@@ -1135,38 +1082,30 @@ struct OptExtraAdd {
 
     /// extra to add
     extra: String,
-
-    /// machine to add
-    software: Vec<String>,
 }
 
 impl OptExtraAdd {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?
+        let mut db: extra::ExtraDb = read_cache(EXTRA, CACHE_EXTRA)?;
+
+        let datfile = db
             .remove(&self.extra)
-            .ok_or_else(|| Error::NoSuchSoftwareList(self.extra.clone()))?;
+            .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
-        let dir = dirs::extra_dir(self.dir, &self.extra);
+        let mut roms =
+            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
-        let mut parts = if self.software.is_empty() {
-            game::all_rom_sources(&self.input, &self.input_url)
-        } else {
-            game::get_rom_sources(
-                &self.input,
-                &self.input_url,
-                db.required_parts(&self.software)?,
-            )
-        };
+        let results = datfile.add_and_verify(
+            &mut roms,
+            dirs::extra_dir(self.dir, &self.extra).as_ref(),
+            |p| eprintln!("{}", p),
+        )?;
 
-        if self.software.is_empty() {
-            add_and_verify(&mut parts, dir, db.games_iter())
-        } else {
-            add_and_verify(
-                &mut parts,
-                dir,
-                self.software.iter().filter_map(|game| db.game(game)),
-            )
+        for failure in results {
+            println!("{}", failure);
         }
+
+        Ok(())
     }
 }
 
@@ -1179,27 +1118,27 @@ struct OptExtraAddAll {
     /// input URL
     #[clap(short = 'I', long = "input-url")]
     input_url: Vec<String>,
-
-    /// output directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str))]
-    dir: Option<PathBuf>,
 }
 
 impl OptExtraAddAll {
     fn execute(self) -> Result<(), Error> {
-        let db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
+        let mut db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
-        let dir = dirs::extra_dir_all(self.dir);
 
-        db.into_iter().try_for_each(|(extra, db)| {
-            add_and_verify_all(
-                &extra,
-                &mut parts,
-                dir.as_ref().join(&extra),
-                db.games_iter(),
-            )
-        })
+        let mut results = Vec::new();
+
+        for (name, dir) in dirs::extra_dirs() {
+            if let Some(datfile) = db.remove(&name) {
+                results.extend(datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?);
+            }
+        }
+
+        for failure in results {
+            println!("{}", failure);
+        }
+
+        Ok(())
     }
 }
 
@@ -1213,10 +1152,6 @@ enum OptExtra {
     /// list all extras categories
     #[clap(name = "list")]
     List(OptExtraList),
-
-    /// list an extra's parts
-    #[clap(name = "parts")]
-    Parts(OptExtraParts),
 
     /// verify parts in directory
     #[clap(name = "verify")]
@@ -1240,7 +1175,6 @@ impl OptExtra {
         match self {
             OptExtra::Create(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
-            OptExtra::Parts(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
             OptExtra::Add(o) => o.execute(),
             OptExtra::AddAll(o) => o.execute(),
@@ -1337,15 +1271,11 @@ struct OptRedumpList {
 
 impl OptRedumpList {
     fn execute(self) -> Result<(), Error> {
-        let mut db: redump::RedumpDb = read_cache(REDUMP, CACHE_REDUMP)?;
+        let db: redump::RedumpDb = read_cache(REDUMP, CACHE_REDUMP)?;
 
-        if let Some(software_list) = self.software_list {
-            let db = db
-                .remove(&software_list)
-                .ok_or(Error::NoSuchSoftwareList(software_list))?;
-            redump::list(&db)
-        } else {
-            redump::list_all(&db)
+        match self.software_list.as_deref() {
+            Some(name) => db.get(name).ok_or(Error::no_such_dat(name))?.list(),
+            None => dat::DatFile::list_all(db),
         }
 
         Ok(())
@@ -1386,10 +1316,9 @@ impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(REDUMP, CACHE_REDUMP)?;
 
-        let datfile = match db.remove(&self.software_list) {
-            Some(datfile) => datfile,
-            None => return Err(Error::NoSuchSoftwareList(self.software_list)),
-        };
+        let datfile = db
+            .remove(&self.software_list)
+            .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
         let results = datfile.verify(dirs::redump_roms(self.root, &self.software_list).as_ref());
 
@@ -1423,10 +1352,9 @@ impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db = read_cache::<redump::RedumpDb>(MESS, CACHE_REDUMP)?;
 
-        let datfile = match db.remove(&self.software_list) {
-            Some(datfile) => datfile,
-            None => return Err(Error::NoSuchSoftwareList(self.software_list)),
-        };
+        let datfile = db
+            .remove(&self.software_list)
+            .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
@@ -1568,7 +1496,7 @@ impl OptNointro {
 struct OptNointroCreate {
     /// No-Intro DAT file
     #[clap(parse(from_os_str))]
-    dat: Vec<PathBuf>,
+    dats: Vec<PathBuf>,
 
     /// completely replace old dat files
     #[clap(long = "replace")]
@@ -1583,7 +1511,7 @@ impl OptNointroCreate {
             read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default()
         };
 
-        for dats in self.dat.into_iter().map(dat::read_dats) {
+        for dats in self.dats.into_iter().map(dat::read_dats) {
             for dat in dats? {
                 db.insert(dat.name().to_owned(), dat);
             }
@@ -1620,15 +1548,11 @@ struct OptNointroList {
 
 impl OptNointroList {
     fn execute(self) -> Result<(), Error> {
-        let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+        let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        match self.name {
-            Some(name) => {
-                nointro::list(&db.remove(&name).ok_or(Error::NoSuchSoftwareList(name))?);
-            }
-            None => {
-                nointro::list_all(&db);
-            }
+        match self.name.as_deref() {
+            Some(name) => db.get(name).ok_or(Error::no_such_dat(name))?.list(),
+            None => dat::DatFile::list_all(db),
         }
 
         Ok(())
@@ -1649,10 +1573,9 @@ impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let datfile = match db.remove(&self.name) {
-            Some(datfile) => datfile,
-            None => return Err(Error::NoSuchSoftwareList(self.name)),
-        };
+        let datfile = db
+            .remove(&self.name)
+            .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
         let results = datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
 
@@ -1705,10 +1628,9 @@ impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let datfile = match db.remove(&self.name) {
-            Some(datfile) => datfile,
-            None => return Err(Error::NoSuchSoftwareList(self.name)),
-        };
+        let datfile = db
+            .remove(&self.name)
+            .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
@@ -1757,13 +1679,11 @@ impl OptIdentify {
             let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
 
             let mame_db: GameDb = read_cache(MAME, CACHE_MAME).unwrap_or_default();
+            let mess_db: BTreeMap<String, GameDb> =
+                read_cache(MESS, CACHE_MESS).unwrap_or_default();
 
-            let gamedb_parts: [(&str, BTreeMap<String, GameDb>); 2] = [
-                ("mess", read_cache(MESS, CACHE_MESS).unwrap_or_default()),
+            let dat_parts: [(&str, BTreeMap<String, DatFile>); 3] = [
                 ("extra", read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()),
-            ];
-
-            let dat_parts: [(&str, BTreeMap<String, DatFile>); 2] = [
                 (
                     "nointro",
                     read_cache(NOINTRO, CACHE_NOINTRO).unwrap_or_default(),
@@ -1784,17 +1704,15 @@ impl OptIdentify {
             }
 
             // invert caches into a Part -> [identifiers] lookup table
-            for (category, game_dbs) in &gamedb_parts {
-                for (system, game_db) in game_dbs.iter() {
-                    for game in game_db.games_iter() {
-                        for (rom, part) in game.parts.iter() {
-                            lookup.entry(part).or_default().insert([
-                                category,
-                                system,
-                                game.name.as_str(),
-                                rom,
-                            ]);
-                        }
+            for (system, game_db) in mess_db.iter() {
+                for game in game_db.games_iter() {
+                    for (rom, part) in game.parts.iter() {
+                        lookup.entry(part).or_default().insert([
+                            "mess",
+                            system,
+                            game.name.as_str(),
+                            rom,
+                        ]);
                     }
                 }
             }
@@ -2097,41 +2015,6 @@ fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
         f.read_to_string(&mut data)?;
     }
     Ok(data)
-}
-
-// attempts to read all .dat files in a .zip file
-// or the whole raw file if it is not a .zip
-fn read_dat_or_zip<F, P, T>(file: F, mut parse: P) -> Result<Vec<T>, Error>
-where
-    F: AsRef<Path>,
-    P: FnMut(&Document) -> T,
-{
-    let mut f = File::open(file)?;
-    if is_zip(&mut f)? {
-        use zip::ZipArchive;
-
-        let mut zip = ZipArchive::new(f)?;
-
-        let dats = zip
-            .file_names()
-            .filter(|s| s.ends_with(".dat"))
-            .map(|s| s.to_owned())
-            .collect::<Vec<String>>();
-
-        dats.into_iter()
-            .map(|name| {
-                let mut data = String::new();
-                zip.by_name(&name)?.read_to_string(&mut data)?;
-                let tree = Document::parse(&data)?;
-                Ok(parse(&tree))
-            })
-            .collect()
-    } else {
-        let mut data = String::new();
-        f.read_to_string(&mut data)?;
-        let tree = Document::parse(&data)?;
-        Ok(vec![parse(&tree)])
-    }
 }
 
 fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {

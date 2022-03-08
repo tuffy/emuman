@@ -159,32 +159,3 @@ fn game_to_split(game: &crate::dat::Game) -> (u64, SplitGame) {
 
     (offset as u64, split_game)
 }
-
-pub fn list_all(db: &RedumpDb) {
-    use prettytable::{cell, format, row, Table};
-    let mut table = Table::new();
-
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-
-    for (_, datfile) in db.iter() {
-        table.add_row(row![datfile.name(), datfile.version()]);
-    }
-
-    table.printstd();
-}
-
-pub fn list(datfile: &DatFile) {
-    use prettytable::{cell, format, row, Table};
-
-    let games = datfile.games().collect::<Vec<_>>();
-
-    let mut table = Table::new();
-
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-
-    for game in games {
-        table.add_row(row![game]);
-    }
-
-    table.printstd();
-}
