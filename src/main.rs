@@ -1161,7 +1161,7 @@ enum OptExtra {
     #[clap(name = "add")]
     Add(OptExtraAdd),
 
-    /// add all files to directory
+    /// add files to all directories
     #[clap(name = "add-all")]
     AddAll(OptExtraAddAll),
 
@@ -1477,6 +1477,10 @@ enum OptNointro {
     /// add and verify category's ROMs
     #[clap(name = "add")]
     Add(OptNointroAdd),
+
+    /// add ROMs to all categories
+    #[clap(name = "add-all")]
+    AddAll(OptNointroAddAll),
 }
 
 impl OptNointro {
@@ -1488,6 +1492,7 @@ impl OptNointro {
             OptNointro::Verify(o) => o.execute(),
             OptNointro::VerifyAll(o) => o.execute(),
             OptNointro::Add(o) => o.execute(),
+            OptNointro::AddAll(o) => o.execute(),
         }
     }
 }
@@ -1640,6 +1645,39 @@ impl OptNointroAdd {
             dirs::nointro_roms(self.roms, &self.name).as_ref(),
             |p| eprintln!("{}", p),
         )?;
+
+        for failure in results {
+            println!("{}", failure);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroAddAll {
+    /// input directory
+    #[clap(short = 'i', long = "input", parse(from_os_str))]
+    input: Vec<PathBuf>,
+
+    /// input URL
+    #[clap(short = 'I', long = "input-url")]
+    input_url: Vec<String>,
+}
+
+impl OptNointroAddAll {
+    fn execute(self) -> Result<(), Error> {
+        let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
+
+        let mut parts = game::all_rom_sources(&self.input, &self.input_url);
+
+        let mut results = Vec::new();
+
+        for (name, dir) in dirs::extra_dirs() {
+            if let Some(datfile) = db.remove(&name) {
+                results.extend(datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?);
+            }
+        }
 
         for failure in results {
             println!("{}", failure);
