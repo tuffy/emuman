@@ -3,7 +3,6 @@ use crate::game::{ExtractedPart, GameParts, Part, RomSources, Sha1ParseError, Ve
 use fxhash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +137,55 @@ pub struct DatFile {
 }
 
 impl DatFile {
+    pub fn new_flattened(datafile: Datafile) -> Result<Self, Sha1ParseError> {
+        let mut flat = GameParts::default();
+        let mut tree = BTreeMap::default();
+
+        for game in datafile
+            .game
+            .into_iter()
+            .flatten()
+            .chain(datafile.machine.into_iter().flatten())
+        {
+            match game.try_flatten()? {
+                Ok((name, part)) => {
+                    flat.insert(name, part);
+                }
+                Err((name, parts)) => {
+                    tree.insert(name, parts);
+                }
+            }
+        }
+
+        Ok(Self {
+            name: datafile.header.name,
+            version: datafile.header.version,
+            flat,
+            tree,
+        })
+    }
+
+    pub fn new_unflattened(datafile: Datafile) -> Result<Self, Sha1ParseError> {
+        let mut tree = BTreeMap::default();
+
+        for game in datafile
+            .game
+            .into_iter()
+            .flatten()
+            .chain(datafile.machine.into_iter().flatten())
+        {
+            let (name, parts) = game.into_parts()?;
+            tree.insert(name, parts);
+        }
+
+        Ok(Self {
+            name: datafile.header.name,
+            version: datafile.header.version,
+            flat: GameParts::default(),
+            tree,
+        })
+    }
+
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -222,48 +270,19 @@ impl DatFile {
     }
 }
 
-impl TryFrom<Datafile> for DatFile {
-    type Error = Sha1ParseError;
-
-    fn try_from(datafile: Datafile) -> Result<Self, Sha1ParseError> {
-        let mut flat = GameParts::default();
-        let mut tree = BTreeMap::default();
-
-        for game in datafile
-            .game
-            .into_iter()
-            .flatten()
-            .chain(datafile.machine.into_iter().flatten())
-        {
-            match game.try_flatten()? {
-                Ok((name, part)) => {
-                    flat.insert(name, part);
-                }
-                Err((name, parts)) => {
-                    tree.insert(name, parts);
-                }
-            }
-        }
-
-        Ok(Self {
-            name: datafile.header.name,
-            version: datafile.header.version,
-            flat,
-            tree,
-        })
-    }
-}
-
 #[inline]
-fn parse_dat(file: PathBuf, data: Box<[u8]>) -> Result<DatFile, Error> {
+fn parse_dat(file: PathBuf, data: Box<[u8]>, flatten: bool) -> Result<DatFile, Error> {
     let datafile: Datafile = match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
         Ok(dat) => dat,
         Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
     };
 
-    datafile
-        .try_into()
-        .map_err(|error| Error::InvalidSha1(FileError { file, error }))
+    (if flatten {
+        DatFile::new_flattened(datafile)
+    } else {
+        DatFile::new_unflattened(datafile)
+    })
+    .map_err(|error| Error::InvalidSha1(FileError { file, error }))
 }
 
 #[inline]
@@ -309,7 +328,16 @@ pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, E
 pub fn read_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
     read_dats_from_file(file).and_then(|v| {
         v.into_iter()
-            .map(|(file, data)| parse_dat(file, data))
+            .map(|(file, data)| parse_dat(file, data, true))
+            .collect()
+    })
+}
+
+#[inline]
+pub fn read_unflattened_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
+    read_dats_from_file(file).and_then(|v| {
+        v.into_iter()
+            .map(|(file, data)| parse_dat(file, data, false))
             .collect()
     })
 }

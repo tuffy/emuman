@@ -990,7 +990,7 @@ impl OptExtraCreate {
             read_cache(EXTRA, CACHE_EXTRA).unwrap_or_default()
         };
 
-        for dats in self.dats.into_iter().map(dat::read_dats) {
+        for dats in self.dats.into_iter().map(dat::read_unflattened_dats) {
             for dat in dats? {
                 db.insert(dat.name().to_owned(), dat);
             }
@@ -1237,8 +1237,6 @@ impl OptRedumpCreate {
 
             println!("* Wrote \"{}\"", db_file.display());
         } else {
-            use std::convert::TryInto;
-
             let mut redump_db = redump::RedumpDb::default();
             let mut split_db = split::SplitDb::default();
 
@@ -1252,8 +1250,7 @@ impl OptRedumpCreate {
 
                     redump::populate_split_db(&mut split_db, &datafile);
 
-                    let dat: crate::dat::DatFile = datafile
-                        .try_into()
+                    let dat = crate::dat::DatFile::new_flattened(datafile)
                         .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
 
                     redump_db.insert(dat.name().to_owned(), dat);
