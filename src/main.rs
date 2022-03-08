@@ -1001,6 +1001,25 @@ impl OptExtraCreate {
 }
 
 #[derive(Args)]
+struct OptExtraDirs {
+    // sort output by version
+    #[clap(short = 'V')]
+    sort_by_version: bool,
+}
+
+impl OptExtraDirs {
+    fn execute(self) -> Result<(), Error> {
+        display_dirs(
+            dirs::extra_dirs(),
+            read_cache(EXTRA, CACHE_EXTRA)?,
+            self.sort_by_version,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptExtraList {
     /// extras name
     name: Option<String>,
@@ -1149,6 +1168,10 @@ enum OptExtra {
     #[clap(name = "create")]
     Create(OptExtraCreate),
 
+    /// list defined directories
+    #[clap(name = "dirs")]
+    Dirs(OptExtraDirs),
+
     /// list all extras categories
     #[clap(name = "list")]
     List(OptExtraList),
@@ -1174,6 +1197,7 @@ impl OptExtra {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptExtra::Create(o) => o.execute(),
+            OptExtra::Dirs(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
             OptExtra::Add(o) => o.execute(),
