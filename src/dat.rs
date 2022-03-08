@@ -78,7 +78,7 @@ impl Game {
                     name,
                     sha1: Some(sha1),
                     ..
-                }] => Part::new_disk(sha1).map(|part| Ok((name.clone(), part))),
+                }] => Part::new_disk(sha1).map(|part| Ok((name.clone() + ".chd", part))),
                 _ => self.into_parts().map(Err),
             },
             _ => self.into_parts().map(Err),
@@ -119,7 +119,7 @@ impl Disk {
     fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
         match self.sha1 {
             Some(sha1) => match Part::new_disk(&sha1) {
-                Ok(part) => Some(Ok((self.name, part))),
+                Ok(part) => Some(Ok((self.name + ".chd", part))),
                 Err(err) => Some(Err(err)),
             },
             None => None,

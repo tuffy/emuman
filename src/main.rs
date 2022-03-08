@@ -41,6 +41,19 @@ pub struct FileError<E> {
     error: E,
 }
 
+impl<E> FileError<E> {
+    #[inline]
+    pub fn new<F>(file: F, error: E) -> FileError<E>
+    where
+        F: ToOwned<Owned = PathBuf>,
+    {
+        FileError {
+            file: file.to_owned(),
+            error,
+        }
+    }
+}
+
 impl<E: std::error::Error> std::error::Error for FileError<E> {}
 
 impl<E: std::error::Error> std::fmt::Display for FileError<E> {
