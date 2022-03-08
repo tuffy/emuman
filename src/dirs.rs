@@ -404,3 +404,12 @@ impl<'r> Drop for RedumpRoms<'r> {
 pub fn redump_roms(roms: Option<PathBuf>, name: &str) -> RedumpRoms<'_> {
     RedumpRoms::new(roms, name)
 }
+
+pub fn redump_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
+    match DirectoryConfig::new() {
+        Some(DirectoryConfig { redump, .. }) => {
+            Box::new(redump.into_iter().map(|(k, v)| (k, PathBuf::from(v))))
+        }
+        None => Box::new(std::iter::empty()),
+    }
+}

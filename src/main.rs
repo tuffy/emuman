@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand};
 use roxmltree::Document;
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek};
@@ -1311,6 +1311,25 @@ impl OptRedumpCreate {
 }
 
 #[derive(Args)]
+struct OptRedumpDirs {
+    // sort output by version
+    #[clap(short = 'V')]
+    sort_by_version: bool,
+}
+
+impl OptRedumpDirs {
+    fn execute(self) -> Result<(), Error> {
+        display_dirs(
+            dirs::redump_dirs(),
+            read_cache(REDUMP, CACHE_REDUMP)?,
+            self.sort_by_version,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptRedumpList {
     /// software list to use
     software_list: Option<String>,
@@ -1465,6 +1484,10 @@ enum OptRedump {
     #[clap(name = "create")]
     Create(OptRedumpCreate),
 
+    /// list defined directories
+    #[clap(name = "dirs")]
+    Dirs(OptRedumpDirs),
+
     /// list all software in software list
     #[clap(name = "list")]
     List(OptRedumpList),
@@ -1490,6 +1513,7 @@ impl OptRedump {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptRedump::Create(o) => o.execute(),
+            OptRedump::Dirs(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
             OptRedump::Parts(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
@@ -1505,6 +1529,10 @@ enum OptNointro {
     /// create internal database
     #[clap(name = "create")]
     Create(OptNointroCreate),
+
+    /// list defined directories
+    #[clap(name = "dirs")]
+    Dirs(OptNointroDirs),
 
     /// list categories or ROMs
     #[clap(name = "list")]
@@ -1527,6 +1555,7 @@ impl OptNointro {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptNointro::Create(o) => o.execute(),
+            OptNointro::Dirs(o) => o.execute(),
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
             OptNointro::VerifyAll(o) => o.execute(),
@@ -1561,6 +1590,25 @@ impl OptNointroCreate {
         }
 
         write_cache(CACHE_NOINTRO, db)
+    }
+}
+
+#[derive(Args)]
+struct OptNointroDirs {
+    // sort output by version
+    #[clap(short = 'V')]
+    sort_by_version: bool,
+}
+
+impl OptNointroDirs {
+    fn execute(self) -> Result<(), Error> {
+        display_dirs(
+            dirs::nointro_dirs(),
+            read_cache(NOINTRO, CACHE_NOINTRO)?,
+            self.sort_by_version,
+        );
+
+        Ok(())
     }
 }
 
@@ -1695,7 +1743,7 @@ impl OptIdentify {
         use crate::game::{GameDb, Part, RomSource};
         use prettytable::{cell, format, row, Table};
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
-        use std::collections::{BTreeMap, BTreeSet, HashMap};
+        use std::collections::{BTreeSet, HashMap};
 
         let sources = self
             .parts
@@ -2184,7 +2232,6 @@ where
     I: Iterator<Item = &'g game::Game>,
 {
     use indicatif::{ProgressBar, ProgressStyle};
-    use std::collections::BTreeMap;
 
     let pb = match games.size_hint() {
         (_, Some(total)) => ProgressBar::new(total as u64)
@@ -2239,6 +2286,37 @@ where
         root,
         games,
     )
+}
+
+fn display_dirs<D>(dirs: D, db: BTreeMap<String, dat::DatFile>, sort_by_version: bool)
+where
+    D: Iterator<Item = (String, PathBuf)>,
+{
+    use prettytable::{cell, format, row, Table};
+
+    let mut results: Vec<[String; 3]> = dirs
+        .filter_map(|(name, dir)| {
+            db.get(&name).map(|dat| {
+                [
+                    dat.version().to_owned(),
+                    dat.name().to_owned(),
+                    dir.to_string_lossy().to_string(),
+                ]
+            })
+        })
+        .collect();
+
+    if sort_by_version {
+        results.sort_unstable_by(|x, y| x[0].cmp(&y[0]));
+    }
+
+    let mut table = Table::new();
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    table.get_format().column_separator('\u{2502}');
+    for [version, name, dir] in results {
+        table.add_row(row![r->version, name, dir]);
+    }
+    table.printstd();
 }
 
 fn sub_files(root: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {
