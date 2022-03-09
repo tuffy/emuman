@@ -1075,9 +1075,7 @@ impl OptExtraVerifyAll {
 
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.get(&name) {
-                for result in datfile.verify(&dir) {
-                    println!("{}", result);
-                }
+                display_dat_results(datfile.verify(&dir));
             }
         }
 
@@ -1114,15 +1112,11 @@ impl OptExtraAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
-        let results = datfile.add_and_verify(
+        display_dat_results(datfile.add_and_verify(
             &mut roms,
             dirs::extra_dir(self.dir, &self.extra).as_ref(),
             |p| eprintln!("{}", p),
-        )?;
-
-        for failure in results {
-            println!("{}", failure);
-        }
+        )?);
 
         Ok(())
     }
@@ -1153,9 +1147,7 @@ impl OptExtraAddAll {
             }
         }
 
-        for failure in results {
-            println!("{}", failure);
-        }
+        display_dat_results(results);
 
         Ok(())
     }
@@ -1341,11 +1333,9 @@ impl OptRedumpVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
-        let results = datfile.verify(dirs::redump_roms(self.root, &self.software_list).as_ref());
-
-        for result in results {
-            println!("{}", result);
-        }
+        display_dat_results(
+            datfile.verify(dirs::redump_roms(self.root, &self.software_list).as_ref()),
+        );
 
         Ok(())
     }
@@ -1380,15 +1370,11 @@ impl OptRedumpAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
-        let results = datfile.add_and_verify(
+        display_dat_results(datfile.add_and_verify(
             &mut roms,
             dirs::redump_roms(self.output, &self.software_list).as_ref(),
             |p| eprintln!("{}", p),
-        )?;
-
-        for failure in results {
-            println!("{}", failure);
-        }
+        )?);
 
         Ok(())
     }
@@ -1603,11 +1589,7 @@ impl OptNointroVerify {
             .remove(&self.name)
             .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
-        let results = datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref());
-
-        for result in results {
-            println!("{}", result);
-        }
+        display_dat_results(datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref()));
 
         Ok(())
     }
@@ -1661,15 +1643,11 @@ impl OptNointroAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
-        let results = datfile.add_and_verify(
+        display_dat_results(datfile.add_and_verify(
             &mut roms,
             dirs::nointro_roms(self.roms, &self.name).as_ref(),
             |p| eprintln!("{}", p),
-        )?;
-
-        for failure in results {
-            println!("{}", failure);
-        }
+        )?);
 
         Ok(())
     }
@@ -1700,9 +1678,7 @@ impl OptNointroAddAll {
             }
         }
 
-        for failure in results {
-            println!("{}", failure);
-        }
+        display_dat_results(results);
 
         Ok(())
     }
@@ -2160,6 +2136,13 @@ fn verify_all(
     }
 
     eprintln!("{} tested, {} OK", games.len(), successes);
+}
+
+fn display_dat_results(results: Vec<crate::game::VerifyFailure>) {
+    // FIXME - make this more comprehensive?
+    for result in results {
+        println!("{}", result);
+    }
 }
 
 fn add_and_verify_games<'g, I, F, P>(
