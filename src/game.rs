@@ -345,10 +345,11 @@ impl Game {
     }
 }
 
-fn read_game_dir<I, F>(dir: I, mut insert: F, failures: &mut Vec<VerifyFailure>)
+fn read_game_dir<I, F, G>(dir: I, mut insert: F, mut failure: G)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
     F: FnMut(String, PathBuf),
+    G: FnMut(VerifyFailure),
 {
     for entry in dir
         .filter_map(|e| e.ok())
@@ -358,7 +359,7 @@ where
             Ok(name) => {
                 insert(name, entry.path());
             }
-            Err(_) => failures.push(VerifyFailure::extra(entry.path())),
+            Err(_) => failure(VerifyFailure::extra(entry.path())),
         }
     }
 }
@@ -433,7 +434,7 @@ impl GameParts {
                 |name, pb| {
                     files_on_disk.insert(name, pb);
                 },
-                &mut failures,
+                |failure| failures.push(failure),
             ),
 
             // no directory to read and no parts to check,
@@ -488,7 +489,7 @@ impl GameParts {
                 |name, pb| {
                     files_on_disk.insert(name, pb);
                 },
-                &mut failures,
+                |failure| failures.push(failure),
             );
         }
 
