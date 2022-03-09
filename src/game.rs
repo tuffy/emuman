@@ -103,7 +103,7 @@ impl GameDb {
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
         if let Some(game) = self.games.get(game_name) {
-            let mut results = game.parts.verify(&root.join(game_name));
+            let mut results = game.parts.verify_failures(&root.join(game_name));
             results.extend(
                 game.devices
                     .iter()
@@ -418,15 +418,16 @@ impl GameParts {
         self.parts.insert(k, v)
     }
 
-    pub fn verify(&self, game_root: &Path) -> Vec<VerifyFailure> {
-        use dashmap::DashMap;
-        use rayon::prelude::*;
+    fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
+    where
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure>,
+    {
         use std::fs::read_dir;
 
-        let mut failures = Vec::new();
-
-        // turn files on disk into a map, so extra files can be located
-        let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
+        let mut successes = S::default();
+        let mut failures = F::default();
+        let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
         match read_dir(game_root) {
             Ok(dir) => read_game_dir(
@@ -434,30 +435,29 @@ impl GameParts {
                 |name, pb| {
                     files_on_disk.insert(name, pb);
                 },
-                |failure| failures.push(failure),
+                |failure| failures.extend(Some(failure)),
             ),
 
             // no directory to read and no parts to check,
-            // so no failures are possible
-            Err(_) if self.parts.is_empty() => return failures,
+            // so no results are possible
+            Err(_) if self.parts.is_empty() => return (successes, failures),
 
             Err(_) => {}
         }
 
         // verify all game parts
-        failures.extend(
-            self.parts
-                .par_iter()
-                .filter_map(|(name, part)| match files_on_disk.remove(name) {
-                    Some((_, pathbuf)) => part.verify_cached(pathbuf).err(),
-                    None => Some(VerifyFailure::Missing {
-                        path: game_root.join(name),
-                        part: part.clone(),
-                    }),
-                })
-                .collect::<Vec<VerifyFailure>>()
-                .into_iter(),
-        );
+        for (name, part) in &self.parts {
+            match files_on_disk.remove(name) {
+                Some(pathbuf) => match part.verify_cached(pathbuf) {
+                    Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
+                    Err(failure) => failures.extend(Some(failure)),
+                },
+                None => failures.extend(Some(VerifyFailure::Missing {
+                    path: game_root.join(name),
+                    part: part.clone(),
+                })),
+            }
+        }
 
         // mark any leftover files on disk as extras
         failures.extend(
@@ -466,6 +466,11 @@ impl GameParts {
                 .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
         );
 
+        (successes, failures)
+    }
+
+    pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
+        let (_, failures): (VerifySink, Vec<_>) = self.verify(game_root);
         failures
     }
 
@@ -556,6 +561,12 @@ impl<'a> GameRow<'a> {
     pub fn compare(&self, other: &GameRow, sort: GameColumn) -> Ordering {
         self.sort_key(sort).cmp(&other.sort_key(sort))
     }
+}
+
+#[derive(Debug)]
+pub struct VerifySuccess<'s> {
+    pub name: &'s str,
+    pub part: &'s Part,
 }
 
 #[derive(Debug)]
@@ -701,6 +712,18 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
                 write!(f, "{} -> {}", self.source, self.target.display())
             }
         }
+    }
+}
+
+#[derive(Default)]
+struct VerifySink;
+
+impl<'s> Extend<VerifySuccess<'s>> for VerifySink {
+    fn extend<T>(&mut self, _: T)
+    where
+        T: IntoIterator<Item = VerifySuccess<'s>>,
+    {
+        // do nothing
     }
 }
 
@@ -904,7 +927,7 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    fn verify<F>(&self, from: F, part_path: PathBuf) -> Result<(), VerifyFailure>
+    pub fn verify<F>(&self, from: F, part_path: PathBuf) -> Result<(), VerifyFailure>
     where
         F: FnOnce(&Path) -> Result<Self, std::io::Error>,
     {
@@ -1419,7 +1442,7 @@ pub fn get_rom_sources<'u>(
 
 pub fn display_all_results(game: &str, failures: &[VerifyFailure]) {
     if failures.is_empty() {
-        println!("{} : OK", game);
+        println!("OK : {}", game);
     } else {
         display_bad_results(game, failures)
     }

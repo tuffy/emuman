@@ -237,9 +237,9 @@ impl DatFile {
     }
 
     pub fn verify(&self, root: &Path) -> Vec<VerifyFailure> {
-        let mut failures = self.flat.verify(root);
+        let mut failures = self.flat.verify_failures(root);
         for (name, game) in self.tree.iter() {
-            failures.extend(game.verify(&root.join(name)));
+            failures.extend(game.verify_failures(&root.join(name)));
         }
         failures
     }

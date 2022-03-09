@@ -43,12 +43,9 @@ pub struct FileError<E> {
 
 impl<E> FileError<E> {
     #[inline]
-    pub fn new<F>(file: F, error: E) -> FileError<E>
-    where
-        F: ToOwned<Owned = PathBuf>,
-    {
+    pub fn new(file: &Path, error: E) -> FileError<E> {
         FileError {
-            file: file.to_owned(),
+            file: file.to_path_buf(),
             error,
         }
     }
@@ -1287,7 +1284,7 @@ impl OptRedumpList {
         let db: redump::RedumpDb = read_cache(REDUMP, CACHE_REDUMP)?;
 
         match self.software_list.as_deref() {
-            Some(name) => db.get(name).ok_or(Error::no_such_dat(name))?.list(),
+            Some(name) => db.get(name).ok_or_else(|| Error::no_such_dat(name))?.list(),
             None => dat::DatFile::list_all(db),
         }
 
@@ -1563,7 +1560,7 @@ impl OptNointroList {
         let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
         match self.name.as_deref() {
-            Some(name) => db.get(name).ok_or(Error::no_such_dat(name))?.list(),
+            Some(name) => db.get(name).ok_or_else(|| Error::no_such_dat(name))?.list(),
             None => dat::DatFile::list_all(db),
         }
 
