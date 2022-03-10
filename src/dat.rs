@@ -236,12 +236,34 @@ impl DatFile {
         table.printstd();
     }
 
-    pub fn verify(&self, root: &Path) -> Vec<VerifyFailure> {
-        // FIXME - update return type
-        let mut failures = self.flat.verify_failures(root);
-        for (name, game) in self.tree.iter() {
-            failures.extend(game.verify_failures(&root.join(name)));
-        }
+    // FIXME - add a flag to verify all vs. verify existing items
+    pub fn verify(&self, root: &Path) -> BTreeMap<&str, Vec<VerifyFailure>> {
+        let mut failures = BTreeMap::default();
+
+        let (flat_successes, flat_failures) = self.flat.verify::<Vec<_>, Vec<_>>(root);
+
+        failures.extend(
+            flat_successes
+                .into_iter()
+                .map(|success| (success.name, Vec::new())),
+        );
+
+        failures.extend(
+            flat_failures
+                .into_iter()
+                .filter_map(|failure| match failure {
+                    VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
+                    VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                    _ => None,
+                }),
+        );
+
+        failures.extend(
+            self.tree
+                .iter()
+                .map(|(name, game)| (name.as_str(), game.verify_failures(&root.join(name)))),
+        );
+
         failures
     }
 
@@ -250,16 +272,38 @@ impl DatFile {
         roms: &mut RomSources,
         root: &Path,
         mut progress: F,
-    ) -> Result<Vec<VerifyFailure>, Error>
+    ) -> Result<BTreeMap<&str, Vec<VerifyFailure>>, Error>
     where
         F: FnMut(ExtractedPart<'_>),
     {
-        // FIXME - update return type
-        let mut failures = Vec::new();
+        let mut failures: BTreeMap<&str, Vec<_>> = BTreeMap::default();
+
+        let (flat_successes, flat_failures): (Vec<_>, Vec<_>) =
+            self.flat.add_and_verify(roms, root, |r| progress(r))?;
+
+        failures.extend(
+            flat_successes
+                .into_iter()
+                .map(|success| (success.name, Vec::new())),
+        );
+
+        failures.extend(
+            flat_failures
+                .into_iter()
+                .filter_map(|failure| match failure {
+                    VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
+                    VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                    _ => None,
+                }),
+        );
+
         for (name, game) in self.tree.iter() {
-            failures.extend(game.add_and_verify_failures(roms, &root.join(name), |p| progress(p))?);
+            failures.insert(
+                name,
+                game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+            );
         }
-        failures.extend(self.flat.add_and_verify_failures(roms, root, progress)?);
+
         Ok(failures)
     }
 

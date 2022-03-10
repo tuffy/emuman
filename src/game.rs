@@ -440,7 +440,7 @@ impl GameParts {
         // verify all game parts
         for (name, part) in self.parts.iter() {
             match files_on_disk.remove(name) {
-                Some(pathbuf) => match part.verify_cached(pathbuf) {
+                Some(pathbuf) => match part.verify_cached(name, pathbuf) {
                     Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
 
                     Err(failure) => match handle_failure(failure)? {
@@ -453,6 +453,7 @@ impl GameParts {
                     match handle_failure(VerifyFailure::Missing {
                         path: game_root.join(name),
                         part,
+                        name,
                     })? {
                         Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
                         Err(failure) => failures.extend(Some(failure)),
@@ -560,6 +561,7 @@ pub struct VerifySuccess<'s> {
 pub enum VerifyFailure<'s> {
     Missing {
         path: PathBuf,
+        name: &'s str,
         part: &'s Part,
     },
     Extra {
@@ -568,6 +570,7 @@ pub enum VerifyFailure<'s> {
     },
     Bad {
         path: PathBuf,
+        name: &'s str,
         expected: &'s Part,
         actual: Part,
     },
@@ -596,6 +599,7 @@ impl VerifyFailure<'_> {
         match self {
             VerifyFailure::Bad {
                 path,
+                name,
                 expected,
                 actual,
             } => match rom_sources.entry(expected.clone()) {
@@ -606,18 +610,19 @@ impl VerifyFailure<'_> {
 
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Bad {
                     path,
+                    name,
                     expected,
                     actual,
                 })),
             },
 
-            VerifyFailure::Missing { path, part } => match rom_sources.entry(part.clone()) {
+            VerifyFailure::Missing { path, part, name } => match rom_sources.entry(part.clone()) {
                 Entry::Occupied(entry) => {
                     std::fs::create_dir_all(path.parent().unwrap())?;
                     Self::extract_to(entry, path, &part).map(Ok)
                 }
 
-                Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part })),
+                Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part, name })),
             },
 
             extra @ VerifyFailure::Extra { .. } => Ok(Err(extra)),
@@ -913,7 +918,12 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    pub fn verify<F>(&self, from: F, path: PathBuf) -> Result<(), VerifyFailure>
+    pub fn verify<'s, F>(
+        &'s self,
+        from: F,
+        name: &'s str,
+        path: PathBuf,
+    ) -> Result<(), VerifyFailure<'s>>
     where
         F: FnOnce(&Path) -> Result<Self, std::io::Error>,
     {
@@ -921,6 +931,7 @@ impl Part {
             Ok(ref disk_part) if self == disk_part => Ok(()),
             Ok(disk_part) => Err(VerifyFailure::Bad {
                 path,
+                name,
                 expected: self,
                 actual: disk_part,
             }),
@@ -929,13 +940,12 @@ impl Part {
     }
 
     #[inline]
-    pub fn verify_cached(&self, part_path: PathBuf) -> Result<(), VerifyFailure> {
-        self.verify(Part::from_cached_path, part_path)
-    }
-
-    #[inline]
-    pub fn verify_uncached(&self, part_path: PathBuf) -> Result<(), VerifyFailure> {
-        self.verify(Part::from_path, part_path)
+    pub fn verify_cached<'s>(
+        &'s self,
+        name: &'s str,
+        part_path: PathBuf,
+    ) -> Result<(), VerifyFailure<'s>> {
+        self.verify(Part::from_cached_path, name, part_path)
     }
 }
 
@@ -1439,9 +1449,21 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
         let stdout = stdout();
         let mut handle = stdout.lock();
         for failure in failures {
-            writeln!(&mut handle, "{game} : {failure}").unwrap();
+            writeln!(&mut handle, "{failure} : {game}").unwrap();
         }
     }
+}
+
+// FIXME - add flag to switch between everything and failure-only results
+pub fn display_dat_results(results: BTreeMap<&str, Vec<VerifyFailure>>) {
+    let successes = results.values().filter(|v| v.is_empty()).count();
+    let total = results.len();
+
+    for (name, failures) in results {
+        display_all_results(name, &failures);
+    }
+
+    eprintln!("{} tested, {} OK", total, successes);
 }
 
 #[inline]
