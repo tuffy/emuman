@@ -237,6 +237,7 @@ impl DatFile {
     }
 
     pub fn verify(&self, root: &Path) -> Vec<VerifyFailure> {
+        // FIXME - update return type
         let mut failures = self.flat.verify_failures(root);
         for (name, game) in self.tree.iter() {
             failures.extend(game.verify_failures(&root.join(name)));
@@ -253,11 +254,12 @@ impl DatFile {
     where
         F: FnMut(ExtractedPart<'_>),
     {
+        // FIXME - update return type
         let mut failures = Vec::new();
         for (name, game) in self.tree.iter() {
-            failures.extend(game.add_and_verify(roms, &root.join(name), |p| progress(p))?);
+            failures.extend(game.add_and_verify_failures(roms, &root.join(name), |p| progress(p))?);
         }
-        failures.extend(self.flat.add_and_verify(roms, root, progress)?);
+        failures.extend(self.flat.add_and_verify_failures(roms, root, progress)?);
         Ok(failures)
     }
 

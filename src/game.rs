@@ -325,7 +325,7 @@ impl Game {
         F: FnMut(ExtractedPart<'_>),
     {
         self.parts
-            .add_and_verify(rom_sources, &target_dir.join(&self.name), progress)
+            .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), progress)
     }
 
     pub fn display_parts(&self, table: &mut Table) {
@@ -418,7 +418,7 @@ impl GameParts {
         self.parts.insert(k, v)
     }
 
-    fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
+    pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
     where
         S: Default + Extend<VerifySuccess<'s>>,
         F: Default + Extend<VerifyFailure>,
@@ -469,21 +469,25 @@ impl GameParts {
         (successes, failures)
     }
 
+    #[inline]
     pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
         let (_, failures): (VerifySink, Vec<_>) = self.verify(game_root);
         failures
     }
 
-    pub fn add_and_verify<F>(
-        &self,
+    pub fn add_and_verify<'s, S, F, P>(
+        &'s self,
         rom_sources: &mut RomSources,
         game_root: &Path,
-        mut progress: F,
-    ) -> Result<Vec<VerifyFailure>, Error>
+        mut progress: P,
+    ) -> Result<(S, F), Error>
     where
-        F: FnMut(ExtractedPart<'_>),
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure>,
+        P: FnMut(ExtractedPart<'_>),
     {
-        let mut failures = Vec::new();
+        let mut successes = S::default();
+        let mut failures = F::default();
 
         // turn files on disk into a map, so extra files can be located
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
@@ -494,30 +498,37 @@ impl GameParts {
                 |name, pb| {
                     files_on_disk.insert(name, pb);
                 },
-                |failure| failures.push(failure),
+                |failure| failures.extend(Some(failure)),
             );
         }
 
         // verify all game parts
         for (name, part) in self.parts.iter() {
             match files_on_disk.remove(name) {
-                Some(target) => {
-                    if let Err(failure) = part.verify_cached(target) {
-                        match failure.populate(rom_sources)? {
-                            Ok(d) => progress(d),
-                            Err(failure) => failures.push(failure),
+                Some(target) => match part.verify_cached(target) {
+                    Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
+
+                    Err(failure) => match failure.try_fix(rom_sources)? {
+                        Ok(d) => {
+                            successes.extend(Some(VerifySuccess { name, part }));
+                            progress(d)
                         }
-                    }
-                }
+                        Err(failure) => failures.extend(Some(failure)),
+                    },
+                },
+
                 None => {
                     match (VerifyFailure::Missing {
                         part: part.clone(),
                         path: game_root.join(name),
                     })
-                    .populate(rom_sources)?
+                    .try_fix(rom_sources)?
                     {
-                        Ok(d) => progress(d),
-                        Err(failure) => failures.push(failure),
+                        Ok(d) => {
+                            successes.extend(Some(VerifySuccess { name, part }));
+                            progress(d)
+                        }
+                        Err(failure) => failures.extend(Some(failure)),
                     }
                 }
             }
@@ -530,6 +541,20 @@ impl GameParts {
                 .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
         );
 
+        Ok((successes, failures))
+    }
+
+    pub fn add_and_verify_failures<'s, P>(
+        &'s self,
+        rom_sources: &mut RomSources,
+        game_root: &Path,
+        progress: P,
+    ) -> Result<Vec<VerifyFailure>, Error>
+    where
+        P: FnMut(ExtractedPart<'_>),
+    {
+        let (_, failures): (VerifySink, Vec<_>) =
+            self.add_and_verify(rom_sources, game_root, progress)?;
         Ok(failures)
     }
 }
@@ -602,7 +627,7 @@ impl VerifyFailure {
 
 impl VerifyFailure {
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
-    fn populate<'u>(
+    fn try_fix<'u>(
         self,
         rom_sources: &mut RomSources<'u>,
     ) -> Result<Result<ExtractedPart<'u>, Self>, Error> {
@@ -719,6 +744,7 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
 struct VerifySink;
 
 impl<'s> Extend<VerifySuccess<'s>> for VerifySink {
+    #[inline]
     fn extend<T>(&mut self, _: T)
     where
         T: IntoIterator<Item = VerifySuccess<'s>>,
