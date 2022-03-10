@@ -345,11 +345,10 @@ impl Game {
     }
 }
 
-fn read_game_dir<I, F, G>(dir: I, mut insert: F, mut failure: G)
+fn read_game_dir<I, F>(dir: I, files_on_disk: &mut HashMap<String, PathBuf>, failure: &mut F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    F: FnMut(String, PathBuf),
-    G: FnMut(VerifyFailure),
+    F: Extend<VerifyFailure>,
 {
     for entry in dir
         .filter_map(|e| e.ok())
@@ -357,9 +356,9 @@ where
     {
         match entry.file_name().into_string() {
             Ok(name) => {
-                insert(name, entry.path());
+                files_on_disk.insert(name, entry.path());
             }
-            Err(_) => failure(VerifyFailure::extra(entry.path())),
+            Err(_) => failure.extend(Some(VerifyFailure::extra(entry.path()))),
         }
     }
 }
@@ -430,13 +429,7 @@ impl GameParts {
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
         match read_dir(game_root) {
-            Ok(dir) => read_game_dir(
-                dir,
-                |name, pb| {
-                    files_on_disk.insert(name, pb);
-                },
-                |failure| failures.extend(Some(failure)),
-            ),
+            Ok(dir) => read_game_dir(dir, &mut files_on_disk, &mut failures),
 
             // no directory to read and no parts to check,
             // so no results are possible
@@ -493,13 +486,7 @@ impl GameParts {
         let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
 
         if let Ok(dir) = std::fs::read_dir(&game_root) {
-            read_game_dir(
-                dir,
-                |name, pb| {
-                    files_on_disk.insert(name, pb);
-                },
-                |failure| failures.extend(Some(failure)),
-            );
+            read_game_dir(dir, &mut files_on_disk, &mut failures);
         }
 
         // verify all game parts
