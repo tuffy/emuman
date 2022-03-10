@@ -1062,6 +1062,7 @@ impl OptExtraVerify {
             .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
         game::display_dat_results(
+            &datfile,
             datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref(), self.all),
             self.failures,
         );
@@ -1085,11 +1086,17 @@ impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let db: extra::ExtraDb = read_cache(EXTRA, CACHE_EXTRA)?;
 
+        let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.get(&name) {
-                game::display_dat_results(datfile.verify(&dir, self.all), self.failures);
+                total += game::display_dat_results(
+                    datfile,
+                    datfile.verify(&dir, self.all),
+                    self.failures,
+                );
             }
         }
+        eprintln!("{} : Total", total);
 
         Ok(())
     }
@@ -1125,6 +1132,7 @@ impl OptExtraAdd {
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
         game::display_dat_results(
+            &datfile,
             datfile.add_and_verify(
                 &mut roms,
                 dirs::extra_dir(self.dir, &self.extra).as_ref(),
@@ -1154,14 +1162,17 @@ impl OptExtraAddAll {
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
+        let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
-                game::display_dat_results(
+                total += game::display_dat_results(
+                    &datfile,
                     datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
                     true,
                 );
             }
         }
+        eprintln!("{} : Total", total);
 
         Ok(())
     }
@@ -1356,6 +1367,7 @@ impl OptRedumpVerify {
             .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
         game::display_dat_results(
+            &datfile,
             datfile.verify(
                 dirs::redump_roms(self.root, &self.software_list).as_ref(),
                 self.all,
@@ -1397,6 +1409,7 @@ impl OptRedumpAdd {
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
         game::display_dat_results(
+            &datfile,
             datfile.add_and_verify(
                 &mut roms,
                 dirs::redump_roms(self.output, &self.software_list).as_ref(),
@@ -1627,6 +1640,7 @@ impl OptNointroVerify {
             .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
         game::display_dat_results(
+            &datfile,
             datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref(), self.all),
             self.failures,
         );
@@ -1650,11 +1664,17 @@ impl OptNointroVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
+        let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::nointro_dirs() {
             if let Some(datfile) = db.get(&name) {
-                game::display_dat_results(datfile.verify(&dir, self.all), self.failures);
+                total += game::display_dat_results(
+                    datfile,
+                    datfile.verify(&dir, self.all),
+                    self.failures,
+                );
             }
         }
+        eprintln!("{} : Total", total);
 
         Ok(())
     }
@@ -1690,6 +1710,7 @@ impl OptNointroAdd {
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
         game::display_dat_results(
+            &datfile,
             datfile.add_and_verify(
                 &mut roms,
                 dirs::nointro_roms(self.roms, &self.name).as_ref(),
@@ -1723,14 +1744,17 @@ impl OptNointroAddAll {
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
+        let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
-                game::display_dat_results(
+                total += game::display_dat_results(
+                    &datfile,
                     datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
                     self.failures,
                 );
             }
         }
+        eprintln!("{} : Total", total);
 
         Ok(())
     }

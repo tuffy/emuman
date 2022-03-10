@@ -605,7 +605,7 @@ impl VerifyFailure<'_> {
             } => match rom_sources.entry(expected.clone()) {
                 Entry::Occupied(entry) => {
                     std::fs::remove_file(&path)?;
-                    Self::extract_to(entry, path, &expected).map(Ok)
+                    Self::extract_to(entry, path, expected).map(Ok)
                 }
 
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Bad {
@@ -619,7 +619,7 @@ impl VerifyFailure<'_> {
             VerifyFailure::Missing { path, part, name } => match rom_sources.entry(part.clone()) {
                 Entry::Occupied(entry) => {
                     std::fs::create_dir_all(path.parent().unwrap())?;
-                    Self::extract_to(entry, path, &part).map(Ok)
+                    Self::extract_to(entry, path, part).map(Ok)
                 }
 
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part, name })),
@@ -1437,9 +1437,41 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
     }
 }
 
-pub fn display_dat_results(results: BTreeMap<&str, Vec<VerifyFailure>>, failures_only: bool) {
-    let successes = results.values().filter(|v| v.is_empty()).count();
-    let total = results.len();
+#[derive(Default)]
+pub struct VerifyResultsSummary {
+    successes: usize,
+    total: usize,
+}
+
+impl fmt::Display for VerifyResultsSummary {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{total:5} tested, {successes:5} OK",
+            total = self.total,
+            successes = self.successes
+        )
+    }
+}
+
+impl std::ops::AddAssign for VerifyResultsSummary {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.successes += rhs.successes;
+        self.total += rhs.total;
+    }
+}
+
+pub fn display_dat_results(
+    dat: &crate::dat::DatFile,
+    results: BTreeMap<&str, Vec<VerifyFailure>>,
+    failures_only: bool,
+) -> VerifyResultsSummary {
+    let summary = VerifyResultsSummary {
+        successes: results.values().filter(|v| v.is_empty()).count(),
+        total: results.len(),
+    };
 
     if failures_only {
         for (name, failures) in results {
@@ -1451,7 +1483,9 @@ pub fn display_dat_results(results: BTreeMap<&str, Vec<VerifyFailure>>, failures
         }
     }
 
-    eprintln!("{} tested, {} OK", total, successes);
+    eprintln!("{summary} : {dat}", dat = dat.name(), summary = summary);
+
+    summary
 }
 
 #[inline]
