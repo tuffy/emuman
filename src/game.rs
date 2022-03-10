@@ -345,10 +345,10 @@ impl Game {
     }
 }
 
-fn read_game_dir<I, F>(dir: I, files_on_disk: &mut HashMap<String, PathBuf>, failure: &mut F)
+fn read_game_dir<'s, I, F>(dir: I, files_on_disk: &mut HashMap<String, PathBuf>, failure: &mut F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    F: Extend<VerifyFailure>,
+    F: Extend<VerifyFailure<'s>>,
 {
     for entry in dir
         .filter_map(|e| e.ok())
@@ -424,7 +424,7 @@ impl GameParts {
     ) -> Result<(S, F), E>
     where
         S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure>,
+        F: Default + Extend<VerifyFailure<'s>>,
         P: FnMut(VerifyFailure) -> Result<Result<(), VerifyFailure>, E>,
     {
         let mut successes = S::default();
@@ -452,7 +452,7 @@ impl GameParts {
                 None => {
                     match handle_failure(VerifyFailure::Missing {
                         path: game_root.join(name),
-                        part: part.clone(),
+                        part,
                     })? {
                         Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
                         Err(failure) => failures.extend(Some(failure)),
@@ -471,7 +471,7 @@ impl GameParts {
     pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
     where
         S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure>,
+        F: Default + Extend<VerifyFailure<'s>>,
     {
         self.process_parts(
             game_root,
@@ -495,7 +495,7 @@ impl GameParts {
     ) -> Result<(S, F), Error>
     where
         S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure>,
+        F: Default + Extend<VerifyFailure<'s>>,
         P: FnMut(ExtractedPart<'_>),
     {
         self.process_parts(game_root, |failure| {
@@ -557,10 +557,10 @@ pub struct VerifySuccess<'s> {
 }
 
 #[derive(Debug)]
-pub enum VerifyFailure {
+pub enum VerifyFailure<'s> {
     Missing {
         path: PathBuf,
-        part: Part,
+        part: &'s Part,
     },
     Extra {
         path: PathBuf,
@@ -568,7 +568,7 @@ pub enum VerifyFailure {
     },
     Bad {
         path: PathBuf,
-        expected: Part,
+        expected: &'s Part,
         actual: Part,
     },
     Error {
@@ -577,7 +577,7 @@ pub enum VerifyFailure {
     },
 }
 
-impl VerifyFailure {
+impl VerifyFailure<'_> {
     #[inline]
     fn extra(path: PathBuf) -> Self {
         Self::Extra {
@@ -585,9 +585,7 @@ impl VerifyFailure {
             path,
         }
     }
-}
 
-impl VerifyFailure {
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
     fn try_fix<'u>(
         self,
@@ -665,7 +663,7 @@ impl VerifyFailure {
     }
 }
 
-impl fmt::Display for VerifyFailure {
+impl fmt::Display for VerifyFailure<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             VerifyFailure::Missing { path, .. } => {
@@ -915,21 +913,18 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    pub fn verify<F>(&self, from: F, part_path: PathBuf) -> Result<(), VerifyFailure>
+    pub fn verify<F>(&self, from: F, path: PathBuf) -> Result<(), VerifyFailure>
     where
         F: FnOnce(&Path) -> Result<Self, std::io::Error>,
     {
-        match from(part_path.as_ref()) {
+        match from(path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => Ok(()),
-            Ok(ref disk_part) => Err(VerifyFailure::Bad {
-                path: part_path,
-                expected: self.clone(),
-                actual: disk_part.clone(),
+            Ok(disk_part) => Err(VerifyFailure::Bad {
+                path,
+                expected: self,
+                actual: disk_part,
             }),
-            Err(err) => Err(VerifyFailure::Error {
-                path: part_path,
-                err,
-            }),
+            Err(err) => Err(VerifyFailure::Error { path, err }),
         }
     }
 

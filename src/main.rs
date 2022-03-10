@@ -1136,15 +1136,13 @@ impl OptExtraAddAll {
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
-        let mut results = Vec::new();
-
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
-                results.extend(datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?);
+                display_dat_results(
+                    datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
+                );
             }
         }
-
-        display_dat_results(results);
 
         Ok(())
     }
@@ -1667,15 +1665,13 @@ impl OptNointroAddAll {
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
-        let mut results = Vec::new();
-
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
-                results.extend(datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?);
+                display_dat_results(
+                    datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
+                );
             }
         }
-
-        display_dat_results(results);
 
         Ok(())
     }
@@ -1896,6 +1892,7 @@ impl OptCacheVerify {
         use crate::game::{Part, VerifyFailure};
         use indicatif::{ParallelProgressIterator, ProgressBar};
         use rayon::prelude::*;
+        use std::collections::HashMap;
 
         let pb = ProgressBar::new_spinner().with_message("locating files");
         let files = {
@@ -1906,14 +1903,22 @@ impl OptCacheVerify {
 
         let pb = ProgressBar::new(files.len() as u64)
             .with_style(crate::game::verify_style())
-            .with_message("verifying cache entries");
+            .with_message("reading cache entries");
 
-        let results = files
+        let cache = files
             .into_par_iter()
             .progress_with(pb.clone())
-            .filter_map(|file| {
-                Part::get_xattr(&file).and_then(|part| part.verify_uncached(file).err())
-            })
+            .filter_map(|file| Part::get_xattr(&file).map(|part| (file, part)))
+            .collect::<HashMap<PathBuf, Part>>();
+
+        let pb = ProgressBar::new(cache.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message("verifying cache entries");
+
+        let results = cache
+            .par_iter()
+            .progress_with(pb.clone())
+            .filter_map(|(file, part)| part.verify_uncached(file.clone()).err())
             .collect::<Vec<VerifyFailure>>();
 
         pb.finish_and_clear();
