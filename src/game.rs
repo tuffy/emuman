@@ -417,67 +417,15 @@ impl GameParts {
         self.parts.insert(k, v)
     }
 
-    pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
-    where
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure>,
-    {
-        use std::fs::read_dir;
-
-        let mut successes = S::default();
-        let mut failures = F::default();
-        let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
-
-        match read_dir(game_root) {
-            Ok(dir) => read_game_dir(dir, &mut files_on_disk, &mut failures),
-
-            // no directory to read and no parts to check,
-            // so no results are possible
-            Err(_) if self.parts.is_empty() => return (successes, failures),
-
-            Err(_) => {}
-        }
-
-        // verify all game parts
-        for (name, part) in &self.parts {
-            match files_on_disk.remove(name) {
-                Some(pathbuf) => match part.verify_cached(pathbuf) {
-                    Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
-                    Err(failure) => failures.extend(Some(failure)),
-                },
-                None => failures.extend(Some(VerifyFailure::Missing {
-                    path: game_root.join(name),
-                    part: part.clone(),
-                })),
-            }
-        }
-
-        // mark any leftover files on disk as extras
-        failures.extend(
-            files_on_disk
-                .into_iter()
-                .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
-        );
-
-        (successes, failures)
-    }
-
-    #[inline]
-    pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
-        let (_, failures): (VerifySink, Vec<_>) = self.verify(game_root);
-        failures
-    }
-
-    pub fn add_and_verify<'s, S, F, P>(
+    fn process_parts<'s, S, F, P, E>(
         &'s self,
-        rom_sources: &mut RomSources,
         game_root: &Path,
-        mut progress: P,
-    ) -> Result<(S, F), Error>
+        mut handle_failure: P,
+    ) -> Result<(S, F), E>
     where
         S: Default + Extend<VerifySuccess<'s>>,
         F: Default + Extend<VerifyFailure>,
-        P: FnMut(ExtractedPart<'_>),
+        P: FnMut(VerifyFailure) -> Result<Result<(), VerifyFailure>, E>,
     {
         let mut successes = S::default();
         let mut failures = F::default();
@@ -492,29 +440,21 @@ impl GameParts {
         // verify all game parts
         for (name, part) in self.parts.iter() {
             match files_on_disk.remove(name) {
-                Some(target) => match part.verify_cached(target) {
+                Some(pathbuf) => match part.verify_cached(pathbuf) {
                     Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
 
-                    Err(failure) => match failure.try_fix(rom_sources)? {
-                        Ok(d) => {
-                            successes.extend(Some(VerifySuccess { name, part }));
-                            progress(d)
-                        }
+                    Err(failure) => match handle_failure(failure)? {
+                        Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
                         Err(failure) => failures.extend(Some(failure)),
                     },
                 },
 
                 None => {
-                    match (VerifyFailure::Missing {
-                        part: part.clone(),
+                    match handle_failure(VerifyFailure::Missing {
                         path: game_root.join(name),
-                    })
-                    .try_fix(rom_sources)?
-                    {
-                        Ok(d) => {
-                            successes.extend(Some(VerifySuccess { name, part }));
-                            progress(d)
-                        }
+                        part: part.clone(),
+                    })? {
+                        Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
                         Err(failure) => failures.extend(Some(failure)),
                     }
                 }
@@ -531,6 +471,45 @@ impl GameParts {
         Ok((successes, failures))
     }
 
+    #[inline]
+    pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
+    where
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure>,
+    {
+        self.process_parts(
+            game_root,
+            |failure| -> Result<Result<(), VerifyFailure>, Never> { Ok(Err(failure)) },
+        )
+        .unwrap()
+    }
+
+    #[inline]
+    pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
+        let (_, failures): (VerifySink, Vec<_>) = self.verify(game_root);
+        failures
+    }
+
+    #[inline]
+    pub fn add_and_verify<'s, S, F, P>(
+        &'s self,
+        rom_sources: &mut RomSources,
+        game_root: &Path,
+        mut progress: P,
+    ) -> Result<(S, F), Error>
+    where
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure>,
+        P: FnMut(ExtractedPart<'_>),
+    {
+        self.process_parts(game_root, |failure| {
+            failure
+                .try_fix(rom_sources)
+                .map(|r| r.map(|extracted| progress(extracted)))
+        })
+    }
+
+    #[inline]
     pub fn add_and_verify_failures<'s, P>(
         &'s self,
         rom_sources: &mut RomSources,
@@ -1490,3 +1469,7 @@ pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
             }
         })
 }
+
+// an error that never happens
+#[derive(Debug)]
+enum Never {}
