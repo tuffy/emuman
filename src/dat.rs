@@ -255,9 +255,9 @@ impl DatFile {
     {
         let mut failures = Vec::new();
         for (name, game) in self.tree.iter() {
-            failures.extend(game.add_and_verify_root(roms, &root.join(name), |p| progress(p))?);
+            failures.extend(game.add_and_verify(roms, &root.join(name), |p| progress(p))?);
         }
-        failures.extend(self.flat.add_and_verify_root(roms, root, progress)?);
+        failures.extend(self.flat.add_and_verify(roms, root, progress)?);
         Ok(failures)
     }
 

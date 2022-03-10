@@ -325,7 +325,7 @@ impl Game {
         F: FnMut(ExtractedPart<'_>),
     {
         self.parts
-            .add_and_verify_root(rom_sources, &target_dir.join(&self.name), progress)
+            .add_and_verify(rom_sources, &target_dir.join(&self.name), progress)
     }
 
     pub fn display_parts(&self, table: &mut Table) {
@@ -474,7 +474,7 @@ impl GameParts {
         failures
     }
 
-    pub fn add_and_verify_root<F>(
+    pub fn add_and_verify<F>(
         &self,
         rom_sources: &mut RomSources,
         game_root: &Path,
