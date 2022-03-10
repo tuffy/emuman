@@ -1437,13 +1437,18 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
     }
 }
 
-// FIXME - add flag to switch between everything and failure-only results
-pub fn display_dat_results(results: BTreeMap<&str, Vec<VerifyFailure>>) {
+pub fn display_dat_results(results: BTreeMap<&str, Vec<VerifyFailure>>, failures_only: bool) {
     let successes = results.values().filter(|v| v.is_empty()).count();
     let total = results.len();
 
-    for (name, failures) in results {
-        display_all_results(name, &failures);
+    if failures_only {
+        for (name, failures) in results {
+            display_bad_results(name, &failures);
+        }
+    } else {
+        for (name, failures) in results {
+            display_all_results(name, &failures);
+        }
     }
 
     eprintln!("{} tested, {} OK", total, successes);
