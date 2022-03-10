@@ -462,11 +462,7 @@ impl GameParts {
         }
 
         // mark any leftover files on disk as extras
-        failures.extend(
-            files_on_disk
-                .into_iter()
-                .map(|(_, pathbuf)| VerifyFailure::extra(pathbuf)),
-        );
+        failures.extend(files_on_disk.into_values().map(VerifyFailure::extra));
 
         Ok((successes, failures))
     }
