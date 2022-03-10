@@ -440,7 +440,7 @@ impl GameParts {
         // verify all game parts
         for (name, part) in self.parts.iter() {
             match files_on_disk.remove(name) {
-                Some(pathbuf) => match part.verify_cached(name, pathbuf) {
+                Some(pathbuf) => match part.verify(name, pathbuf) {
                     Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
 
                     Err(failure) => match handle_failure(failure)? {
@@ -918,16 +918,8 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    pub fn verify<'s, F>(
-        &'s self,
-        from: F,
-        name: &'s str,
-        path: PathBuf,
-    ) -> Result<(), VerifyFailure<'s>>
-    where
-        F: FnOnce(&Path) -> Result<Self, std::io::Error>,
-    {
-        match from(path.as_ref()) {
+    pub fn verify<'s>(&'s self, name: &'s str, path: PathBuf) -> Result<(), VerifyFailure<'s>> {
+        match Part::from_cached_path(path.as_ref()) {
             Ok(ref disk_part) if self == disk_part => Ok(()),
             Ok(disk_part) => Err(VerifyFailure::Bad {
                 path,
@@ -937,15 +929,6 @@ impl Part {
             }),
             Err(err) => Err(VerifyFailure::Error { path, err }),
         }
-    }
-
-    #[inline]
-    pub fn verify_cached<'s>(
-        &'s self,
-        name: &'s str,
-        part_path: PathBuf,
-    ) -> Result<(), VerifyFailure<'s>> {
-        self.verify(Part::from_cached_path, name, part_path)
     }
 }
 
