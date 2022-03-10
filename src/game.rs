@@ -1439,8 +1439,8 @@ pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
 
 #[derive(Default)]
 pub struct VerifyResultsSummary {
-    successes: usize,
-    total: usize,
+    pub successes: usize,
+    pub total: usize,
 }
 
 impl fmt::Display for VerifyResultsSummary {
@@ -1464,10 +1464,13 @@ impl std::ops::AddAssign for VerifyResultsSummary {
 }
 
 pub fn display_dat_results(
+    table: &mut prettytable::Table,
     dat: &crate::dat::DatFile,
     results: BTreeMap<&str, Vec<VerifyFailure>>,
     failures_only: bool,
 ) -> VerifyResultsSummary {
+    use prettytable::{cell, row};
+
     let summary = VerifyResultsSummary {
         successes: results.values().filter(|v| v.is_empty()).count(),
         total: results.len(),
@@ -1483,7 +1486,7 @@ pub fn display_dat_results(
         }
     }
 
-    eprintln!("{summary} : {dat}", dat = dat.name(), summary = summary);
+    table.add_row(row![r->summary.total, r->summary.successes, dat.name()]);
 
     summary
 }

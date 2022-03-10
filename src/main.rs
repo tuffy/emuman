@@ -1061,11 +1061,16 @@ impl OptExtraVerify {
             .remove(&self.extra)
             .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
+        let mut table = init_dat_table();
+
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref(), self.all),
             self.failures,
         );
+
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1087,16 +1092,21 @@ impl OptExtraVerifyAll {
         let db: extra::ExtraDb = read_cache(EXTRA, CACHE_EXTRA)?;
 
         let mut total = game::VerifyResultsSummary::default();
+
+        let mut table = init_dat_table();
+
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.get(&name) {
                 total += game::display_dat_results(
+                    &mut table,
                     datfile,
                     datfile.verify(&dir, self.all),
                     self.failures,
                 );
             }
         }
-        eprintln!("{} : Total", total);
+
+        display_dat_table(table, Some(total));
 
         Ok(())
     }
@@ -1131,7 +1141,10 @@ impl OptExtraAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
+        let mut table = init_dat_table();
+
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
@@ -1140,6 +1153,8 @@ impl OptExtraAdd {
             )?,
             true,
         );
+
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1163,16 +1178,20 @@ impl OptExtraAddAll {
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
         let mut total = game::VerifyResultsSummary::default();
+
+        let mut table = init_dat_table();
+
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
                 total += game::display_dat_results(
+                    &mut table,
                     &datfile,
                     datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
                     true,
                 );
             }
         }
-        eprintln!("{} : Total", total);
+        display_dat_table(table, Some(total));
 
         Ok(())
     }
@@ -1366,7 +1385,10 @@ impl OptRedumpVerify {
             .remove(&self.software_list)
             .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
+        let mut table = init_dat_table();
+
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.verify(
                 dirs::redump_roms(self.root, &self.software_list).as_ref(),
@@ -1374,6 +1396,8 @@ impl OptRedumpVerify {
             ),
             self.failures,
         );
+
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1408,7 +1432,10 @@ impl OptRedumpAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
+        let mut table = init_dat_table();
+
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
@@ -1417,6 +1444,7 @@ impl OptRedumpAdd {
             )?,
             true,
         );
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1639,11 +1667,14 @@ impl OptNointroVerify {
             .remove(&self.name)
             .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
+        let mut table = init_dat_table();
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref(), self.all),
             self.failures,
         );
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1665,16 +1696,18 @@ impl OptNointroVerifyAll {
         let db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
         let mut total = game::VerifyResultsSummary::default();
+        let mut table = init_dat_table();
         for (name, dir) in dirs::nointro_dirs() {
             if let Some(datfile) = db.get(&name) {
                 total += game::display_dat_results(
+                    &mut table,
                     datfile,
                     datfile.verify(&dir, self.all),
                     self.failures,
                 );
             }
         }
-        eprintln!("{} : Total", total);
+        display_dat_table(table, Some(total));
 
         Ok(())
     }
@@ -1709,7 +1742,9 @@ impl OptNointroAdd {
         let mut roms =
             game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
 
+        let mut table = init_dat_table();
         game::display_dat_results(
+            &mut table,
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
@@ -1718,6 +1753,7 @@ impl OptNointroAdd {
             )?,
             true,
         );
+        display_dat_table(table, None);
 
         Ok(())
     }
@@ -1744,17 +1780,19 @@ impl OptNointroAddAll {
 
         let mut parts = game::all_rom_sources(&self.input, &self.input_url);
 
+        let mut table = init_dat_table();
         let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.remove(&name) {
                 total += game::display_dat_results(
+                    &mut table,
                     &datfile,
                     datfile.add_and_verify(&mut parts, &dir, |p| eprintln!("{}", p))?,
                     self.failures,
                 );
             }
         }
-        eprintln!("{} : Total", total);
+        display_dat_table(table, Some(total));
 
         Ok(())
     }
@@ -2262,6 +2300,25 @@ where
     table.get_format().column_separator('\u{2502}');
     for [version, name, dir] in results {
         table.add_row(row![r->version, name, dir]);
+    }
+    table.printstd();
+}
+
+fn init_dat_table() -> prettytable::Table {
+    use prettytable::{cell, format, row, Table};
+
+    let mut table = Table::new();
+    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    table.get_format().column_separator('\u{2502}');
+    table.set_titles(row![r->"Tested", r->"OK", ""]);
+    table
+}
+
+fn display_dat_table(mut table: prettytable::Table, summary: Option<game::VerifyResultsSummary>) {
+    if let Some(summary) = summary {
+        use prettytable::{cell, row};
+
+        table.add_row(row![r->summary.total, r->summary.successes, "Total"]);
     }
     table.printstd();
 }
