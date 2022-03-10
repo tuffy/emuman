@@ -1047,6 +1047,10 @@ struct OptExtraVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// verify all possible entries
+    #[clap(long = "all")]
+    all: bool,
 }
 
 impl OptExtraVerify {
@@ -1058,7 +1062,7 @@ impl OptExtraVerify {
             .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
         game::display_dat_results(
-            datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref()),
+            datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref(), self.all),
             self.failures,
         );
 
@@ -1071,6 +1075,10 @@ struct OptExtraVerifyAll {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// verify all possible entries
+    #[clap(long = "all")]
+    all: bool,
 }
 
 impl OptExtraVerifyAll {
@@ -1079,7 +1087,7 @@ impl OptExtraVerifyAll {
 
         for (name, dir) in dirs::extra_dirs() {
             if let Some(datfile) = db.get(&name) {
-                game::display_dat_results(datfile.verify(&dir), self.failures);
+                game::display_dat_results(datfile.verify(&dir, self.all), self.failures);
             }
         }
 
@@ -1333,6 +1341,10 @@ struct OptRedumpVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// verify all possible entries
+    #[clap(long = "all")]
+    all: bool,
 }
 
 impl OptRedumpVerify {
@@ -1344,7 +1356,10 @@ impl OptRedumpVerify {
             .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
         game::display_dat_results(
-            datfile.verify(dirs::redump_roms(self.root, &self.software_list).as_ref()),
+            datfile.verify(
+                dirs::redump_roms(self.root, &self.software_list).as_ref(),
+                self.all,
+            ),
             self.failures,
         );
 
@@ -1597,6 +1612,10 @@ struct OptNointroVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// verify all possible entries
+    #[clap(long = "all")]
+    all: bool,
 }
 
 impl OptNointroVerify {
@@ -1608,7 +1627,7 @@ impl OptNointroVerify {
             .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
         game::display_dat_results(
-            datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref()),
+            datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref(), self.all),
             self.failures,
         );
 
@@ -1621,6 +1640,10 @@ struct OptNointroVerifyAll {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// verify all possible entries
+    #[clap(long = "all")]
+    all: bool,
 }
 
 impl OptNointroVerifyAll {
@@ -1629,7 +1652,7 @@ impl OptNointroVerifyAll {
 
         for (name, dir) in dirs::nointro_dirs() {
             if let Some(datfile) = db.get(&name) {
-                game::display_dat_results(datfile.verify(&dir), self.failures);
+                game::display_dat_results(datfile.verify(&dir, self.all), self.failures);
             }
         }
 

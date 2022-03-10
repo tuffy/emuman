@@ -236,8 +236,7 @@ impl DatFile {
         table.printstd();
     }
 
-    // FIXME - add a flag to verify all vs. verify existing items
-    pub fn verify(&self, root: &Path) -> BTreeMap<&str, Vec<VerifyFailure>> {
+    pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<&str, Vec<VerifyFailure>> {
         let mut failures = BTreeMap::default();
 
         let (flat_successes, flat_failures) = self.flat.verify::<Vec<_>, Vec<_>>(root);
@@ -248,21 +247,39 @@ impl DatFile {
                 .map(|success| (success.name, Vec::new())),
         );
 
-        failures.extend(
-            flat_failures
-                .into_iter()
-                .filter_map(|failure| match failure {
-                    VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
-                    VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                    _ => None,
-                }),
-        );
+        if all {
+            failures.extend(
+                flat_failures
+                    .into_iter()
+                    .filter_map(|failure| match failure {
+                        VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
+                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                        _ => None,
+                    }),
+            );
 
-        failures.extend(
-            self.tree
-                .iter()
-                .map(|(name, game)| (name.as_str(), game.verify_failures(&root.join(name)))),
-        );
+            failures.extend(
+                self.tree
+                    .iter()
+                    .map(|(name, game)| (name.as_str(), game.verify_failures(&root.join(name)))),
+            );
+        } else {
+            failures.extend(
+                flat_failures
+                    .into_iter()
+                    .filter_map(|failure| match failure {
+                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                        _ => None,
+                    }),
+            );
+
+            for (name, game) in self.tree.iter() {
+                let game_root = root.join(name);
+                if game_root.is_dir() {
+                    failures.insert(name, game.verify_failures(&game_root));
+                }
+            }
+        }
 
         failures
     }
