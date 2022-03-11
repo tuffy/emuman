@@ -1902,6 +1902,10 @@ enum OptCache {
     #[clap(name = "delete")]
     Delete(OptCacheDelete),
 
+    /// verify existing cache entries
+    #[clap(name = "verify")]
+    Verify(OptCacheVerify),
+
     /// find duplicate files and link them together
     #[clap(name = "link-dupes")]
     LinkDupes(OptCacheLinkDupes),
@@ -1912,6 +1916,7 @@ impl OptCache {
         match self {
             OptCache::Add(o) => o.execute(),
             OptCache::Delete(o) => o.execute(),
+            OptCache::Verify(o) => o.execute(),
             OptCache::LinkDupes(o) => o.execute(),
         }
     }
@@ -1982,6 +1987,58 @@ impl OptCacheDelete {
         ) {
             Part::remove_xattr(&file)?;
         }
+
+        pb.finish_and_clear();
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptCacheVerify {
+    /// files or directories
+    #[clap(parse(from_os_str))]
+    paths: Vec<PathBuf>,
+}
+
+impl OptCacheVerify {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::Part;
+        use indicatif::{ParallelProgressIterator, ProgressBar};
+        use rayon::prelude::*;
+        use std::collections::HashMap;
+
+        let pb = ProgressBar::new_spinner().with_message("locating files");
+        let files = {
+            pb.wrap_iter(self.paths.into_iter().flat_map(unique_sub_files))
+                .collect::<Vec<PathBuf>>()
+        };
+        pb.finish_and_clear();
+
+        let pb = ProgressBar::new(files.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message("reading cache entries");
+
+        let cache = files
+            .into_par_iter()
+            .progress_with(pb.clone())
+            .filter_map(|file| Part::get_xattr(&file).map(|part| (file, part)))
+            .collect::<HashMap<PathBuf, Part>>();
+
+        pb.finish_and_clear();
+
+        let pb = ProgressBar::new(cache.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message("verifying cache entries");
+
+        cache
+            .par_iter()
+            .progress_with(pb.clone())
+            .for_each(|(file, part)| match part.is_valid(&file) {
+                Ok(true) => {/* do nothing*/}
+                Ok(false) => pb.println(format!("BAD : {}", file.display())),
+                Err(err) => pb.println(format!("ERROR : {} : {}", file.display(), err)),
+            });
 
         pb.finish_and_clear();
 

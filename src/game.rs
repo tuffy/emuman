@@ -930,6 +930,11 @@ impl Part {
             Err(err) => Err(VerifyFailure::Error { path, err }),
         }
     }
+
+    #[inline]
+    pub fn is_valid(&self, path: &Path) -> Result<bool, std::io::Error> {
+        Part::from_path(path).map(|disk_part| self == &disk_part)
+    }
 }
 
 struct Sha1Reader<R> {
