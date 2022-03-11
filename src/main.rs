@@ -1605,7 +1605,7 @@ impl OptNointroCreate {
 
 #[derive(Args)]
 struct OptNointroDirs {
-    // sort output by version
+    /// sort output by version
     #[clap(short = 'V')]
     sort_by_version: bool,
 }
