@@ -34,21 +34,11 @@ static CACHE_NOINTRO: &str = "nointro.cbor";
 static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
 static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
 
-// FIXME - add context to a lot more errors
+// used to add context about which file caused a given error
 #[derive(Debug)]
 pub struct FileError<E> {
     file: PathBuf,
     error: E,
-}
-
-impl<E> FileError<E> {
-    #[inline]
-    pub fn new(file: &Path, error: E) -> FileError<E> {
-        FileError {
-            file: file.to_path_buf(),
-            error,
-        }
-    }
 }
 
 impl<E: std::error::Error> std::error::Error for FileError<E> {}
@@ -66,7 +56,6 @@ pub enum Error {
     Xml(roxmltree::Error),
     SerdeXml(FileError<quick_xml::de::DeError>),
     Sql(rusqlite::Error),
-    CborRead(ciborium::de::Error<std::io::Error>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
     TomlWrite(toml::ser::Error),
     Zip(zip::result::ZipError),
@@ -76,6 +65,7 @@ pub enum Error {
     NoSuchSoftwareList(String),
     NoSuchSoftware(String),
     MissingCache(&'static str),
+    InvalidCache(&'static str),
     InvalidPath,
     InvalidSha1(FileError<game::Sha1ParseError>),
 }
@@ -132,7 +122,6 @@ impl std::error::Error for Error {
             Error::Xml(err) => Some(err),
             err @ Error::SerdeXml(_) => err.source(),
             Error::Sql(err) => Some(err),
-            Error::CborRead(err) => Some(err),
             Error::CborWrite(err) => Some(err),
             Error::TomlWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
@@ -150,7 +139,6 @@ impl fmt::Display for Error {
             Error::Xml(err) => err.fmt(f),
             Error::SerdeXml(err) => err.fmt(f),
             Error::Sql(err) => err.fmt(f),
-            Error::CborRead(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
             Error::TomlWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
@@ -165,6 +153,11 @@ impl fmt::Display for Error {
             Error::MissingCache(s) => write!(
                 f,
                 "missing cache files, please run \"emuman {} create\" to populate",
+                s
+            ),
+            Error::InvalidCache(s) => write!(
+                f,
+                "outdated or invalid cache files, please run \"emuman {} create\" to repopulate",
                 s
             ),
             Error::InvalidPath => write!(f, "invalid UTF-8 path"),
@@ -2155,7 +2148,7 @@ where
         File::open(dirs.data_local_dir().join(db_file))
             .map_err(|_| Error::MissingCache(utility))?,
     );
-    ciborium::de::from_reader(f).map_err(Error::CborRead)
+    ciborium::de::from_reader(f).map_err(|_| Error::InvalidCache(utility))
 }
 
 fn verify<P: AsRef<Path>>(
