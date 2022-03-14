@@ -167,7 +167,7 @@ impl fmt::Display for Error {
 }
 
 #[derive(Args)]
-struct OptMameCreate {
+struct OptMameInit {
     /// SQLite database
     #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
@@ -177,7 +177,7 @@ struct OptMameCreate {
     xml: Option<PathBuf>,
 }
 
-impl OptMameCreate {
+impl OptMameInit {
     fn execute(self) -> Result<(), Error> {
         let xml_data = if let Some(path) = self.xml {
             read_raw_or_zip(path)?
@@ -404,9 +404,9 @@ impl OptMameAdd {
 
 #[derive(Subcommand)]
 enum OptMame {
-    /// create internal database
-    #[clap(name = "create")]
-    Create(OptMameCreate),
+    /// initialize internal database
+    #[clap(name = "init")]
+    Init(OptMameInit),
 
     /// list all machines
     #[clap(name = "list")]
@@ -436,7 +436,7 @@ enum OptMame {
 impl OptMame {
     fn execute(self) -> Result<(), Error> {
         match self {
-            OptMame::Create(o) => o.execute(),
+            OptMame::Init(o) => o.execute(),
             OptMame::List(o) => o.execute(),
             OptMame::Parts(o) => o.execute(),
             OptMame::Games(o) => o.execute(),
@@ -448,7 +448,7 @@ impl OptMame {
 }
 
 #[derive(Args)]
-struct OptMessCreate {
+struct OptMessInit {
     /// SQLite database
     #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
@@ -458,7 +458,7 @@ struct OptMessCreate {
     xml: Vec<PathBuf>,
 }
 
-impl OptMessCreate {
+impl OptMessInit {
     fn execute(self) -> Result<(), Error> {
         use mess::MessDb;
 
@@ -903,9 +903,9 @@ impl OptMessSplit {
 #[derive(Subcommand)]
 #[clap(name = "mess")]
 enum OptMess {
-    /// create internal database
-    #[clap(name = "create")]
-    Create(OptMessCreate),
+    /// initialize internal database
+    #[clap(name = "init")]
+    Init(OptMessInit),
 
     /// list all software in software list
     #[clap(name = "list")]
@@ -947,7 +947,7 @@ enum OptMess {
 impl OptMess {
     fn execute(self) -> Result<(), Error> {
         match self {
-            OptMess::Create(o) => o.execute(),
+            OptMess::Init(o) => o.execute(),
             OptMess::List(o) => o.execute(),
             OptMess::Games(o) => o.execute(),
             OptMess::Parts(o) => o.execute(),
@@ -962,7 +962,7 @@ impl OptMess {
 }
 
 #[derive(Args)]
-struct OptExtraCreate {
+struct OptExtraInit {
     /// extras .DAT file files
     #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
@@ -972,7 +972,7 @@ struct OptExtraCreate {
     replace: bool,
 }
 
-impl OptExtraCreate {
+impl OptExtraInit {
     fn execute(self) -> Result<(), Error> {
         let mut db = if self.replace {
             extra::ExtraDb::default()
@@ -1202,9 +1202,9 @@ impl OptExtraAddAll {
 #[derive(Subcommand)]
 #[clap(name = "extra")]
 enum OptExtra {
-    /// create internal database
-    #[clap(name = "create")]
-    Create(OptExtraCreate),
+    /// initialize internal database
+    #[clap(name = "init")]
+    Init(OptExtraInit),
 
     /// list defined directories
     #[clap(name = "dirs")]
@@ -1234,7 +1234,7 @@ enum OptExtra {
 impl OptExtra {
     fn execute(self) -> Result<(), Error> {
         match self {
-            OptExtra::Create(o) => o.execute(),
+            OptExtra::Init(o) => o.execute(),
             OptExtra::Dirs(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
@@ -1246,7 +1246,7 @@ impl OptExtra {
 }
 
 #[derive(Args)]
-struct OptRedumpCreate {
+struct OptRedumpInit {
     /// SQLite database
     #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
@@ -1256,7 +1256,7 @@ struct OptRedumpCreate {
     xml: Vec<PathBuf>,
 }
 
-impl OptRedumpCreate {
+impl OptRedumpInit {
     fn execute(self) -> Result<(), Error> {
         if let Some(db_file) = self.database {
             let mut db = open_db(&db_file)?;
@@ -1492,9 +1492,9 @@ impl OptRedumpSplit {
 #[derive(Subcommand)]
 #[clap(name = "redump")]
 enum OptRedump {
-    /// create internal database
-    #[clap(name = "create")]
-    Create(OptRedumpCreate),
+    /// initialize internal database
+    #[clap(name = "init")]
+    Init(OptRedumpInit),
 
     /// list defined directories
     #[clap(name = "dirs")]
@@ -1524,7 +1524,7 @@ enum OptRedump {
 impl OptRedump {
     fn execute(self) -> Result<(), Error> {
         match self {
-            OptRedump::Create(o) => o.execute(),
+            OptRedump::Init(o) => o.execute(),
             OptRedump::Dirs(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
             OptRedump::Parts(o) => o.execute(),
@@ -1538,9 +1538,9 @@ impl OptRedump {
 #[derive(Subcommand)]
 #[clap(name = "nointro")]
 enum OptNointro {
-    /// create internal database
-    #[clap(name = "create")]
-    Create(OptNointroCreate),
+    /// initialize internal database
+    #[clap(name = "init")]
+    Init(OptNointroInit),
 
     /// list defined directories
     #[clap(name = "dirs")]
@@ -1570,7 +1570,7 @@ enum OptNointro {
 impl OptNointro {
     fn execute(self) -> Result<(), Error> {
         match self {
-            OptNointro::Create(o) => o.execute(),
+            OptNointro::Init(o) => o.execute(),
             OptNointro::Dirs(o) => o.execute(),
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
@@ -1582,7 +1582,7 @@ impl OptNointro {
 }
 
 #[derive(Args)]
-struct OptNointroCreate {
+struct OptNointroInit {
     /// No-Intro DAT file
     #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
@@ -1592,7 +1592,7 @@ struct OptNointroCreate {
     replace: bool,
 }
 
-impl OptNointroCreate {
+impl OptNointroInit {
     fn execute(self) -> Result<(), Error> {
         let mut db = if self.replace {
             nointro::NointroDb::default()
