@@ -206,7 +206,7 @@ impl<'s> Drop for MessRoms<'s> {
                     )
                 }) {
                     Ok(Set::Changed) => eprintln!(
-                        "* default MESS ROMs directory updated to : \"{}\"",
+                        "* default software list ROMs directory updated to : \"{}\"",
                         roms.display()
                     ),
                     Ok(Set::Unchanged) => {}

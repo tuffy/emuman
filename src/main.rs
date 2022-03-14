@@ -479,11 +479,11 @@ enum OptMame {
     #[clap(name = "init")]
     Init(OptMameInit),
 
-    /// list all machines
+    /// list all games
     #[clap(name = "list")]
     List(OptMameList),
 
-    /// list a machine's ROMs
+    /// list a games's ROMs
     #[clap(name = "parts")]
     Parts(OptMameParts),
 
@@ -491,7 +491,7 @@ enum OptMame {
     #[clap(name = "games")]
     Games(OptMameGames),
 
-    /// generate report of sets in collection
+    /// generate report of games in collection
     #[clap(name = "report")]
     Report(OptMameReport),
 
@@ -966,7 +966,7 @@ impl OptMessSplit {
 }
 
 #[derive(Subcommand)]
-#[clap(name = "mess")]
+#[clap(name = "sl")]
 enum OptMess {
     /// initialize internal database
     #[clap(name = "init")]
@@ -1004,7 +1004,7 @@ enum OptMess {
     #[clap(name = "add-all")]
     AddAll(OptMessAddAll),
 
-    /// split ROM into MESS-compatible parts, if necessary
+    /// split ROM into software list-compatible parts, if necessary
     #[clap(name = "split")]
     Split(OptMessSplit),
 }
@@ -2175,7 +2175,7 @@ enum Opt {
 
     /// console and portable software management
     #[clap(subcommand)]
-    Mess(OptMess),
+    Sl(OptMess),
 
     /// extra files management, like snapshots
     #[clap(subcommand)]
@@ -2201,7 +2201,7 @@ impl Opt {
     fn execute(self) -> Result<(), Error> {
         match self {
             Opt::Mame(o) => o.execute(),
-            Opt::Mess(o) => o.execute(),
+            Opt::Sl(o) => o.execute(),
             Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
             Opt::Nointro(o) => o.execute(),
