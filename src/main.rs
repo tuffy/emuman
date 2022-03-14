@@ -166,27 +166,102 @@ impl fmt::Display for Error {
     }
 }
 
+enum Resource {
+    File(PathBuf),
+    Url(String),
+}
+
+impl Resource {
+    fn open(&self) -> Result<ResourceFile, Error> {
+        match self {
+            Resource::File(f) => File::open(f).map(ResourceFile::File).map_err(Error::IO),
+            Resource::Url(u) => http::fetch_url_data(u.as_str())
+                .map(|data| ResourceFile::Url(std::io::Cursor::new(data))),
+        }
+    }
+
+    // separates resources by files and URLs
+    fn partition(resources: Vec<Resource>) -> (Vec<PathBuf>, Vec<String>) {
+        let mut files = Vec::default();
+        let mut urls = Vec::default();
+
+        for resource in resources {
+            match resource {
+                Resource::File(f) => files.push(f),
+                Resource::Url(u) => urls.push(u),
+            }
+        }
+
+        (files, urls)
+    }
+}
+
+impl From<&std::ffi::OsStr> for Resource {
+    #[inline]
+    fn from(osstr: &std::ffi::OsStr) -> Self {
+        match osstr.to_str() {
+            Some(s) if url::Url::parse(s).is_ok() => Self::Url(s.to_string()),
+            _ => Self::File(PathBuf::from(osstr)),
+        }
+    }
+}
+
+enum ResourceFile {
+    File(std::fs::File),
+    Url(std::io::Cursor<Box<[u8]>>),
+}
+
+impl std::io::Read for ResourceFile {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
+        match self {
+            ResourceFile::File(f) => f.read(buf),
+            ResourceFile::Url(f) => f.read(buf),
+        }
+    }
+}
+
+impl std::io::Seek for ResourceFile {
+    #[inline]
+    fn seek(&mut self, from: std::io::SeekFrom) -> Result<u64, std::io::Error> {
+        match self {
+            ResourceFile::File(f) => f.seek(from),
+            ResourceFile::Url(f) => f.seek(from),
+        }
+    }
+}
+
 #[derive(Args)]
 struct OptMameInit {
     /// SQLite database
     #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
 
-    /// MAME's XML file
+    /// MAME's XML file or URL
     #[clap(parse(from_os_str))]
-    xml: Option<PathBuf>,
+    xml: Option<Resource>,
 }
 
 impl OptMameInit {
     fn execute(self) -> Result<(), Error> {
-        let xml_data = if let Some(path) = self.xml {
-            read_raw_or_zip(path)?
-        } else {
-            use std::io::stdin;
-
-            let mut xml_data = String::new();
-            stdin().read_to_string(&mut xml_data)?;
-            xml_data
+        let xml_data = match self.xml {
+            Some(resource) => {
+                let mut f = resource.open()?;
+                let mut data = String::new();
+                if is_zip(&mut f)? {
+                    zip::ZipArchive::new(f)?
+                        .by_index(0)?
+                        .read_to_string(&mut data)?;
+                } else {
+                    f.read_to_string(&mut data)?;
+                }
+                data
+            }
+            None => {
+                let mut xml_data = String::new();
+                std::io::stdin().read_to_string(&mut xml_data)?;
+                xml_data
+            }
         };
 
         let xml =
@@ -314,7 +389,8 @@ struct OptMameVerify {
     #[clap(long = "failures")]
     failures: bool,
 
-    /// machine to verify
+    /// game to verify
+    #[clap(short = 'g', long = "game")]
     machines: Vec<String>,
 }
 
@@ -356,20 +432,17 @@ impl OptMameVerify {
 
 #[derive(Args)]
 struct OptMameAdd {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
 
-    /// machine to add
+    /// game to add
+    #[clap(short = 'g', long = "game")]
     machines: Vec<String>,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 }
 
 impl OptMameAdd {
@@ -378,14 +451,12 @@ impl OptMameAdd {
 
         let roms_dir = dirs::mame_roms(self.roms);
 
+        let (input, input_url) = Resource::partition(self.input);
+
         let mut roms = if self.machines.is_empty() {
-            game::all_rom_sources(&self.input, &self.input_url)
+            game::all_rom_sources(&input, &input_url)
         } else {
-            game::get_rom_sources(
-                &self.input,
-                &self.input_url,
-                db.required_parts(&self.machines)?,
-            )
+            game::get_rom_sources(&input, &input_url, db.required_parts(&self.machines)?)
         };
 
         if self.machines.is_empty() {
@@ -668,7 +739,8 @@ struct OptMessVerify {
     /// software list to use
     software_list: String,
 
-    /// machine to verify
+    /// game to verify
+    #[clap(short = 'g', long = "game")]
     software: Vec<String>,
 }
 
@@ -765,14 +837,6 @@ impl OptMessVerifyAll {
 
 #[derive(Args)]
 struct OptMessAdd {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
@@ -780,8 +844,13 @@ struct OptMessAdd {
     /// software list to use
     software_list: String,
 
-    /// software to add
+    /// game to add
+    #[clap(short = 'g', long = "game")]
     software: Vec<String>,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 }
 
 impl OptMessAdd {
@@ -790,17 +859,15 @@ impl OptMessAdd {
             .remove(&self.software_list)
             .ok_or_else(|| Error::NoSuchSoftwareList(self.software_list.clone()))?;
 
-        let mut roms = if self.software.is_empty() {
-            game::all_rom_sources(&self.input, &self.input_url)
-        } else {
-            game::get_rom_sources(
-                &self.input,
-                &self.input_url,
-                db.required_parts(&self.software)?,
-            )
-        };
-
         let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
+
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut roms = if self.software.is_empty() {
+            game::all_rom_sources(&input, &input_url)
+        } else {
+            game::get_rom_sources(&input, &input_url, db.required_parts(&self.software)?)
+        };
 
         if self.software.is_empty() {
             add_and_verify(&mut roms, &roms_dir, db.games_iter())
@@ -816,26 +883,24 @@ impl OptMessAdd {
 
 #[derive(Args)]
 struct OptMessAddAll {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 }
 
 impl OptMessAddAll {
     fn execute(self) -> Result<(), Error> {
         let db = read_cache::<mess::MessDb>(MESS, CACHE_MESS)?;
 
-        let mut roms = game::all_rom_sources(&self.input, &self.input_url);
-
         let roms_dir = dirs::mess_roms_all(self.roms);
+
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut roms = game::all_rom_sources(&input, &input_url);
 
         db.into_iter().try_for_each(|(software, db)| {
             add_and_verify_all(
@@ -1107,20 +1172,16 @@ impl OptExtraVerifyAll {
 
 #[derive(Args)]
 struct OptExtraAdd {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'd', long = "dir", parse(from_os_str))]
     dir: Option<PathBuf>,
 
     /// extra to add
     extra: String,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -1135,8 +1196,9 @@ impl OptExtraAdd {
             .remove(&self.extra)
             .ok_or_else(|| Error::no_such_dat(&self.extra))?;
 
-        let mut roms =
-            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
         let mut table = init_dat_table();
 
@@ -1160,24 +1222,22 @@ impl OptExtraAdd {
 
 #[derive(Args)]
 struct OptExtraAddAll {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// verify all possible machines
     #[clap(long = "all")]
     all: bool,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 }
 
 impl OptExtraAddAll {
     fn execute(self) -> Result<(), Error> {
         let mut db = read_cache::<extra::ExtraDb>(EXTRA, CACHE_EXTRA)?;
 
-        let mut parts = game::all_rom_sources(&self.input, &self.input_url);
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut parts = game::all_rom_sources(&input, &input_url);
 
         let mut total = game::VerifyResultsSummary::default();
 
@@ -1251,7 +1311,7 @@ struct OptRedumpInit {
     #[clap(long = "db", parse(from_os_str))]
     database: Option<PathBuf>,
 
-    /// redump XML file
+    /// Redump XML or Zip file
     #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
 }
@@ -1407,20 +1467,16 @@ impl OptRedumpVerify {
 
 #[derive(Args)]
 struct OptRedumpAdd {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     output: Option<PathBuf>,
 
     /// software list to use
     software_list: String,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -1435,8 +1491,9 @@ impl OptRedumpAdd {
             .remove(&self.software_list)
             .ok_or_else(|| Error::no_such_dat(&self.software_list))?;
 
-        let mut roms =
-            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
         let mut table = init_dat_table();
 
@@ -1583,7 +1640,7 @@ impl OptNointro {
 
 #[derive(Args)]
 struct OptNointroInit {
-    /// No-Intro DAT file
+    /// No-Intro DAT or Zip file
     #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
 
@@ -1722,20 +1779,16 @@ impl OptNointroVerifyAll {
 
 #[derive(Args)]
 struct OptNointroAdd {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// output directory
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
 
     /// category name to add ROMs to
     name: String,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -1750,8 +1803,9 @@ impl OptNointroAdd {
             .remove(&self.name)
             .ok_or_else(|| Error::no_such_dat(&self.name))?;
 
-        let mut roms =
-            game::get_rom_sources(&self.input, &self.input_url, datfile.required_parts());
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
         let mut table = init_dat_table();
         game::display_dat_results(
@@ -1773,17 +1827,13 @@ impl OptNointroAdd {
 
 #[derive(Args)]
 struct OptNointroAddAll {
-    /// input directory
-    #[clap(short = 'i', long = "input", parse(from_os_str))]
-    input: Vec<PathBuf>,
-
-    /// input URL
-    #[clap(short = 'I', long = "input-url")]
-    input_url: Vec<String>,
-
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
+
+    /// input file, directory, or URL
+    #[clap(parse(from_os_str))]
+    input: Vec<Resource>,
 
     /// verify all possible machines
     #[clap(long = "all")]
@@ -1794,7 +1844,9 @@ impl OptNointroAddAll {
     fn execute(self) -> Result<(), Error> {
         let mut db: nointro::NointroDb = read_cache(NOINTRO, CACHE_NOINTRO)?;
 
-        let mut parts = game::all_rom_sources(&self.input, &self.input_url);
+        let (input, input_url) = Resource::partition(self.input);
+
+        let mut parts = game::all_rom_sources(&input, &input_url);
 
         let mut table = init_dat_table();
         let mut total = game::VerifyResultsSummary::default();
@@ -2175,21 +2227,6 @@ where
     reader.read_exact(&mut buf)?;
     reader.seek(SeekFrom::Start(0))?;
     Ok(&buf == b"\x50\x4b\x03\x04")
-}
-
-// attempts to read the first file in a .zip file,
-// or the whole raw file if it is not a .zip
-fn read_raw_or_zip<P: AsRef<Path>>(file: P) -> Result<String, Error> {
-    let mut f = File::open(file)?;
-    let mut data = String::new();
-    if is_zip(&mut f)? {
-        use zip::ZipArchive;
-
-        ZipArchive::new(f)?.by_index(0)?.read_to_string(&mut data)?;
-    } else {
-        f.read_to_string(&mut data)?;
-    }
-    Ok(data)
 }
 
 fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {
