@@ -483,7 +483,7 @@ impl GameParts {
 
     #[inline]
     pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
-        let (_, failures): (VerifySink, Vec<_>) = self.verify(game_root);
+        let (_, failures): (ExtendSink<VerifySuccess>, Vec<_>) = self.verify(game_root);
         failures
     }
 
@@ -516,7 +516,7 @@ impl GameParts {
     where
         P: FnMut(ExtractedPart<'_>),
     {
-        let (_, failures): (VerifySink, Vec<_>) =
+        let (_, failures): (ExtendSink<VerifySuccess<'s>>, Vec<_>) =
             self.add_and_verify(rom_sources, game_root, progress)?;
         Ok(failures)
     }
@@ -705,14 +705,20 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
     }
 }
 
-#[derive(Default)]
-struct VerifySink;
+struct ExtendSink<I>(std::marker::PhantomData<I>);
 
-impl<'s> Extend<VerifySuccess<'s>> for VerifySink {
+impl<I> Default for ExtendSink<I> {
+    #[inline]
+    fn default() -> Self {
+        ExtendSink(std::marker::PhantomData)
+    }
+}
+
+impl<I> Extend<I> for ExtendSink<I> {
     #[inline]
     fn extend<T>(&mut self, _: T)
     where
-        T: IntoIterator<Item = VerifySuccess<'s>>,
+        T: IntoIterator<Item = I>,
     {
         // do nothing
     }

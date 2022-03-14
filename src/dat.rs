@@ -288,6 +288,7 @@ impl DatFile {
         &self,
         roms: &mut RomSources,
         root: &Path,
+        all: bool,
         mut progress: F,
     ) -> Result<BTreeMap<&str, Vec<VerifyFailure>>, Error>
     where
@@ -304,21 +305,42 @@ impl DatFile {
                 .map(|success| (success.name, Vec::new())),
         );
 
-        failures.extend(
-            flat_failures
-                .into_iter()
-                .filter_map(|failure| match failure {
-                    VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
-                    VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                    _ => None,
-                }),
-        );
-
-        for (name, game) in self.tree.iter() {
-            failures.insert(
-                name,
-                game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+        if all {
+            failures.extend(
+                flat_failures
+                    .into_iter()
+                    .filter_map(|failure| match failure {
+                        VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
+                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                        _ => None,
+                    }),
             );
+
+            for (name, game) in self.tree.iter() {
+                failures.insert(
+                    name,
+                    game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+                );
+            }
+        } else {
+            failures.extend(
+                flat_failures
+                    .into_iter()
+                    .filter_map(|failure| match failure {
+                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
+                        _ => None,
+                    }),
+            );
+
+            for (name, game) in self.tree.iter() {
+                let game_root = root.join(name);
+                if game_root.is_dir() {
+                    failures.insert(
+                        name,
+                        game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+                    );
+                }
+            }
         }
 
         Ok(failures)
