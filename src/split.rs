@@ -17,6 +17,17 @@ impl SplitDb {
             .unwrap_or(&[])
     }
 }
+impl Extend<(u64, SplitGame)> for SplitDb {
+    #[inline]
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = (u64, SplitGame)>,
+    {
+        for (size, game) in iter {
+            self.games.entry(size).or_default().push(game);
+        }
+    }
+}
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct SplitGame {

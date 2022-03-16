@@ -1,13 +1,13 @@
 use super::{
-    game::{Game, GameColumn, GameDb, GameRow, Part, Status},
+    game::{Game, GameColumn, GameDb, GameParts, GameRow, Part as GamePart, Status},
     split::{SplitDb, SplitGame, SplitPart},
     Error,
 };
 use crate::game::parse_int;
-use roxmltree::{Document, Node};
 use rusqlite::{named_params, Transaction};
+use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 const CREATE_SOFTWARE_LIST: &str = "CREATE TABLE IF NOT EXISTS SoftwareList (
     softwarelist_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -147,447 +147,494 @@ pub fn clear_tables(db: &Transaction) -> Result<(), Error> {
         .map_err(Error::Sql)
 }
 
-pub fn add_file(xml_path: &Path, db: &Transaction) -> Result<(), Error> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let mut xml_file = String::new();
-    File::open(xml_path).and_then(|mut f| f.read_to_string(&mut xml_file))?;
-
-    let tree = Document::parse(&xml_file)?;
-    add_software_list(db, &tree.root_element()).map_err(Error::Sql)
+#[derive(Debug, Deserialize)]
+pub struct Softwarelist {
+    pub name: String,
+    pub description: String,
+    pub software: Option<Vec<Software>>,
 }
 
-fn add_software_list(db: &Transaction, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO SoftwareList
-        (name, description) VALUES (:name, :description)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":name": node.attribute("name"),
-            ":description": node.attribute("description")
-        })
-    })?;
-
-    let softwarelist_id = db.last_insert_rowid();
-
-    node.children()
-        .filter(|c| c.tag_name().name() == "software")
-        .try_for_each(|c| add_software(db, softwarelist_id, &c))
-}
-
-fn add_software(
-    db: &Transaction,
-    softwarelist_id: i64,
-    node: &Node,
-) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Software
-        (softwarelist_id, name, cloneof, supported) VALUES
-        (:softwarelist_id, :name, :cloneof, :supported)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":softwarelist_id": softwarelist_id,
-            ":name": node.attribute("name"),
-            ":cloneof": node.attribute("cloneof"),
-            ":supported": node.attribute("supported").unwrap_or("yes")
-        })
-    })?;
-
-    let software_id = db.last_insert_rowid();
-
-    for child in node.children() {
-        match child.tag_name().name() {
-            "description" => add_description(db, software_id, &child)?,
-            "year" => add_year(db, software_id, &child)?,
-            "publisher" => add_publisher(db, software_id, &child)?,
-            "info" => add_info(db, software_id, &child)?,
-            "sharedfeat" => add_shared_feature(db, software_id, &child)?,
-            "part" => add_part(db, software_id, &child)?,
-            _ => { /*ignore unsupported nodes*/ }
-        }
-    }
-
-    Ok(())
-}
-
-fn add_description(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "UPDATE Software SET description = :description WHERE
-         (software_id = :software_id)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":software_id": software_id,
-            ":description": node.text()
-        })
-    })
-    .map(|_| ())
-}
-
-fn add_year(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached("UPDATE Software SET year = :year WHERE (software_id = :software_id)")
+impl Softwarelist {
+    fn into_db(self, db: &Transaction) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO SoftwareList
+            (name, description) VALUES (:name, :description)",
+        )
         .and_then(|mut stmt| {
             stmt.execute(named_params! {
-                ":software_id": software_id,
-                ":year": node.text()
-            })
-        })
-        .map(|_| ())
-}
-
-fn add_publisher(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "UPDATE Software SET publisher = :publisher WHERE
-         (software_id = :software_id)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":software_id": software_id,
-            ":publisher": node.text()
-        })
-    })
-    .map(|_| ())
-}
-
-fn add_info(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Info (software_id, name, value) VALUES
-        (:software_id, :name, :value)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":software_id": software_id,
-            ":name": node.attribute("name"),
-            ":value": node.attribute("value")
-        })
-    })
-    .map(|_| ())
-}
-
-fn add_shared_feature(
-    db: &Transaction,
-    software_id: i64,
-    node: &Node,
-) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO SharedFeature (software_id, name, value) VALUES
-        (:software_id, :name, :value)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":software_id": software_id,
-            ":name": node.attribute("name"),
-            ":value": node.attribute("value")
-        })
-    })
-    .map(|_| ())
-}
-
-fn add_part(db: &Transaction, software_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Part (software_id, name, interface) VALUES
-        (:software_id, :name, :interface)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":software_id": software_id,
-            ":name": node.attribute("name"),
-            ":interface": node.attribute("interface")
-        })
-    })?;
-
-    let part_id = db.last_insert_rowid();
-
-    for child in node.children() {
-        match child.tag_name().name() {
-            "feature" => add_feature(db, part_id, &child)?,
-            "dataarea" => add_data_area(db, part_id, &child)?,
-            "diskarea" => add_disk_area(db, part_id, &child)?,
-            "dipswitch" => add_dipswitch(db, part_id, &child)?,
-            _ => { /*ignore unsupported nodes*/ }
-        }
-    }
-
-    Ok(())
-}
-
-fn add_feature(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Feature (part_id, name, value) VALUES
-        (:part_id, :name, :value)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":part_id": part_id,
-            ":name": node.attribute("name"),
-            ":value": node.attribute("value")
-        })
-    })
-    .map(|_| ())
-}
-
-fn add_data_area(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO DataArea (part_id, name, size, width, endianness)
-        VALUES (:part_id, :name, :size, :width, :endianness)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":part_id": part_id,
-            ":name": node.attribute("name"),
-            ":size": node.attribute("size").map(|s| parse_int(s).map(|i| i as i64).expect("invalid data area size")),
-            ":width": node.attribute("width"),
-            ":endianness": node.attribute("endianness")
-        })
-    })?;
-
-    let data_area_id = db.last_insert_rowid();
-
-    node.children()
-        .filter(|c| c.tag_name().name() == "rom")
-        .try_for_each(|c| add_rom(db, data_area_id, &c))
-}
-
-fn add_rom(db: &Transaction, data_area_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO ROM
-        (data_area_id, name, size, crc, sha1, offset, value, status, loadflag)
-        VALUES
-        (:data_area_id, :name, :size, :crc, :sha1,
-         :offset, :value, :status, :loadflag)")
-    .and_then(|mut stmt| stmt.execute(
-        named_params! {
-            ":data_area_id": data_area_id,
-            ":name": node.attribute("name"),
-            ":size": node.attribute("size").map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM size integer")),
-            ":crc": node.attribute("crc"),
-            ":sha1": node.attribute("sha1"),
-            ":offset": node.attribute("offset").map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM offset integer")),
-            ":value": node.attribute("value"),
-            ":status": node.attribute("status"),
-            ":loadflag": node.attribute("loadflag")
-        }
-    ))
-    .map(|_| ())
-}
-
-fn add_disk_area(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached("INSERT INTO DiskArea (part_id, name) VALUES (:part_id, :name)")
-        .and_then(|mut stmt| {
-            stmt.execute(named_params! {
-                ":part_id": part_id,
-                ":name": node.attribute("name")
+                ":name": self.name,
+                ":description": self.description,
             })
         })?;
 
-    let disk_area_id = db.last_insert_rowid();
+        let softwarelist_id = db.last_insert_rowid();
 
-    node.children()
-        .filter(|c| c.tag_name().name() == "disk")
-        .try_for_each(|c| add_disk(db, disk_area_id, &c))
+        self.software
+            .into_iter()
+            .flatten()
+            .try_for_each(|s| s.into_db(db, softwarelist_id))
+    }
+
+    pub fn into_game_db(self) -> GameDb {
+        GameDb {
+            description: self.description,
+            date: None,
+            games: self
+                .software
+                .into_iter()
+                .flatten()
+                .map(|game| game.into_game())
+                .map(|game| (game.name.clone(), game))
+                .collect(),
+        }
+    }
+
+    #[inline]
+    pub fn populate_split_db(&self, db: &mut SplitDb) {
+        db.extend(
+            self.software
+                .iter()
+                .flatten()
+                .filter_map(|software| software.to_split_db()),
+        )
+    }
 }
 
-fn add_disk(db: &Transaction, disk_area_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Disk (disk_area_id, name, sha1, status, writeable)
-        VALUES (:disk_area_id, :name, :sha1, :status, :writeable)",
-    )
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":disk_area_id": disk_area_id,
-            ":name": node.attribute("name"),
-            ":sha1": node.attribute("sha1"),
-            ":status": node.attribute("status").unwrap_or("good"),
-            ":writeable": node.attribute("writeable").unwrap_or("no")
-        })
-    })
-    .map(|_| ())
+#[derive(Debug, Deserialize)]
+pub struct Software {
+    pub name: String,
+    pub description: String,
+    pub year: String,
+    pub publisher: String,
+    pub cloneof: Option<String>,
+    pub supported: Option<String>,
+    pub info: Option<Vec<Info>>,
+    pub part: Option<Vec<Part>>,
 }
 
-fn add_dipswitch(db: &Transaction, part_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Dipswitch (part_id, name, tag, mask) VALUES
-        (:part_id, :name, :tag, :mask)")
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":part_id": part_id,
-            ":name": node.attribute("name"),
-            ":tag": node.attribute("tag"),
-            ":mask": node.attribute("mask").map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch mask integer"))
-        })
-    })?;
+impl Software {
+    fn into_db(self, db: &Transaction, softwarelist_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Software
+            (softwarelist_id, name, cloneof, supported, description, year, publisher) VALUES
+            (:softwarelist_id, :name, :cloneof, :supported, :description, :year, :publisher)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":softwarelist_id": softwarelist_id,
+                ":name": self.name,
+                ":cloneof": self.cloneof,
+                ":supported": self.supported.as_deref().unwrap_or("yes"),
+                ":description": self.description,
+                ":year": self.year,
+                ":publisher": self.publisher,
+            })
+        })?;
 
-    let dipswitch_id = db.last_insert_rowid();
+        let software_id = db.last_insert_rowid();
 
-    node.children()
-        .filter(|c| c.tag_name().name() == "dipvalue")
-        .try_for_each(|c| add_dipvalue(db, dipswitch_id, &c))
+        self.info
+            .into_iter()
+            .flatten()
+            .try_for_each(|info| info.into_db(db, software_id))?;
+
+        self.part
+            .into_iter()
+            .flatten()
+            .try_for_each(|part| part.into_db(db, software_id))
+    }
+
+    fn into_game(self) -> Game {
+        Game {
+            name: self.name,
+            description: self.description,
+            creator: self.publisher,
+            year: self.year,
+            status: match self.supported.as_deref() {
+                Some("partial") => Status::Partial,
+                Some("no") => Status::NotWorking,
+                _ => Status::Working,
+            },
+            is_device: false,
+            devices: Vec::default(),
+            parts: self
+                .part
+                .into_iter()
+                .flatten()
+                .map(|part| part.into_parts())
+                .reduce(|mut acc, item| {
+                    acc.extend(item.into_iter());
+                    acc
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn to_split_db(&self) -> Option<(u64, SplitGame)> {
+        let rom_sizes = self
+            .part
+            .iter()
+            .flatten()
+            .next()
+            .and_then(|part| part.dataarea.iter().flatten().next())
+            .and_then(|dataarea| {
+                dataarea
+                    .rom
+                    .iter()
+                    .flatten()
+                    .map(|rom| rom.to_size())
+                    .collect::<Option<Vec<RomSize>>>()
+            })
+            .filter(|sizes| sizes.len() > 1)?;
+
+        let total: u64 = rom_sizes.iter().map(|s| s.size).sum();
+
+        let mut offset = 0;
+        let mut game = SplitGame {
+            name: self.name.clone(),
+            ..SplitGame::default()
+        };
+
+        for RomSize { name, size, sha1 } in rom_sizes {
+            game.tracks.push(SplitPart::new(name, offset, offset + size as usize, sha1));
+            offset += size as usize;
+        }
+
+        Some((total, game))
+    }
 }
 
-fn add_dipvalue(db: &Transaction, dipswitch_id: i64, node: &Node) -> Result<(), rusqlite::Error> {
-    db.prepare_cached(
-        "INSERT INTO Dipvalue (dipswitch_id, name, value, switch_default) VALUES
-        (:dipswitch_id, :name, :value, :default)")
-    .and_then(|mut stmt| {
-        stmt.execute(named_params! {
-            ":dipswitch_id": dipswitch_id,
-            ":name": node.attribute("name"),
-            ":value": node.attribute("value").map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch value")),
-            ":default": node.attribute("default").unwrap_or("no")
+#[derive(Debug, Deserialize)]
+pub struct Info {
+    pub name: String,
+    pub value: String,
+}
+
+impl Info {
+    fn into_db(self, db: &Transaction, software_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Info (software_id, name, value) VALUES
+            (:software_id, :name, :value)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":software_id": software_id,
+                ":name": self.name,
+                ":value": self.value
+            })
         })
-    })
-    .map(|_| ())
+        .map(|_| ())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Part {
+    pub name: String,
+    pub interface: Option<String>,
+    pub feature: Option<Vec<Feature>>,
+    pub dataarea: Option<Vec<Dataarea>>,
+    pub diskarea: Option<Vec<Diskarea>>,
+    pub dipswitch: Option<Vec<Dipswitch>>,
+}
+
+impl Part {
+    fn into_db(self, db: &Transaction, software_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Part (software_id, name, interface) VALUES
+            (:software_id, :name, :interface)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":software_id": software_id,
+                ":name": self.name,
+                ":interface": self.interface,
+            })
+        })?;
+
+        let part_id = db.last_insert_rowid();
+
+        self.feature
+            .into_iter()
+            .flatten()
+            .try_for_each(|feature| feature.into_db(db, part_id))?;
+
+        self.dataarea
+            .into_iter()
+            .flatten()
+            .try_for_each(|dataarea| dataarea.into_db(db, part_id))?;
+
+        self.diskarea
+            .into_iter()
+            .flatten()
+            .try_for_each(|diskarea| diskarea.into_db(db, part_id))?;
+
+        self.dipswitch
+            .into_iter()
+            .flatten()
+            .try_for_each(|dipswitch| dipswitch.into_db(db, part_id))
+    }
+
+    fn into_parts(self) -> GameParts {
+        self.dataarea
+            .into_iter()
+            .flatten()
+            .flat_map(|dataarea| dataarea.into_parts())
+            .chain(
+                self.diskarea
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|diskarea| diskarea.into_parts()),
+            )
+            .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Feature {
+    pub name: String,
+    pub value: String,
+}
+
+impl Feature {
+    fn into_db(self, db: &Transaction, part_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Feature (part_id, name, value) VALUES
+            (:part_id, :name, :value)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":part_id": part_id,
+                ":name": self.name,
+                ":value": self.value,
+            })
+        })
+        .map(|_| ())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Dataarea {
+    pub name: String,
+    pub size: Option<String>,
+    pub width: Option<String>,
+    pub endianness: Option<String>,
+    pub rom: Option<Vec<Rom>>,
+}
+
+impl Dataarea {
+    fn into_db(self, db: &Transaction, part_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO DataArea (part_id, name, size, width, endianness)
+            VALUES (:part_id, :name, :size, :width, :endianness)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":part_id": part_id,
+                ":name": self.name,
+                ":size": self.size.as_ref().map(|s| parse_int(s).map(|i| i as i64).unwrap_or_default()),
+                ":width": self.width,
+                ":endianness": self.endianness,
+            })
+        })?;
+
+        let data_area_id = db.last_insert_rowid();
+
+        self.rom
+            .into_iter()
+            .flatten()
+            .try_for_each(|rom| rom.into_db(db, data_area_id))
+    }
+
+    fn into_parts(self) -> impl Iterator<Item = (String, GamePart)> {
+        self.rom
+            .into_iter()
+            .flatten()
+            .flat_map(|rom| rom.into_part())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Rom {
+    name: Option<String>,
+    size: Option<String>,
+    crc: Option<String>,
+    sha1: Option<String>,
+    offset: Option<String>,
+    value: Option<String>,
+    status: Option<String>,
+    loadflag: Option<String>,
+}
+
+impl Rom {
+    fn into_db(self, db: &Transaction, data_area_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO ROM
+            (data_area_id, name, size, crc, sha1, offset, value, status, loadflag)
+            VALUES
+            (:data_area_id, :name, :size, :crc, :sha1,
+             :offset, :value, :status, :loadflag)")
+        .and_then(|mut stmt| stmt.execute(
+            named_params! {
+                ":data_area_id": data_area_id,
+                ":name": self.name,
+                ":size": self.size.as_ref().map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM size integer")),
+                ":crc": self.crc,
+                ":sha1": self.sha1,
+                ":offset": self.offset.as_ref().map(|s| parse_int(s).map(|i| i as i64).expect("invalid ROM offset integer")),
+                ":value": self.value,
+                ":status": self.status,
+                ":loadflag": self.loadflag,
+            }
+        ))
+        .map(|_| ())
+    }
+
+    #[inline]
+    fn into_part(self) -> Option<(String, GamePart)> {
+        Some((self.name?, GamePart::new_rom(&self.sha1?).ok()?))
+    }
+
+    #[inline]
+    fn to_size(&self) -> Option<RomSize> {
+        Some(RomSize {
+            name: self.name.as_deref()?,
+            size: parse_int(self.size.as_deref()?).ok()?,
+            sha1: self.sha1.as_deref()?,
+        })
+    }
+}
+
+struct RomSize<'s> {
+    name: &'s str,
+    size: u64,
+    sha1: &'s str,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Diskarea {
+    pub name: String,
+    pub disk: Option<Vec<Disk>>,
+}
+
+impl Diskarea {
+    fn into_db(self, db: &Transaction, part_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached("INSERT INTO DiskArea (part_id, name) VALUES (:part_id, :name)")
+            .and_then(|mut stmt| {
+                stmt.execute(named_params! {
+                    ":part_id": part_id,
+                    ":name": self.name,
+                })
+            })?;
+
+        let disk_area_id = db.last_insert_rowid();
+
+        self.disk
+            .into_iter()
+            .flatten()
+            .try_for_each(|disk| disk.into_db(db, disk_area_id))
+    }
+
+    fn into_parts(self) -> impl Iterator<Item = (String, GamePart)> {
+        self.disk
+            .into_iter()
+            .flatten()
+            .flat_map(|disk| disk.into_part())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Disk {
+    name: String,
+    sha1: Option<String>,
+    status: Option<String>,
+    writeable: Option<String>,
+}
+
+impl Disk {
+    fn into_db(self, db: &Transaction, disk_area_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Disk (disk_area_id, name, sha1, status, writeable)
+            VALUES (:disk_area_id, :name, :sha1, :status, :writeable)",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":disk_area_id": disk_area_id,
+                ":name": self.name,
+                ":sha1": self.sha1,
+                ":status": self.status.as_deref().unwrap_or("good"),
+                ":writeable": self.writeable.as_deref().unwrap_or("no")
+            })
+        })
+        .map(|_| ())
+    }
+
+    #[inline]
+    fn into_part(self) -> Option<(String, GamePart)> {
+        Some((self.name, GamePart::new_disk(&self.sha1?).ok()?))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Dipswitch {
+    name: String,
+    tag: String,
+    mask: Option<String>,
+    dipvalue: Vec<Dipvalue>,
+}
+
+impl Dipswitch {
+    fn into_db(self, db: &Transaction, part_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Dipswitch (part_id, name, tag, mask) VALUES
+            (:part_id, :name, :tag, :mask)")
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":part_id": part_id,
+                ":name": self.name,
+                ":tag": self.tag,
+                ":mask": self.mask.as_ref().map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch mask integer"))
+            })
+        })?;
+
+        let dipswitch_id = db.last_insert_rowid();
+
+        self.dipvalue
+            .into_iter()
+            .try_for_each(|value| value.into_db(db, dipswitch_id))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Dipvalue {
+    name: String,
+    value: Option<String>,
+    default: Option<String>,
+}
+
+impl Dipvalue {
+    fn into_db(self, db: &Transaction, dipswitch_id: i64) -> Result<(), rusqlite::Error> {
+        db.prepare_cached(
+            "INSERT INTO Dipvalue (dipswitch_id, name, value, switch_default) VALUES
+            (:dipswitch_id, :name, :value, :default)")
+        .and_then(|mut stmt| {
+            stmt.execute(named_params! {
+                ":dipswitch_id": dipswitch_id,
+                ":name": self.name,
+                ":value": self.value.as_ref().map(|s| parse_int(s).map(|i| i as i64).expect("invalid dipswitch value")),
+                ":default": self.default.as_deref().unwrap_or("no")
+            })
+        })
+        .map(|_| ())
+    }
+}
+
+pub fn add_file(file: PathBuf, db: &Transaction) -> Result<(), Error> {
+    quick_xml::de::from_reader(std::fs::File::open(&file).map(std::io::BufReader::new)?)
+        .map_err(|error: quick_xml::de::DeError| Error::SerdeXml(crate::FileError { error, file }))
+        .and_then(|sl: Softwarelist| sl.into_db(db).map_err(crate::Error::Sql))
 }
 
 pub type MessDb = BTreeMap<String, GameDb>;
-
-pub fn xml_to_game_db(split_db: &mut SplitDb, tree: &Document) -> (String, GameDb) {
-    let root = tree.root_element();
-    let mut db = GameDb::default();
-    let software_list_name = root.attribute("name").unwrap().to_string();
-    if let Some(description) = root.attribute("description") {
-        db.description = description.to_string();
-    }
-
-    for software in root
-        .children()
-        .filter(|c| c.tag_name().name() == "software")
-    {
-        db.games.insert(
-            software.attribute("name").unwrap().to_string(),
-            xml_to_game(&software),
-        );
-
-        let (size, game) = xml_to_split(&software);
-        if game.tracks.len() > 1 {
-            split_db
-                .games
-                .entry(size)
-                .or_insert_with(Vec::new)
-                .push(game);
-        }
-    }
-
-    (software_list_name, db)
-}
-
-fn xml_to_game(node: &Node) -> Game {
-    fn node_to_rom(node: &Node) -> Option<(String, Part)> {
-        (node.tag_name().name() == "rom")
-            .then(|| {
-                node.attribute("sha1").map(|sha1| {
-                    (
-                        node.attribute("name").unwrap().to_string(),
-                        Part::new_rom(sha1).unwrap(),
-                    )
-                })
-            })
-            .flatten()
-    }
-
-    fn node_to_disk(node: &Node) -> Option<(String, Part)> {
-        (node.tag_name().name() == "disk")
-            .then(|| {
-                node.attribute("sha1").map(|sha1| {
-                    (
-                        Part::name_to_chd(node.attribute("name").unwrap()),
-                        Part::new_disk(sha1).unwrap(),
-                    )
-                })
-            })
-            .flatten()
-    }
-
-    let mut game = Game {
-        name: node.attribute("name").unwrap().to_string(),
-        status: match node.attribute("supported") {
-            Some("partial") => Status::Partial,
-            Some("no") => Status::NotWorking,
-            _ => Status::Working,
-        },
-        ..Game::default()
-    };
-
-    for child in node.children() {
-        match child.tag_name().name() {
-            "description" => {
-                game.description = child
-                    .text()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(String::default)
-            }
-            "year" => {
-                game.year = child
-                    .text()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(String::default)
-            }
-            "publisher" => {
-                game.creator = child
-                    .text()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(String::default)
-            }
-            "part" => {
-                for child in child.children() {
-                    match child.tag_name().name() {
-                        "dataarea" => {
-                            game.parts
-                                .extend(child.children().filter_map(|n| node_to_rom(&n)));
-                        }
-                        "diskarea" => {
-                            game.parts
-                                .extend(child.children().filter_map(|n| node_to_disk(&n)));
-                        }
-                        _ => { /* ignore other child types */ }
-                    }
-                }
-            }
-            _ => { /*ignore other child types*/ }
-        }
-    }
-
-    game
-}
-
-fn xml_to_split(node: &Node) -> (u64, SplitGame) {
-    let mut offset = 0;
-    let mut game = SplitGame {
-        name: node.attribute("name").unwrap().to_string(),
-        ..SplitGame::default()
-    };
-
-    for rom in node
-        .children()
-        .filter(|part| part.tag_name().name() == "part")
-        .flat_map(|parts| {
-            parts
-                .children()
-                .filter(|dataarea| dataarea.tag_name().name() == "dataarea")
-                .flat_map(|dataarea| {
-                    dataarea
-                        .children()
-                        .filter(|rom| rom.tag_name().name() == "rom")
-                })
-        })
-    {
-        if let Some(sha1) = rom.attribute("sha1") {
-            let size = parse_int(rom.attribute("size").unwrap()).unwrap() as usize;
-            game.tracks.push(SplitPart::new(
-                rom.attribute("name").unwrap(),
-                offset,
-                offset + size as usize,
-                sha1,
-            ));
-            offset += size;
-        }
-    }
-
-    (offset as u64, game)
-}
 
 pub fn list(db: &MessDb, search: Option<&str>, sort: GameColumn, simple: bool) {
     let mut results: Vec<(&str, GameRow)> = db

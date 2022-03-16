@@ -403,6 +403,11 @@ impl GameParts {
     }
 
     #[inline]
+    pub fn into_iter(self) -> impl Iterator<Item = (String, Part)> {
+        self.parts.into_iter()
+    }
+
+    #[inline]
     pub fn keys(&self) -> impl Iterator<Item = &String> {
         self.parts.keys()
     }
@@ -1513,7 +1518,6 @@ pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
             if let Some(stripped) = s.strip_prefix("0x") {
                 u64::from_str_radix(stripped, 16)
             } else {
-                dbg!(s);
                 Err(e)
             }
         })

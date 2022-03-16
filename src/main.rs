@@ -540,7 +540,7 @@ impl OptMessInit {
             mess::create_tables(&trans)?;
             mess::clear_tables(&trans)?;
             self.xml
-                .iter()
+                .into_iter()
                 .try_for_each(|p| mess::add_file(p, &trans))?;
             trans.commit()?;
 
@@ -549,15 +549,13 @@ impl OptMessInit {
             let mut db = MessDb::default();
             let mut split_db = split::SplitDb::default();
 
-            for file in self.xml.iter() {
-                let mut xml_data = String::new();
+            for file in self.xml.into_iter() {
+                let sl: mess::Softwarelist =
+                    quick_xml::de::from_reader(File::open(&file).map(std::io::BufReader::new)?)
+                        .map_err(|error| Error::SerdeXml(FileError { error, file }))?;
 
-                File::open(file).and_then(|mut f| f.read_to_string(&mut xml_data))?;
-
-                let tree = Document::parse(&xml_data)?;
-
-                let (name, game_db) = mess::xml_to_game_db(&mut split_db, &tree);
-                db.insert(name, game_db);
+                sl.populate_split_db(&mut split_db);
+                db.insert(sl.name.clone(), sl.into_game_db());
             }
 
             write_cache(CACHE_MESS, &db)?;
@@ -2109,7 +2107,7 @@ impl OptCacheVerify {
         cache
             .par_iter()
             .progress_with(pb.clone())
-            .for_each(|(file, part)| match part.is_valid(&file) {
+            .for_each(|(file, part)| match part.is_valid(file) {
                 Ok(true) => { /* do nothing*/ }
                 Ok(false) => pb.println(format!("BAD : {}", file.display())),
                 Err(err) => pb.println(format!("ERROR : {} : {}", file.display(), err)),
