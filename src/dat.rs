@@ -370,12 +370,6 @@ fn parse_dat(file: PathBuf, data: Box<[u8]>, flatten: bool) -> Result<DatFile, E
     .map_err(|error| Error::InvalidSha1(FileError { file, error }))
 }
 
-#[inline]
-fn parse_datafile(file: PathBuf, data: Box<[u8]>) -> Result<Datafile, Error> {
-    quick_xml::de::from_reader(std::io::Cursor::new(data))
-        .map_err(|error| Error::SerdeXml(FileError { file, error }))
-}
-
 pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, Error> {
     use super::is_zip;
     use std::io::Read;
@@ -423,15 +417,6 @@ pub fn read_unflattened_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
     read_dats_from_file(file).and_then(|v| {
         v.into_iter()
             .map(|(file, data)| parse_dat(file, data, false))
-            .collect()
-    })
-}
-
-#[inline]
-pub fn read_datafiles(file: PathBuf) -> Result<Vec<Datafile>, Error> {
-    read_dats_from_file(file).and_then(|v| {
-        v.into_iter()
-            .map(|(file, data)| parse_datafile(file, data))
             .collect()
     })
 }

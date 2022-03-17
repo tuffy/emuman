@@ -795,13 +795,6 @@ impl Part {
     }
 
     #[inline]
-    pub fn name_to_chd(name: &str) -> String {
-        let mut d = name.to_string();
-        d.push_str(".chd");
-        d
-    }
-
-    #[inline]
     pub fn digest(&self) -> Digest {
         match self {
             Part::Rom { sha1, .. } => Digest(sha1),

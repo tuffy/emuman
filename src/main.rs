@@ -1,6 +1,4 @@
 use clap::{Args, Parser, Subcommand};
-use roxmltree::Document;
-use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -53,9 +51,7 @@ impl<E: std::error::Error> std::fmt::Display for FileError<E> {
 #[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
-    Xml(roxmltree::Error),
     SerdeXml(FileError<quick_xml::de::DeError>),
-    Sql(rusqlite::Error),
     CborWrite(ciborium::ser::Error<std::io::Error>),
     TomlWrite(toml::ser::Error),
     Zip(zip::result::ZipError),
@@ -83,18 +79,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<roxmltree::Error> for Error {
-    fn from(err: roxmltree::Error) -> Self {
-        Error::Xml(err)
-    }
-}
-
-impl From<rusqlite::Error> for Error {
-    fn from(err: rusqlite::Error) -> Self {
-        Error::Sql(err)
-    }
-}
-
 impl From<zip::result::ZipError> for Error {
     fn from(err: zip::result::ZipError) -> Self {
         Error::Zip(err)
@@ -119,9 +103,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::IO(err) => Some(err),
-            Error::Xml(err) => Some(err),
             err @ Error::SerdeXml(_) => err.source(),
-            Error::Sql(err) => Some(err),
             Error::CborWrite(err) => Some(err),
             Error::TomlWrite(err) => Some(err),
             Error::Zip(err) => Some(err),
@@ -136,9 +118,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::IO(err) => err.fmt(f),
-            Error::Xml(err) => err.fmt(f),
             Error::SerdeXml(err) => err.fmt(f),
-            Error::Sql(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
             Error::TomlWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
@@ -233,10 +213,6 @@ impl std::io::Seek for ResourceFile {
 
 #[derive(Args)]
 struct OptMameInit {
-    /// SQLite database
-    #[clap(long = "db", parse(from_os_str))]
-    database: Option<PathBuf>,
-
     /// MAME's XML file or URL
     #[clap(parse(from_os_str))]
     xml: Option<Resource>,
@@ -264,24 +240,10 @@ impl OptMameInit {
             }
         };
 
-        let xml =
-            Document::parse_with_options(&xml_data, roxmltree::ParsingOptions { allow_dtd: true })?;
+        // FIXME - handle error properly
+        let mame: mame::Mame = quick_xml::de::from_str(&xml_data).unwrap();
 
-        if let Some(db_file) = self.database {
-            let mut db = open_db(&db_file)?;
-            let trans = db.transaction()?;
-
-            mame::create_tables(&trans)?;
-            mame::clear_tables(&trans)?;
-            mame::xml_to_db(&xml, &trans)?;
-            trans.commit()?;
-
-            println!("* Wrote \"{}\"", db_file.display());
-
-            Ok(())
-        } else {
-            write_cache(CACHE_MAME, mame::xml_to_game_db(&xml))
-        }
+        write_cache(CACHE_MAME, mame.into_game_db())
     }
 }
 
@@ -520,10 +482,6 @@ impl OptMame {
 
 #[derive(Args)]
 struct OptMessInit {
-    /// SQLite database
-    #[clap(long = "db", parse(from_os_str))]
-    database: Option<PathBuf>,
-
     /// XML files from hash database
     #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
@@ -533,34 +491,20 @@ impl OptMessInit {
     fn execute(self) -> Result<(), Error> {
         use mess::MessDb;
 
-        if let Some(db_file) = self.database {
-            let mut db = open_db(&db_file)?;
-            let trans = db.transaction()?;
+        let mut db = MessDb::default();
+        let mut split_db = split::SplitDb::default();
 
-            mess::create_tables(&trans)?;
-            mess::clear_tables(&trans)?;
-            self.xml
-                .into_iter()
-                .try_for_each(|p| mess::add_file(p, &trans))?;
-            trans.commit()?;
+        for file in self.xml.into_iter() {
+            let sl: mess::Softwarelist =
+                quick_xml::de::from_reader(File::open(&file).map(std::io::BufReader::new)?)
+                    .map_err(|error| Error::SerdeXml(FileError { error, file }))?;
 
-            println!("* Wrote \"{}\"", db_file.display());
-        } else {
-            let mut db = MessDb::default();
-            let mut split_db = split::SplitDb::default();
-
-            for file in self.xml.into_iter() {
-                let sl: mess::Softwarelist =
-                    quick_xml::de::from_reader(File::open(&file).map(std::io::BufReader::new)?)
-                        .map_err(|error| Error::SerdeXml(FileError { error, file }))?;
-
-                sl.populate_split_db(&mut split_db);
-                db.insert(sl.name.clone(), sl.into_game_db());
-            }
-
-            write_cache(CACHE_MESS, &db)?;
-            write_cache(CACHE_MESS_SPLIT, &split_db)?;
+            sl.populate_split_db(&mut split_db);
+            db.insert(sl.name.clone(), sl.into_game_db());
         }
+
+        write_cache(CACHE_MESS, &db)?;
+        write_cache(CACHE_MESS_SPLIT, &split_db)?;
 
         Ok(())
     }
@@ -1305,10 +1249,6 @@ impl OptExtra {
 
 #[derive(Args)]
 struct OptRedumpInit {
-    /// SQLite database
-    #[clap(long = "db", parse(from_os_str))]
-    database: Option<PathBuf>,
-
     /// Redump XML or Zip file
     #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
@@ -1316,46 +1256,28 @@ struct OptRedumpInit {
 
 impl OptRedumpInit {
     fn execute(self) -> Result<(), Error> {
-        if let Some(db_file) = self.database {
-            let mut db = open_db(&db_file)?;
-            let trans = db.transaction()?;
+        let mut redump_db = redump::RedumpDb::default();
+        let mut split_db = split::SplitDb::default();
 
-            redump::create_tables(&trans)?;
-            redump::clear_tables(&trans)?;
+        for file in self.xml.into_iter() {
+            for (file, data) in dat::read_dats_from_file(file)? {
+                let datafile: crate::dat::Datafile =
+                    match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
+                        Ok(dat) => dat,
+                        Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
+                    };
 
-            for file in self.xml {
-                for dat in dat::read_datafiles(file)? {
-                    redump::add_data_file_to_db(&trans, &dat)?;
-                }
+                redump::populate_split_db(&mut split_db, &datafile);
+
+                let dat = crate::dat::DatFile::new_flattened(datafile)
+                    .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
+
+                redump_db.insert(dat.name().to_owned(), dat);
             }
-
-            trans.commit()?;
-
-            println!("* Wrote \"{}\"", db_file.display());
-        } else {
-            let mut redump_db = redump::RedumpDb::default();
-            let mut split_db = split::SplitDb::default();
-
-            for file in self.xml.into_iter() {
-                for (file, data) in dat::read_dats_from_file(file)? {
-                    let datafile: crate::dat::Datafile =
-                        match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
-                            Ok(dat) => dat,
-                            Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
-                        };
-
-                    redump::populate_split_db(&mut split_db, &datafile);
-
-                    let dat = crate::dat::DatFile::new_flattened(datafile)
-                        .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
-
-                    redump_db.insert(dat.name().to_owned(), dat);
-                }
-            }
-
-            write_cache(CACHE_REDUMP, &redump_db)?;
-            write_cache(CACHE_REDUMP_SPLIT, &split_db)?;
         }
+
+        write_cache(CACHE_REDUMP, &redump_db)?;
+        write_cache(CACHE_REDUMP_SPLIT, &split_db)?;
 
         Ok(())
     }
@@ -2225,12 +2147,6 @@ where
     reader.read_exact(&mut buf)?;
     reader.seek(SeekFrom::Start(0))?;
     Ok(&buf == b"\x50\x4b\x03\x04")
-}
-
-fn open_db<P: AsRef<Path>>(db: P) -> Result<Connection, Error> {
-    let db = Connection::open(db)?;
-    db.pragma_update(None, "foreign_keys", &"ON")?;
-    Ok(db)
 }
 
 fn write_cache<S>(db_file: &str, cache: S) -> Result<(), Error>

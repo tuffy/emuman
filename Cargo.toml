@@ -9,8 +9,6 @@ edition = "2018"
 
 [dependencies]
 clap = {version = "3.1", features=["derive"]}
-roxmltree = "0.14"
-rusqlite = "0.26"
 sha1_smol = "1.0"
 rayon = "1.5"
 prettytable-rs = "0.8"
