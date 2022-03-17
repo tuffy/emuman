@@ -221,7 +221,7 @@ pub struct Disk {
 impl Disk {
     #[inline]
     fn into_part(self) -> Option<(String, GamePart)> {
-        Some((self.name, GamePart::new_disk(&self.sha1?).ok()?))
+        Some((self.name + ".chd", GamePart::new_disk(&self.sha1?).ok()?))
     }
 }
 
