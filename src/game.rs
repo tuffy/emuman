@@ -314,6 +314,7 @@ impl Game {
             status: self.status,
         }
     }
+
     // appends game's name to root automatically
     #[inline]
     pub fn add_and_verify<F>(
