@@ -1,12 +1,13 @@
 use super::{is_zip, Error};
 use core::num::ParseIntError;
-use fxhash::{FxHashMap, FxHashSet};
+use dashmap::mapref::entry::OccupiedEntry;
+use dashmap::DashMap;
+use fxhash::FxHashSet;
 use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::cmp::Ordering;
-use std::collections::hash_map::OccupiedEntry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::io::{Read, Seek};
@@ -317,15 +318,18 @@ impl Game {
     #[inline]
     pub fn add_and_verify<F>(
         &self,
-        rom_sources: &mut RomSources,
+        rom_sources: &RomSources,
         target_dir: &Path,
-        progress: F,
+        handle_failure: F,
     ) -> Result<Vec<VerifyFailure>, Error>
     where
-        F: FnMut(ExtractedPart<'_>),
+        F: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
-        self.parts
-            .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), progress)
+        self.parts.add_and_verify_failures(
+            rom_sources,
+            &target_dir.join(&self.name),
+            handle_failure,
+        )
     }
 
     pub fn display_parts(&self, table: &mut Table) {
@@ -345,7 +349,7 @@ impl Game {
     }
 }
 
-fn read_game_dir<'s, I, F>(dir: I, files_on_disk: &mut HashMap<String, PathBuf>, failure: &mut F)
+fn read_game_dir<'s, I, F>(dir: I, files_on_disk: &DashMap<String, PathBuf>, failure: &mut F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
     F: Extend<VerifyFailure<'s>>,
@@ -433,34 +437,46 @@ impl GameParts {
     fn process_parts<'s, S, F, I, P, E>(
         &'s self,
         game_root: &Path,
-        mut increment_progress: I,
-        mut handle_failure: P,
+        increment_progress: I,
+        handle_failure: P,
     ) -> Result<(S, F), E>
     where
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure<'s>>,
-        I: FnMut(),
-        P: FnMut(VerifyFailure) -> Result<Result<(), VerifyFailure>, E>,
+        S: Default + Extend<VerifySuccess<'s>> + Send,
+        F: Default + Extend<VerifyFailure<'s>> + Send,
+        I: Fn() + Send + Sync,
+        P: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        E: Send,
     {
-        let mut successes = S::default();
+        use rayon::prelude::*;
+        use std::sync::Mutex;
+
         let mut failures = F::default();
 
         // turn files on disk into a map, so extra files can be located
-        let mut files_on_disk: HashMap<String, PathBuf> = HashMap::new();
+        let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
 
         if let Ok(dir) = std::fs::read_dir(&game_root) {
-            read_game_dir(dir, &mut files_on_disk, &mut failures);
+            read_game_dir(dir, &files_on_disk, &mut failures);
         }
 
+        let successes = Mutex::new(S::default());
+        let failures = Mutex::new(failures);
+
         // verify all game parts
-        for (name, part) in self.parts.iter() {
+        self.parts.par_iter().try_for_each(|(name, part)| {
             match files_on_disk.remove(name) {
-                Some(pathbuf) => match part.verify(name, pathbuf) {
-                    Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
+                Some((_, pathbuf)) => match part.verify(name, pathbuf) {
+                    Ok(()) => successes
+                        .lock()
+                        .unwrap()
+                        .extend(Some(VerifySuccess { name, part })),
 
                     Err(failure) => match handle_failure(failure)? {
-                        Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
-                        Err(failure) => failures.extend(Some(failure)),
+                        Ok(()) => successes
+                            .lock()
+                            .unwrap()
+                            .extend(Some(VerifySuccess { name, part })),
+                        Err(failure) => failures.lock().unwrap().extend(Some(failure)),
                     },
                 },
 
@@ -470,25 +486,36 @@ impl GameParts {
                         part,
                         name,
                     })? {
-                        Ok(()) => successes.extend(Some(VerifySuccess { name, part })),
-                        Err(failure) => failures.extend(Some(failure)),
+                        Ok(()) => successes
+                            .lock()
+                            .unwrap()
+                            .extend(Some(VerifySuccess { name, part })),
+                        Err(failure) => failures.lock().unwrap().extend(Some(failure)),
                     }
                 }
             }
             increment_progress();
-        }
+            Ok(())
+        })?;
 
         // mark any leftover files on disk as extras
-        failures.extend(files_on_disk.into_values().map(VerifyFailure::extra));
+        failures.lock().unwrap().extend(
+            files_on_disk
+                .into_iter()
+                .map(|(_, pb)| VerifyFailure::extra(pb)),
+        );
 
-        Ok((successes, failures))
+        Ok((
+            successes.into_inner().unwrap(),
+            failures.into_inner().unwrap(),
+        ))
     }
 
     #[inline]
     pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
     where
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure<'s>>,
+        S: Default + Extend<VerifySuccess<'s>> + Send,
+        F: Default + Extend<VerifyFailure<'s>> + Send,
     {
         self.verify_with_progress(game_root, || {})
     }
@@ -499,9 +526,9 @@ impl GameParts {
         increment_progress: I,
     ) -> (S, F)
     where
-        I: FnMut(),
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure<'s>>,
+        I: Fn() + Send + Sync,
+        S: Default + Extend<VerifySuccess<'s>> + Send,
+        F: Default + Extend<VerifyFailure<'s>> + Send,
     {
         self.process_parts(
             game_root,
@@ -520,35 +547,33 @@ impl GameParts {
     #[inline]
     pub fn add_and_verify_with_progress<'s, S, F, I, P>(
         &'s self,
-        rom_sources: &mut RomSources,
+        rom_sources: &RomSources,
         game_root: &Path,
         increment_progress: I,
-        mut handle_failure: P,
+        handle_failure: P,
     ) -> Result<(S, F), Error>
     where
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure<'s>>,
-        I: FnMut(),
-        P: FnMut(ExtractedPart<'_>),
+        S: Default + Extend<VerifySuccess<'s>> + Send,
+        F: Default + Extend<VerifyFailure<'s>> + Send,
+        I: Fn() + Send + Sync,
+        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.process_parts(game_root, increment_progress, |failure| {
-            failure
-                .try_fix(rom_sources)
-                .map(|r| r.map(|extracted| handle_failure(extracted)))
+            failure.try_fix(rom_sources).map(|r| r.map(handle_failure))
         })
     }
 
     #[inline]
     pub fn add_and_verify<'s, S, F, P>(
         &'s self,
-        rom_sources: &mut RomSources,
+        rom_sources: &RomSources,
         game_root: &Path,
         handle_failure: P,
     ) -> Result<(S, F), Error>
     where
-        S: Default + Extend<VerifySuccess<'s>>,
-        F: Default + Extend<VerifyFailure<'s>>,
-        P: FnMut(ExtractedPart<'_>),
+        S: Default + Extend<VerifySuccess<'s>> + Send,
+        F: Default + Extend<VerifyFailure<'s>> + Send,
+        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
     }
@@ -556,15 +581,15 @@ impl GameParts {
     #[inline]
     pub fn add_and_verify_failures<'s, P>(
         &'s self,
-        rom_sources: &mut RomSources,
+        rom_sources: &RomSources,
         game_root: &Path,
-        progress: P,
+        handle_failure: P,
     ) -> Result<Vec<VerifyFailure>, Error>
     where
-        P: FnMut(ExtractedPart<'_>),
+        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         let (_, failures): (ExtendSink<VerifySuccess<'s>>, Vec<_>) =
-            self.add_and_verify(rom_sources, game_root, progress)?;
+            self.add_and_verify(rom_sources, game_root, handle_failure)?;
         Ok(failures)
     }
 }
@@ -639,9 +664,9 @@ impl VerifyFailure<'_> {
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
     fn try_fix<'u>(
         self,
-        rom_sources: &mut RomSources<'u>,
+        rom_sources: &RomSources<'u>,
     ) -> Result<Result<ExtractedPart<'u>, Self>, Error> {
-        use std::collections::hash_map::Entry;
+        use dashmap::mapref::entry::Entry;
 
         match self {
             VerifyFailure::Bad {
@@ -678,8 +703,8 @@ impl VerifyFailure<'_> {
         }
     }
 
-    fn extract_to<'u>(
-        mut entry: OccupiedEntry<'_, Part, RomSource<'u>>,
+    fn extract_to<'u, S: std::hash::BuildHasher>(
+        mut entry: OccupiedEntry<'_, Part, RomSource<'u>, S>,
         target: PathBuf,
         part: &Part,
     ) -> Result<ExtractedPart<'u>, Error> {
@@ -855,7 +880,6 @@ impl Part {
     }
 
     fn from_cached_path(path: &Path) -> Result<Self, std::io::Error> {
-        use dashmap::DashMap;
         use fxhash::FxBuildHasher;
         use once_cell::sync::OnceCell;
 
@@ -1416,7 +1440,7 @@ impl fmt::Display for Rate {
     }
 }
 
-pub type RomSources<'u> = FxHashMap<Part, RomSource<'u>>;
+pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
 
 fn file_rom_sources<F>(root: &Path, part_filter: F) -> RomSources
 where
@@ -1440,11 +1464,12 @@ where
                 .into_par_iter()
         })
         .filter(|(part, _)| part_filter(part))
-        .collect();
+        .collect::<HashMap<Part, RomSource>>();
 
     pbar.finish_and_clear();
 
-    results
+    // FIXME - try to avoid intermediate conversion
+    results.into_iter().collect()
 }
 
 #[inline]
