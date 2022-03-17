@@ -398,6 +398,11 @@ impl GameParts {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.parts.len()
+    }
+
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Part)> {
         self.parts.iter()
     }
@@ -422,14 +427,19 @@ impl GameParts {
         self.parts.insert(k, v)
     }
 
-    fn process_parts<'s, S, F, P, E>(
+    // game_root is the root directory to start looking for files
+    // increment_progress is called once per (name, part) pair
+    // handle_failure is an attempt to recover from failures
+    fn process_parts<'s, S, F, I, P, E>(
         &'s self,
         game_root: &Path,
+        mut increment_progress: I,
         mut handle_failure: P,
     ) -> Result<(S, F), E>
     where
         S: Default + Extend<VerifySuccess<'s>>,
         F: Default + Extend<VerifyFailure<'s>>,
+        I: FnMut(),
         P: FnMut(VerifyFailure) -> Result<Result<(), VerifyFailure>, E>,
     {
         let mut successes = S::default();
@@ -465,6 +475,7 @@ impl GameParts {
                     }
                 }
             }
+            increment_progress();
         }
 
         // mark any leftover files on disk as extras
@@ -479,8 +490,22 @@ impl GameParts {
         S: Default + Extend<VerifySuccess<'s>>,
         F: Default + Extend<VerifyFailure<'s>>,
     {
+        self.verify_with_progress(game_root, || {})
+    }
+
+    pub fn verify_with_progress<'s, S, F, I>(
+        &'s self,
+        game_root: &Path,
+        increment_progress: I,
+    ) -> (S, F)
+    where
+        I: FnMut(),
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure<'s>>,
+    {
         self.process_parts(
             game_root,
+            increment_progress,
             |failure| -> Result<Result<(), VerifyFailure>, Never> { Ok(Err(failure)) },
         )
         .unwrap()
@@ -493,22 +518,39 @@ impl GameParts {
     }
 
     #[inline]
+    pub fn add_and_verify_with_progress<'s, S, F, I, P>(
+        &'s self,
+        rom_sources: &mut RomSources,
+        game_root: &Path,
+        increment_progress: I,
+        mut handle_failure: P,
+    ) -> Result<(S, F), Error>
+    where
+        S: Default + Extend<VerifySuccess<'s>>,
+        F: Default + Extend<VerifyFailure<'s>>,
+        I: FnMut(),
+        P: FnMut(ExtractedPart<'_>),
+    {
+        self.process_parts(game_root, increment_progress, |failure| {
+            failure
+                .try_fix(rom_sources)
+                .map(|r| r.map(|extracted| handle_failure(extracted)))
+        })
+    }
+
+    #[inline]
     pub fn add_and_verify<'s, S, F, P>(
         &'s self,
         rom_sources: &mut RomSources,
         game_root: &Path,
-        mut progress: P,
+        handle_failure: P,
     ) -> Result<(S, F), Error>
     where
         S: Default + Extend<VerifySuccess<'s>>,
         F: Default + Extend<VerifyFailure<'s>>,
         P: FnMut(ExtractedPart<'_>),
     {
-        self.process_parts(game_root, |failure| {
-            failure
-                .try_fix(rom_sources)
-                .map(|r| r.map(|extracted| progress(extracted)))
-        })
+        self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
     }
 
     #[inline]
@@ -862,16 +904,16 @@ impl Part {
     #[inline]
     pub fn set_xattr(&self, path: &Path) {
         let mut attr = vec![0; 41];
-        let (id, mut sha1_hex) = attr.split_first_mut().unwrap();
+        let (id, sha1_hex) = attr.split_first_mut().unwrap();
 
         match self {
             Self::Rom { sha1 } => {
                 *id = b'r';
-                hex::encode_to_slice(sha1, &mut sha1_hex).unwrap();
+                hex::encode_to_slice(sha1, sha1_hex).unwrap();
             }
             Self::Disk { sha1 } => {
                 *id = b'd';
-                hex::encode_to_slice(sha1, &mut sha1_hex).unwrap();
+                hex::encode_to_slice(sha1, sha1_hex).unwrap();
             }
         }
 

@@ -1151,7 +1151,6 @@ impl OptExtraAdd {
                 &mut roms,
                 dirs::extra_dir(self.dir, &self.extra).as_ref(),
                 self.all,
-                |p| eprintln!("{}", p),
             )?,
             true,
         );
@@ -1190,7 +1189,7 @@ impl OptExtraAddAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.add_and_verify(&mut parts, &dir, self.all, |p| eprintln!("{}", p))?,
+                    datfile.add_and_verify(&mut parts, &dir, self.all)?,
                     true,
                 );
             }
@@ -1424,7 +1423,6 @@ impl OptRedumpAdd {
                 &mut roms,
                 dirs::redump_roms(self.output, &self.software_list).as_ref(),
                 self.all,
-                |p| eprintln!("{}", p),
             )?,
             true,
         );
@@ -1735,7 +1733,6 @@ impl OptNointroAdd {
                 &mut roms,
                 dirs::nointro_roms(self.roms, &self.name).as_ref(),
                 self.all,
-                |p| eprintln!("{}", p),
             )?,
             true,
         );
@@ -1775,7 +1772,7 @@ impl OptNointroAddAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.add_and_verify(&mut parts, &dir, self.all, |p| eprintln!("{}", p))?,
+                    datfile.add_and_verify(&mut parts, &dir, self.all)?,
                     self.failures,
                 );
             }

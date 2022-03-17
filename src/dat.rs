@@ -1,5 +1,5 @@
 use super::{Error, FileError};
-use crate::game::{ExtractedPart, GameParts, Part, RomSources, Sha1ParseError, VerifyFailure};
+use crate::game::{GameParts, Part, RomSources, Sha1ParseError, VerifyFailure};
 use fxhash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -237,9 +237,16 @@ impl DatFile {
     }
 
     pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<&str, Vec<VerifyFailure>> {
+        let progress_bar =
+            indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
+                .with_style(crate::game::verify_style())
+                .with_message(format!("verifying : {} ({})", self.name, self.version));
+
         let mut failures = BTreeMap::default();
 
-        let (flat_successes, flat_failures) = self.flat.verify::<Vec<_>, Vec<_>>(root);
+        let (flat_successes, flat_failures) = self
+            .flat
+            .verify_with_progress::<Vec<_>, Vec<_>, _>(root, || progress_bar.inc(1));
 
         failures.extend(
             flat_successes
@@ -259,8 +266,8 @@ impl DatFile {
             );
 
             failures.extend(
-                self.tree
-                    .iter()
+                progress_bar
+                    .wrap_iter(self.tree.iter())
                     .map(|(name, game)| (name.as_str(), game.verify_failures(&root.join(name)))),
             );
         } else {
@@ -273,7 +280,7 @@ impl DatFile {
                     }),
             );
 
-            for (name, game) in self.tree.iter() {
+            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 let game_root = root.join(name);
                 if game_root.is_dir() {
                     failures.insert(name, game.verify_failures(&game_root));
@@ -281,23 +288,34 @@ impl DatFile {
             }
         }
 
+        progress_bar.finish_and_clear();
+
         failures
     }
 
-    pub fn add_and_verify<F>(
+    pub fn add_and_verify(
         &self,
         roms: &mut RomSources,
         root: &Path,
         all: bool,
-        mut progress: F,
-    ) -> Result<BTreeMap<&str, Vec<VerifyFailure>>, Error>
-    where
-        F: FnMut(ExtractedPart<'_>),
-    {
+    ) -> Result<BTreeMap<&str, Vec<VerifyFailure>>, Error> {
+        let progress_bar =
+            indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
+                .with_style(crate::game::verify_style())
+                .with_message(format!(
+                    "adding and verifying : {} ({})",
+                    self.name, self.version
+                ));
+
         let mut failures: BTreeMap<&str, Vec<_>> = BTreeMap::default();
 
         let (flat_successes, flat_failures): (Vec<_>, Vec<_>) =
-            self.flat.add_and_verify(roms, root, |r| progress(r))?;
+            self.flat.add_and_verify_with_progress(
+                roms,
+                root,
+                || progress_bar.inc(1),
+                |r| progress_bar.println(r.to_string()),
+            )?;
 
         failures.extend(
             flat_successes
@@ -316,10 +334,12 @@ impl DatFile {
                     }),
             );
 
-            for (name, game) in self.tree.iter() {
+            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 failures.insert(
                     name,
-                    game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+                    game.add_and_verify_failures(roms, &root.join(name), |r| {
+                        progress_bar.println(r.to_string())
+                    })?,
                 );
             }
         } else {
@@ -332,16 +352,20 @@ impl DatFile {
                     }),
             );
 
-            for (name, game) in self.tree.iter() {
+            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 let game_root = root.join(name);
                 if game_root.is_dir() {
                     failures.insert(
                         name,
-                        game.add_and_verify_failures(roms, &root.join(name), |r| progress(r))?,
+                        game.add_and_verify_failures(roms, &root.join(name), |r| {
+                            progress_bar.println(r.to_string())
+                        })?,
                     );
                 }
             }
         }
+
+        progress_bar.finish_and_clear();
 
         Ok(failures)
     }
