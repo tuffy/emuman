@@ -495,7 +495,9 @@ impl GameParts {
                     }
                 }
             }
+
             increment_progress();
+
             Ok(())
         })?;
 
@@ -928,7 +930,7 @@ impl Part {
 
     #[inline]
     pub fn set_xattr(&self, path: &Path) {
-        let mut attr = vec![0; 41];
+        let mut attr = [0; 41];
         let (id, sha1_hex) = attr.split_first_mut().unwrap();
 
         match self {
