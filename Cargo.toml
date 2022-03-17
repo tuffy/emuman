@@ -28,3 +28,4 @@ xattr = "0.2"
 attohttpc = "0.18"
 quick-xml = {version = "0.22", features=["serialize"]}
 url = "2.2"
+hex = "0.4"

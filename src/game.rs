@@ -840,15 +840,41 @@ impl Part {
     #[inline]
     pub fn get_xattr(path: &Path) -> Option<Self> {
         match xattr::get(path, CACHE_XATTR) {
-            Ok(Some(v)) => ciborium::de::from_reader(std::io::Cursor::new(v)).ok(),
+            Ok(Some(v)) => match v.split_first() {
+                Some((b'r', sha1_hex)) => {
+                    let mut sha1 = [0; 20];
+                    hex::decode_to_slice(sha1_hex, &mut sha1)
+                        .map(|()| Self::Rom { sha1 })
+                        .ok()
+                }
+                Some((b'd', sha1_hex)) => {
+                    let mut sha1 = [0; 20];
+                    hex::decode_to_slice(sha1_hex, &mut sha1)
+                        .map(|()| Self::Disk { sha1 })
+                        .ok()
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
 
     #[inline]
     pub fn set_xattr(&self, path: &Path) {
-        let mut attr = Vec::new();
-        ciborium::ser::into_writer(self, &mut attr).unwrap();
+        let mut attr = vec![0; 41];
+        let (id, mut sha1_hex) = attr.split_first_mut().unwrap();
+
+        match self {
+            Self::Rom { sha1 } => {
+                *id = b'r';
+                hex::encode_to_slice(sha1, &mut sha1_hex).unwrap();
+            }
+            Self::Disk { sha1 } => {
+                *id = b'd';
+                hex::encode_to_slice(sha1, &mut sha1_hex).unwrap();
+            }
+        }
+
         let _ = xattr::set(path, CACHE_XATTR, &attr);
     }
 
