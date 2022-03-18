@@ -51,7 +51,8 @@ impl<E: std::error::Error> std::fmt::Display for FileError<E> {
 #[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
-    SerdeXml(FileError<quick_xml::de::DeError>),
+    Xml(quick_xml::de::DeError),
+    XmlFile(FileError<quick_xml::de::DeError>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
     TomlWrite(toml::ser::Error),
     Zip(zip::result::ZipError),
@@ -99,26 +100,14 @@ impl From<toml::ser::Error> for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::IO(err) => Some(err),
-            err @ Error::SerdeXml(_) => err.source(),
-            Error::CborWrite(err) => Some(err),
-            Error::TomlWrite(err) => Some(err),
-            Error::Zip(err) => Some(err),
-            Error::Http(err) => Some(err),
-            err @ Error::InvalidSha1(_) => err.source(),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::IO(err) => err.fmt(f),
-            Error::SerdeXml(err) => err.fmt(f),
+            Error::Xml(err) => err.fmt(f),
+            Error::XmlFile(err) => err.fmt(f),
             Error::CborWrite(err) => err.fmt(f),
             Error::TomlWrite(err) => err.fmt(f),
             Error::Zip(err) => err.fmt(f),
@@ -240,10 +229,9 @@ impl OptMameInit {
             }
         };
 
-        // FIXME - handle error properly
-        let mame: mame::Mame = quick_xml::de::from_str(&xml_data).unwrap();
-
-        write_cache(CACHE_MAME, mame.into_game_db())
+        quick_xml::de::from_str(&xml_data)
+            .map_err(Error::Xml)
+            .and_then(|mame: mame::Mame| write_cache(CACHE_MAME, mame.into_game_db()))
     }
 }
 
@@ -497,7 +485,7 @@ impl OptMessInit {
         for file in self.xml.into_iter() {
             let sl: mess::Softwarelist =
                 quick_xml::de::from_reader(File::open(&file).map(std::io::BufReader::new)?)
-                    .map_err(|error| Error::SerdeXml(FileError { error, file }))?;
+                    .map_err(|error| Error::XmlFile(FileError { error, file }))?;
 
             sl.populate_split_db(&mut split_db);
             db.insert(sl.name.clone(), sl.into_game_db());
@@ -1263,7 +1251,7 @@ impl OptRedumpInit {
                 let datafile: crate::dat::Datafile =
                     match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
                         Ok(dat) => dat,
-                        Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
+                        Err(error) => return Err(Error::XmlFile(FileError { file, error })),
                     };
 
                 redump::populate_split_db(&mut split_db, &datafile);

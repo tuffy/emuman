@@ -383,7 +383,7 @@ impl DatFile {
 fn parse_dat(file: PathBuf, data: Box<[u8]>, flatten: bool) -> Result<DatFile, Error> {
     let datafile: Datafile = match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
         Ok(dat) => dat,
-        Err(error) => return Err(Error::SerdeXml(FileError { file, error })),
+        Err(error) => return Err(Error::XmlFile(FileError { file, error })),
     };
 
     (if flatten {

@@ -1467,12 +1467,11 @@ where
                 .into_par_iter()
         })
         .filter(|(part, _)| part_filter(part))
-        .collect::<HashMap<Part, RomSource>>();
+        .collect();
 
     pbar.finish_and_clear();
 
-    // FIXME - try to avoid intermediate conversion
-    results.into_iter().collect()
+    results
 }
 
 #[inline]
