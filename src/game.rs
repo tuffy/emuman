@@ -501,8 +501,10 @@ impl GameParts {
             Ok(())
         })?;
 
+        let mut failures = failures.into_inner().unwrap();
+
         // mark any leftover files on disk as extras
-        failures.lock().unwrap().extend(
+        failures.extend(
             files_on_disk
                 .into_iter()
                 .map(|(_, pb)| VerifyFailure::extra(pb)),
@@ -510,7 +512,7 @@ impl GameParts {
 
         Ok((
             successes.into_inner().unwrap(),
-            failures.into_inner().unwrap(),
+            failures,
         ))
     }
 
@@ -931,16 +933,14 @@ impl Part {
     #[inline]
     pub fn set_xattr(&self, path: &Path) {
         let mut attr = [0; 41];
-        let (id, sha1_hex) = attr.split_first_mut().unwrap();
-
         match self {
             Self::Rom { sha1 } => {
-                *id = b'r';
-                hex::encode_to_slice(sha1, sha1_hex).unwrap();
+                attr[0] = b'r';
+                hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
             }
             Self::Disk { sha1 } => {
-                *id = b'd';
-                hex::encode_to_slice(sha1, sha1_hex).unwrap();
+                attr[0] = b'd';
+                hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
             }
         }
 
