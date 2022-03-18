@@ -121,12 +121,12 @@ impl fmt::Display for Error {
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::MissingCache(s) => write!(
                 f,
-                "missing cache files, please run \"emuman {} create\" to populate",
+                "missing cache files, please run \"emuman {} init\" to populate",
                 s
             ),
             Error::InvalidCache(s) => write!(
                 f,
-                "outdated or invalid cache files, please run \"emuman {} create\" to repopulate",
+                "outdated or invalid cache files, please run \"emuman {} init\" to repopulate",
                 s
             ),
             Error::InvalidPath => write!(f, "invalid UTF-8 path"),
