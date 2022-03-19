@@ -510,10 +510,7 @@ impl GameParts {
                 .map(|(_, pb)| VerifyFailure::extra(pb)),
         );
 
-        Ok((
-            successes.into_inner().unwrap(),
-            failures,
-        ))
+        Ok((successes.into_inner().unwrap(), failures))
     }
 
     #[inline]
@@ -857,12 +854,12 @@ pub enum Part {
 
 impl Part {
     #[inline]
-    pub fn new_rom(sha1: &str) -> Result<Self, Sha1ParseError> {
+    pub fn new_rom(sha1: &str) -> Result<Self, hex::FromHexError> {
         parse_sha1(sha1).map(|sha1| Part::Rom { sha1 })
     }
 
     #[inline]
-    pub fn new_disk(sha1: &str) -> Result<Self, Sha1ParseError> {
+    pub fn new_disk(sha1: &str) -> Result<Self, hex::FromHexError> {
         parse_sha1(sha1).map(|sha1| Part::Disk { sha1 })
     }
 
@@ -1068,42 +1065,12 @@ impl<R> From<Sha1Reader<R>> for Part {
     }
 }
 
-pub fn parse_sha1(hex: &str) -> Result<[u8; 20], Sha1ParseError> {
-    let mut hex = hex.trim();
+#[inline]
+pub fn parse_sha1(hex: &str) -> Result<[u8; 20], hex::FromHexError> {
     let mut bin = [0; 20];
 
-    if hex.len() != 40 {
-        return Err(Sha1ParseError::IncorrectLength);
-    }
-    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(Sha1ParseError::NonHexDigits);
-    }
-
-    for c in bin.iter_mut() {
-        let (first, rest) = hex.split_at(2);
-        *c = u8::from_str_radix(first, 16).unwrap();
-        hex = rest;
-    }
-
-    Ok(bin)
+    hex::decode_to_slice(hex.trim().as_bytes(), &mut bin).map(|()| bin)
 }
-
-#[derive(Debug)]
-pub enum Sha1ParseError {
-    IncorrectLength,
-    NonHexDigits,
-}
-
-impl std::fmt::Display for Sha1ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        match self {
-            Sha1ParseError::IncorrectLength => write!(f, "incorrect SHA1 hash length"),
-            Sha1ParseError::NonHexDigits => write!(f, "non hex digits in SHA1 hash"),
-        }
-    }
-}
-
-impl std::error::Error for Sha1ParseError {}
 
 pub struct Digest<'a>(&'a [u8]);
 

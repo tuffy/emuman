@@ -1,5 +1,5 @@
 use super::{Error, FileError};
-use crate::game::{GameParts, Part, RomSources, Sha1ParseError, VerifyFailure};
+use crate::game::{GameParts, Part, RomSources, VerifyFailure};
 use fxhash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -32,7 +32,7 @@ pub struct Game {
 
 impl Game {
     #[inline]
-    fn into_parts(self) -> Result<(String, GameParts), Sha1ParseError> {
+    fn into_parts(self) -> Result<(String, GameParts), hex::FromHexError> {
         Ok((
             self.name,
             self.rom
@@ -54,7 +54,7 @@ impl Game {
     // flatten it into a single (rom_name, part) tuple,
     // otherwise return a (game_name, GameParts) tuple
     // of all the game parts it contains
-    fn try_flatten(self) -> Result<Result<(String, Part), (String, GameParts)>, Sha1ParseError> {
+    fn try_flatten(self) -> Result<Result<(String, Part), (String, GameParts)>, hex::FromHexError> {
         match &self {
             Game {
                 rom: Some(roms),
@@ -96,7 +96,7 @@ pub struct Rom {
 
 impl Rom {
     #[inline]
-    fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
+    fn into_part(self) -> Option<Result<(String, Part), hex::FromHexError>> {
         match self.sha1 {
             Some(sha1) => match Part::new_rom(&sha1) {
                 Ok(part) => Some(Ok((self.name, part))),
@@ -115,7 +115,7 @@ pub struct Disk {
 
 impl Disk {
     #[inline]
-    fn into_part(self) -> Option<Result<(String, Part), Sha1ParseError>> {
+    fn into_part(self) -> Option<Result<(String, Part), hex::FromHexError>> {
         match self.sha1 {
             Some(sha1) => match Part::new_disk(&sha1) {
                 Ok(part) => Some(Ok((self.name + ".chd", part))),
@@ -137,7 +137,7 @@ pub struct DatFile {
 }
 
 impl DatFile {
-    pub fn new_flattened(datafile: Datafile) -> Result<Self, Sha1ParseError> {
+    pub fn new_flattened(datafile: Datafile) -> Result<Self, hex::FromHexError> {
         let mut flat = GameParts::default();
         let mut tree = BTreeMap::default();
 
@@ -165,7 +165,7 @@ impl DatFile {
         })
     }
 
-    pub fn new_unflattened(datafile: Datafile) -> Result<Self, Sha1ParseError> {
+    pub fn new_unflattened(datafile: Datafile) -> Result<Self, hex::FromHexError> {
         let mut tree = BTreeMap::default();
 
         for game in datafile

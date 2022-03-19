@@ -64,7 +64,7 @@ pub enum Error {
     MissingCache(&'static str),
     InvalidCache(&'static str),
     InvalidPath,
-    InvalidSha1(FileError<game::Sha1ParseError>),
+    InvalidSha1(FileError<hex::FromHexError>),
 }
 
 impl Error {
