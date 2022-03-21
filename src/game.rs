@@ -317,14 +317,14 @@ impl Game {
 
     // appends game's name to root automatically
     #[inline]
-    pub fn add_and_verify<F>(
+    pub fn add_and_verify<H>(
         &self,
         rom_sources: &RomSources,
         target_dir: &Path,
-        handle_failure: F,
+        handle_failure: H,
     ) -> Result<Vec<VerifyFailure>, Error>
     where
-        F: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.parts.add_and_verify_failures(
             rom_sources,
@@ -435,17 +435,17 @@ impl GameParts {
     // game_root is the root directory to start looking for files
     // increment_progress is called once per (name, part) pair
     // handle_failure is an attempt to recover from failures
-    fn process_parts<'s, S, F, I, P, E>(
+    fn process_parts<'s, S, F, I, H, E>(
         &'s self,
         game_root: &Path,
         increment_progress: I,
-        handle_failure: P,
+        handle_failure: H,
     ) -> Result<(S, F), E>
     where
         S: Default + Extend<VerifySuccess<'s>> + Send,
         F: Default + Extend<VerifyFailure<'s>> + Send,
         I: Fn() + Send + Sync,
-        P: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
         use rayon::prelude::*;
@@ -477,6 +477,7 @@ impl GameParts {
                             .lock()
                             .unwrap()
                             .extend(Some(VerifySuccess { name, part })),
+
                         Err(failure) => failures.lock().unwrap().extend(Some(failure)),
                     },
                 },
@@ -491,6 +492,7 @@ impl GameParts {
                             .lock()
                             .unwrap()
                             .extend(Some(VerifySuccess { name, part })),
+
                         Err(failure) => failures.lock().unwrap().extend(Some(failure)),
                     }
                 }
@@ -547,18 +549,18 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn add_and_verify_with_progress<'s, S, F, I, P>(
+    pub fn add_and_verify_with_progress<'s, S, F, I, H>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
         increment_progress: I,
-        handle_failure: P,
+        handle_failure: H,
     ) -> Result<(S, F), Error>
     where
         S: Default + Extend<VerifySuccess<'s>> + Send,
         F: Default + Extend<VerifyFailure<'s>> + Send,
         I: Fn() + Send + Sync,
-        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.process_parts(game_root, increment_progress, |failure| {
             failure.try_fix(rom_sources).map(|r| r.map(handle_failure))
@@ -566,29 +568,29 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn add_and_verify<'s, S, F, P>(
+    pub fn add_and_verify<'s, S, F, H>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: P,
+        handle_failure: H,
     ) -> Result<(S, F), Error>
     where
         S: Default + Extend<VerifySuccess<'s>> + Send,
         F: Default + Extend<VerifyFailure<'s>> + Send,
-        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
     }
 
     #[inline]
-    pub fn add_and_verify_failures<'s, P>(
+    pub fn add_and_verify_failures<'s, H>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: P,
+        handle_failure: H,
     ) -> Result<Vec<VerifyFailure>, Error>
     where
-        P: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         let (_, failures): (ExtendSink<VerifySuccess<'s>>, Vec<_>) =
             self.add_and_verify(rom_sources, game_root, handle_failure)?;
