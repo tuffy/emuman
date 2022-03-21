@@ -467,10 +467,7 @@ impl GameParts {
         self.parts.par_iter().try_for_each(|(name, part)| {
             match files_on_disk.remove(name) {
                 Some((_, pathbuf)) => match part.verify(name, pathbuf) {
-                    Ok(()) => successes
-                        .lock()
-                        .unwrap()
-                        .extend(Some(VerifySuccess { name, part })),
+                    Ok(success) => successes.lock().unwrap().extend(Some(success)),
 
                     Err(failure) => match handle_failure(failure)? {
                         Ok(()) => successes
@@ -1016,9 +1013,13 @@ impl Part {
         Ok(Some(Part::Disk { sha1 }))
     }
 
-    pub fn verify<'s>(&'s self, name: &'s str, path: PathBuf) -> Result<(), VerifyFailure<'s>> {
+    pub fn verify<'s>(
+        &'s self,
+        name: &'s str,
+        path: PathBuf,
+    ) -> Result<VerifySuccess<'s>, VerifyFailure<'s>> {
         match Part::from_cached_path(path.as_ref()) {
-            Ok(ref disk_part) if self == disk_part => Ok(()),
+            Ok(ref disk_part) if self == disk_part => Ok(VerifySuccess { name, part: self }),
             Ok(disk_part) => Err(VerifyFailure::Bad {
                 path,
                 name,
