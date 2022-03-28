@@ -13,6 +13,13 @@ It's also *extremely* fast, able to audit MAME's entire game
 set in under 10 seconds, and update from one version to the next
 in under a minute - even on very modest hardware.
 
+## Installation
+
+At present, the easiest way to install the latest version of `emuman`
+is with Rust's cargo:
+
+    cargo install emuman
+
 ## Getting Started
 
 The first thing to do is populate the manager's database
