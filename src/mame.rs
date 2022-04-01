@@ -32,7 +32,7 @@ pub struct Machine {
     rom: Option<Vec<Rom>>,
     disk: Option<Vec<Disk>>,
     device_ref: Option<Vec<DeviceRef>>,
-    driver: Driver,
+    driver: Option<Driver>,
 }
 
 impl Machine {
@@ -43,12 +43,7 @@ impl Machine {
             description: self.description,
             creator: self.manufacturer.unwrap_or_default(),
             year: self.year.unwrap_or_default(),
-            status: match self.driver.status.as_str() {
-                "good" => Status::Working,
-                "imperfect" => Status::Partial,
-                "preliminary" => Status::NotWorking,
-                _ => Status::Working,
-            },
+            status: self.driver.map(|d| d.status()).unwrap_or(Status::Working),
             is_device: matches!(self.isdevice.as_deref(), Some("yes")),
             parts: self
                 .rom
@@ -70,6 +65,17 @@ impl Machine {
 #[derive(Debug, Deserialize)]
 struct Driver {
     status: String,
+}
+
+impl Driver {
+    fn status(&self) -> Status {
+        match self.status.as_str() {
+            "good" => Status::Working,
+            "imperfect" => Status::Partial,
+            "preliminary" => Status::NotWorking,
+            _ => Status::Working,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
