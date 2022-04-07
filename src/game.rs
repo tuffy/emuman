@@ -906,8 +906,10 @@ impl Part {
 
     #[inline]
     pub fn get_xattr(path: &Path) -> Option<Self> {
-        match xattr::get(path, CACHE_XATTR) {
-            Ok(Some(v)) => match v.split_first() {
+        xattr::get(path, CACHE_XATTR)
+            .ok()
+            .flatten()
+            .and_then(|v| match v.split_first() {
                 Some((b'r', sha1_hex)) => {
                     let mut sha1 = [0; 20];
                     hex::decode_to_slice(sha1_hex, &mut sha1)
@@ -921,9 +923,7 @@ impl Part {
                         .ok()
                 }
                 _ => None,
-            },
-            _ => None,
-        }
+            })
     }
 
     #[inline]
