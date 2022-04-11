@@ -353,7 +353,7 @@ impl Game {
 fn read_game_dir<'s, I, F>(dir: I, files_on_disk: &DashMap<String, PathBuf>, failure: &mut F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    F: Extend<VerifyFailure<'s>>,
+    F: ExtendOne<VerifyFailure<'s>>,
 {
     for entry in dir
         .filter_map(|e| e.ok())
@@ -363,7 +363,7 @@ where
             Ok(name) => {
                 files_on_disk.insert(name, entry.path());
             }
-            Err(_) => failure.extend(Some(VerifyFailure::extra(entry.path()))),
+            Err(_) => failure.extend_one(VerifyFailure::extra(entry.path())),
         }
     }
 }
@@ -442,8 +442,8 @@ impl GameParts {
         handle_failure: H,
     ) -> Result<(S, F), E>
     where
-        S: Default + Extend<VerifySuccess<'s>> + Send,
-        F: Default + Extend<VerifyFailure<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
         I: Fn() + Send + Sync,
         H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
@@ -467,15 +467,15 @@ impl GameParts {
         self.parts.par_iter().try_for_each(|(name, part)| {
             match files_on_disk.remove(name) {
                 Some((_, pathbuf)) => match part.verify(name, pathbuf) {
-                    Ok(success) => successes.lock().unwrap().extend(Some(success)),
+                    Ok(success) => successes.lock().unwrap().extend_one(success),
 
                     Err(failure) => match handle_failure(failure)? {
                         Ok(()) => successes
                             .lock()
                             .unwrap()
-                            .extend(Some(VerifySuccess { name, part })),
+                            .extend_one(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend(Some(failure)),
+                        Err(failure) => failures.lock().unwrap().extend_one(failure),
                     },
                 },
 
@@ -488,9 +488,9 @@ impl GameParts {
                         Ok(()) => successes
                             .lock()
                             .unwrap()
-                            .extend(Some(VerifySuccess { name, part })),
+                            .extend_one(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend(Some(failure)),
+                        Err(failure) => failures.lock().unwrap().extend_one(failure),
                     }
                 }
             }
@@ -503,7 +503,7 @@ impl GameParts {
         let mut failures = failures.into_inner().unwrap();
 
         // mark any leftover files on disk as extras
-        failures.extend(
+        failures.extend_many(
             files_on_disk
                 .into_iter()
                 .map(|(_, pb)| VerifyFailure::extra(pb)),
@@ -515,8 +515,8 @@ impl GameParts {
     #[inline]
     pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
     where
-        S: Default + Extend<VerifySuccess<'s>> + Send,
-        F: Default + Extend<VerifyFailure<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.verify_with_progress(game_root, || {})
     }
@@ -528,8 +528,8 @@ impl GameParts {
     ) -> (S, F)
     where
         I: Fn() + Send + Sync,
-        S: Default + Extend<VerifySuccess<'s>> + Send,
-        F: Default + Extend<VerifyFailure<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.process_parts(
             game_root,
@@ -554,8 +554,8 @@ impl GameParts {
         handle_failure: H,
     ) -> Result<(S, F), Error>
     where
-        S: Default + Extend<VerifySuccess<'s>> + Send,
-        F: Default + Extend<VerifyFailure<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
         I: Fn() + Send + Sync,
         H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
@@ -572,8 +572,8 @@ impl GameParts {
         handle_failure: H,
     ) -> Result<(S, F), Error>
     where
-        S: Default + Extend<VerifySuccess<'s>> + Send,
-        F: Default + Extend<VerifyFailure<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
         H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
@@ -778,6 +778,35 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
     }
 }
 
+// a simple polyfill until extend_one stabilizes in the Extend trait
+pub trait ExtendOne<I> {
+    fn extend_one(&mut self, item: I);
+
+    fn extend_many<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = I>,
+    {
+        for i in iter {
+            self.extend_one(i);
+        }
+    }
+}
+
+impl<I> ExtendOne<I> for Vec<I> {
+    #[inline]
+    fn extend_one(&mut self, item: I) {
+        self.push(item);
+    }
+
+    #[inline]
+    fn extend_many<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = I>,
+    {
+        self.extend(iter);
+    }
+}
+
 struct ExtendSink<I>(std::marker::PhantomData<I>);
 
 impl<I> Default for ExtendSink<I> {
@@ -787,13 +816,40 @@ impl<I> Default for ExtendSink<I> {
     }
 }
 
-impl<I> Extend<I> for ExtendSink<I> {
+impl<I> ExtendOne<I> for ExtendSink<I> {
     #[inline]
-    fn extend<T>(&mut self, _: T)
+    fn extend_one(&mut self, _: I) {
+        // do nothing
+    }
+
+    #[inline]
+    fn extend_many<T>(&mut self, _: T)
     where
         T: IntoIterator<Item = I>,
     {
         // do nothing
+    }
+}
+
+pub struct ExtendExists<I> {
+    pub exists: bool,
+    phantom: std::marker::PhantomData<I>,
+}
+
+impl<I> Default for ExtendExists<I> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            exists: false,
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I> ExtendOne<I> for ExtendExists<I> {
+    #[inline]
+    fn extend_one(&mut self, _: I) {
+        self.exists = true;
     }
 }
 

@@ -353,14 +353,22 @@ impl DatFile {
             );
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
-                let game_root = root.join(name);
-                if game_root.is_dir() {
-                    failures.insert(
-                        name,
-                        game.add_and_verify_failures(roms, &root.join(name), |r| {
-                            progress_bar.println(r.to_string())
-                        })?,
-                    );
+                let (
+                    crate::game::ExtendExists {
+                        exists: has_successes,
+                        ..
+                    },
+                    game_failures,
+                ): (_, Vec<_>) = game.add_and_verify(roms, &root.join(name), |r| {
+                    progress_bar.println(r.to_string())
+                })?;
+
+                if has_successes
+                    || !game_failures
+                        .iter()
+                        .all(|f| matches!(f, VerifyFailure::Missing { .. }))
+                {
+                    failures.insert(name, game_failures);
                 }
             }
         }
