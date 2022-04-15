@@ -480,7 +480,7 @@ impl OptMessInit {
         use mess::MessDb;
 
         let mut db = MessDb::default();
-        let mut split_db = split::SplitDb::default();
+        let mut split_db = split::SplitDb::new();
 
         for file in self.xml.into_iter() {
             let sl: mess::Softwarelist =
@@ -488,7 +488,7 @@ impl OptMessInit {
                     .map_err(|error| Error::XmlFile(FileError { error, file }))?;
 
             sl.populate_split_db(&mut split_db);
-            db.insert(sl.name.clone(), sl.into_game_db());
+            db.insert(sl.name().to_owned(), sl.into_game_db());
         }
 
         write_cache(CACHE_MESS, &db)?;
@@ -1244,7 +1244,7 @@ struct OptRedumpInit {
 impl OptRedumpInit {
     fn execute(self) -> Result<(), Error> {
         let mut redump_db = redump::RedumpDb::default();
-        let mut split_db = split::SplitDb::default();
+        let mut split_db = split::SplitDb::new();
 
         for file in self.xml.into_iter() {
             for (file, data) in dat::read_dats_from_file(file)? {
@@ -1254,7 +1254,7 @@ impl OptRedumpInit {
                         Err(error) => return Err(Error::XmlFile(FileError { file, error })),
                     };
 
-                redump::populate_split_db(&mut split_db, &datafile);
+                split_db.populate(&datafile);
 
                 let dat = crate::dat::DatFile::new_flattened(datafile)
                     .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;

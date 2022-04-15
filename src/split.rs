@@ -1,14 +1,54 @@
+use crate::dat::Datafile;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SplitDb {
-    pub games: HashMap<u64, Vec<SplitGame>>,
+    games: HashMap<u64, Vec<SplitGame>>,
 }
 
 impl SplitDb {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            games: HashMap::new(),
+        }
+    }
+
+    pub fn populate(&mut self, datafile: &Datafile) {
+        fn game_to_split(game: &crate::dat::Game) -> (u64, SplitGame) {
+            let mut offset = 0;
+            let mut split_game = SplitGame::new(game.name().to_owned());
+
+            for rom in game.roms() {
+                if rom.name().ends_with(".bin") {
+                    let size = rom.size().unwrap() as usize;
+                    split_game.push_track(SplitPart::new(
+                        rom.name(),
+                        offset,
+                        offset + size,
+                        rom.sha1().unwrap(),
+                    ));
+                    offset += size;
+                }
+            }
+
+            (offset as u64, split_game)
+        }
+
+        for game in datafile.games() {
+            let (total_size, split) = game_to_split(game);
+            if split.tracks.len() > 1 {
+                self.games
+                    .entry(total_size)
+                    .or_insert_with(Vec::new)
+                    .push(split);
+            }
+        }
+    }
+
     #[inline]
     pub fn possible_matches(&self, total_size: u64) -> &[SplitGame] {
         self.games
@@ -29,13 +69,27 @@ impl Extend<(u64, SplitGame)> for SplitDb {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SplitGame {
-    pub name: String,
-    pub tracks: Vec<SplitPart>,
+    name: String,
+    tracks: Vec<SplitPart>,
 }
 
 impl SplitGame {
+    #[inline]
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            tracks: Vec::new(),
+        }
+    }
+
+    #[inline]
+    pub fn push_track(&mut self, track: SplitPart) {
+        self.tracks.push(track)
+    }
+
+    #[inline]
     pub fn matches(&self, data: &[u8]) -> bool {
         use rayon::prelude::*;
         self.tracks.par_iter().all(|t| t.matches(data))

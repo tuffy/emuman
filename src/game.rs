@@ -20,12 +20,21 @@ const CACHE_XATTR: &str = "user.emupart";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
-    pub description: String,
-    pub date: Option<String>,
-    pub games: HashMap<String, Game>,
+    description: String,
+    games: HashMap<String, Game>,
 }
 
 impl GameDb {
+    #[inline]
+    pub fn new(description: String, games: HashMap<String, Game>) -> Self {
+        Self { description, games }
+    }
+
+    #[inline]
+    pub fn description(&self) -> &str {
+        self.description.as_str()
+    }
+
     #[inline]
     pub fn is_game(&self, game: &str) -> bool {
         self.games.contains_key(game)
@@ -37,7 +46,7 @@ impl GameDb {
     }
 
     #[inline]
-    pub fn games_iter(&self) -> impl ExactSizeIterator<Item = &Game> {
+    pub fn games_iter(&self) -> impl Iterator<Item = &Game> {
         self.games.values()
     }
 
@@ -74,7 +83,7 @@ impl GameDb {
         games
             .into_iter()
             .try_for_each(|game| {
-                if let Some(game) = self.games.get(game.as_ref()) {
+                if let Some(game) = self.game(game.as_ref()) {
                     parts.extend(game.parts.values().cloned());
                     Ok(())
                 } else {
@@ -103,7 +112,7 @@ impl GameDb {
     }
 
     fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
-        if let Some(game) = self.games.get(game_name) {
+        if let Some(game) = self.game(game_name) {
             let mut results = game.parts.verify_failures(&root.join(game_name));
             results.extend(
                 game.devices
@@ -118,15 +127,13 @@ impl GameDb {
 
     pub fn list_results(&self, search: Option<&str>, simple: bool) -> Vec<GameRow> {
         if let Some(search) = search {
-            self.games
-                .values()
+            self.games_iter()
                 .filter(|g| !g.is_device)
                 .map(|g| g.report(simple))
                 .filter(|g| g.matches(search))
                 .collect()
         } else {
-            self.games
-                .values()
+            self.games_iter()
                 .filter(|g| !g.is_device)
                 .map(|g| g.report(simple))
                 .collect()
@@ -147,7 +154,7 @@ impl GameDb {
         GameDb::display_report(
             &games
                 .into_iter()
-                .filter_map(|g| self.games.get(g.as_ref()).map(|g| g.report(simple)))
+                .filter_map(|g| self.game(g.as_ref()).map(|g| g.report(simple)))
                 .collect::<Vec<GameRow>>(),
         )
     }
@@ -161,8 +168,7 @@ impl GameDb {
         let mut results: Vec<GameRow> = games
             .iter()
             .filter_map(|g| {
-                self.games
-                    .get(g)
+                self.game(g)
                     .filter(|g| !g.is_device)
                     .map(|g| g.report(simple))
             })

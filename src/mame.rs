@@ -10,15 +10,13 @@ pub struct Mame {
 impl Mame {
     #[inline]
     pub fn into_game_db(self) -> GameDb {
-        GameDb {
-            description: self.build.unwrap_or_default(),
-            date: None,
-            games: self
-                .machine
+        GameDb::new(
+            self.build.unwrap_or_default(),
+            self.machine
                 .into_iter()
                 .map(|machine| (machine.name.clone(), machine.into_game()))
                 .collect(),
-        }
+        )
     }
 }
 

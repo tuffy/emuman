@@ -8,24 +8,28 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Softwarelist {
-    pub name: String,
-    pub description: String,
-    pub software: Option<Vec<Software>>,
+    name: String,
+    description: String,
+    software: Option<Vec<Software>>,
 }
 
 impl Softwarelist {
+    #[inline]
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[inline]
     pub fn into_game_db(self) -> GameDb {
-        GameDb {
-            description: self.description,
-            date: None,
-            games: self
-                .software
+        GameDb::new(
+            self.description,
+            self.software
                 .into_iter()
                 .flatten()
                 .map(|game| game.into_game())
                 .map(|game| (game.name.clone(), game))
                 .collect(),
-        }
+        )
     }
 
     #[inline]
@@ -41,14 +45,12 @@ impl Softwarelist {
 
 #[derive(Debug, Deserialize)]
 pub struct Software {
-    pub name: String,
-    pub description: String,
-    pub year: String,
-    pub publisher: String,
-    pub cloneof: Option<String>,
-    pub supported: Option<String>,
-    pub info: Option<Vec<Info>>,
-    pub part: Option<Vec<Part>>,
+    name: String,
+    description: String,
+    year: String,
+    publisher: String,
+    supported: Option<String>,
+    part: Option<Vec<Part>>,
 }
 
 impl Software {
@@ -98,14 +100,10 @@ impl Software {
         let total: u64 = rom_sizes.iter().map(|s| s.size).sum();
 
         let mut offset = 0;
-        let mut game = SplitGame {
-            name: self.name.clone(),
-            ..SplitGame::default()
-        };
+        let mut game = SplitGame::new(self.name.clone());
 
         for RomSize { name, size, sha1 } in rom_sizes {
-            game.tracks
-                .push(SplitPart::new(name, offset, offset + size as usize, sha1));
+            game.push_track(SplitPart::new(name, offset, offset + size as usize, sha1));
             offset += size as usize;
         }
 
@@ -114,18 +112,9 @@ impl Software {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Info {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct Part {
-    pub name: String,
-    pub interface: Option<String>,
-    pub feature: Option<Vec<Feature>>,
-    pub dataarea: Option<Vec<Dataarea>>,
-    pub diskarea: Option<Vec<Diskarea>>,
+    dataarea: Option<Vec<Dataarea>>,
+    diskarea: Option<Vec<Diskarea>>,
 }
 
 impl Part {
@@ -145,18 +134,8 @@ impl Part {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Feature {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct Dataarea {
-    pub name: String,
-    pub size: Option<String>,
-    pub width: Option<String>,
-    pub endianness: Option<String>,
-    pub rom: Option<Vec<Rom>>,
+    rom: Option<Vec<Rom>>,
 }
 
 impl Dataarea {
@@ -199,8 +178,7 @@ struct RomSize<'s> {
 
 #[derive(Debug, Deserialize)]
 pub struct Diskarea {
-    pub name: String,
-    pub disk: Option<Vec<Disk>>,
+    disk: Option<Vec<Disk>>,
 }
 
 impl Diskarea {
@@ -274,7 +252,7 @@ pub fn list_all(db: &MessDb) {
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 
     for (name, game_db) in db.iter() {
-        table.add_row(row![game_db.description, name]);
+        table.add_row(row![game_db.description(), name]);
     }
 
     table.printstd();

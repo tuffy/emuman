@@ -7,30 +7,42 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Datafile {
-    pub header: Header,
-    pub game: Option<Vec<Game>>,
-    pub machine: Option<Vec<Game>>,
+    header: Header,
+    game: Option<Vec<Game>>,
+    machine: Option<Vec<Game>>,
+}
+
+impl Datafile {
+    #[inline]
+    pub fn games(&self) -> impl Iterator<Item = &Game> {
+        self.game.iter().flatten()
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Header {
-    pub name: String,
-    pub description: String,
-    pub version: String,
-    pub author: String,
-    pub homepage: String,
-    pub url: String,
+    name: String,
+    version: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Game {
-    pub name: String,
-    pub description: String,
-    pub rom: Option<Vec<Rom>>,
-    pub disk: Option<Vec<Disk>>,
+    name: String,
+    rom: Option<Vec<Rom>>,
+    disk: Option<Vec<Disk>>,
 }
 
 impl Game {
+    #[inline]
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[inline]
+    pub fn roms(&self) -> impl Iterator<Item = &Rom> {
+        self.rom.iter().flatten()
+    }
+
     #[inline]
     fn into_parts(self) -> Result<(String, GameParts), hex::FromHexError> {
         Ok((
@@ -87,14 +99,27 @@ impl Game {
 
 #[derive(Debug, Deserialize)]
 pub struct Rom {
-    pub name: String,
-    pub size: Option<u64>,
-    pub crc: Option<String>,
-    pub md5: Option<String>,
-    pub sha1: Option<String>,
+    name: String,
+    size: Option<u64>,
+    sha1: Option<String>,
 }
 
 impl Rom {
+    #[inline]
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[inline]
+    pub fn size(&self) -> Option<u64> {
+        self.size
+    }
+
+    #[inline]
+    pub fn sha1(&self) -> Option<&str> {
+        self.sha1.as_deref()
+    }
+
     #[inline]
     fn into_part(self) -> Option<Result<(String, Part), hex::FromHexError>> {
         match self.sha1 {
@@ -109,8 +134,8 @@ impl Rom {
 
 #[derive(Debug, Deserialize)]
 pub struct Disk {
-    pub name: String,
-    pub sha1: Option<String>,
+    name: String,
+    sha1: Option<String>,
 }
 
 impl Disk {
