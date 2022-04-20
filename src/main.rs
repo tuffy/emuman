@@ -706,9 +706,7 @@ impl OptMessVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let roms_dir = dirs::mess_roms_all(self.roms);
 
-        for (software_list, mut db) in
-            read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL)
-        {
+        for (software_list, mut db) in read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL) {
             let roms_path = roms_dir.as_ref().join(&software_list);
 
             if self.working {
@@ -1518,9 +1516,7 @@ impl OptNointroList {
     fn execute(self) -> Result<(), Error> {
         match self.name.as_deref() {
             Some(name) => read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, name)?.list(),
-            None => {
-                dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_NOINTRO))
-            }
+            None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_NOINTRO)),
         }
 
         Ok(())
@@ -2072,22 +2068,19 @@ fn named_db_dir(db_dir: &'static str) -> PathBuf {
         .join(db_dir)
 }
 
+// names might contain slashes, so we'll encode them
+// into base64 to ensure they stay in the directory we put them in
 fn named_db_path(db_dir: &'static str, name: &str) -> PathBuf {
     named_db_dir(db_dir).join(base64::encode_config(name, base64::URL_SAFE))
 }
 
 // extracts database name from existing path, if any
 fn path_db_name(path: &Path) -> Option<String> {
-    base64::decode_config(path.file_name()?.to_str()?, base64::URL_SAFE)
+    String::from_utf8(base64::decode_config(path.file_name()?.to_str()?, base64::URL_SAFE).ok()?)
         .ok()
-        .and_then(|v| String::from_utf8(v).ok())
 }
 
-fn write_named_db<S: Serialize>(
-    db_dir: &'static str,
-    name: &str,
-    cache: S,
-) -> Result<(), Error> {
+fn write_named_db<S: Serialize>(db_dir: &'static str, name: &str, cache: S) -> Result<(), Error> {
     use std::fs::create_dir_all;
     use std::io::BufWriter;
 
