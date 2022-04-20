@@ -21,9 +21,9 @@ static EXTRA: &str = "extra";
 static REDUMP: &str = "redump";
 static NOINTRO: &str = "nointro";
 
-static CACHE_MAME: &str = "mame.cbor";
-static CACHE_MESS_SPLIT: &str = "mess-split.cbor";
-static CACHE_REDUMP_SPLIT: &str = "redump-split.cbor";
+static DB_MAME: &str = "mame.cbor";
+static DB_MESS_SPLIT: &str = "mess-split.cbor";
+static DB_REDUMP_SPLIT: &str = "redump-split.cbor";
 
 static DIR_SL: &str = "sl";
 static DIR_EXTRA: &str = "extra";
@@ -222,7 +222,7 @@ impl OptMameInit {
 
         quick_xml::de::from_str(&xml_data)
             .map_err(Error::Xml)
-            .and_then(|mame: mame::Mame| write_config(CACHE_MAME, mame.into_game_db()))
+            .and_then(|mame: mame::Mame| write_game_db(DB_MAME, mame.into_game_db()))
     }
 }
 
@@ -242,7 +242,7 @@ struct OptMameList {
 
 impl OptMameList {
     fn execute(self) -> Result<(), Error> {
-        let db = read_config::<game::GameDb>(MAME, CACHE_MAME)?;
+        let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
         db.list(self.search.as_deref(), self.sort, self.simple);
         Ok(())
     }
@@ -260,7 +260,7 @@ struct OptMameGames {
 
 impl OptMameGames {
     fn execute(self) -> Result<(), Error> {
-        let db = read_config::<game::GameDb>(MAME, CACHE_MAME)?;
+        let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
         db.games(&self.games, self.simple);
         Ok(())
     }
@@ -274,7 +274,7 @@ struct OptMameParts {
 
 impl OptMameParts {
     fn execute(self) -> Result<(), Error> {
-        let db = read_config::<game::GameDb>(MAME, CACHE_MAME)?;
+        let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
         db.display_parts(&self.game)
     }
 }
@@ -305,7 +305,7 @@ impl OptMameReport {
             .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
             .collect();
 
-        let db = read_config::<game::GameDb>(MAME, CACHE_MAME)?;
+        let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
         db.report(&machines, self.search.as_deref(), self.sort, self.simple);
 
         Ok(())
@@ -337,7 +337,7 @@ struct OptMameVerify {
 
 impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
-        let mut db: game::GameDb = read_config(MAME, CACHE_MAME)?;
+        let mut db: game::GameDb = read_game_db(MAME, DB_MAME)?;
 
         if self.working {
             db.retain_working();
@@ -388,7 +388,7 @@ struct OptMameAdd {
 
 impl OptMameAdd {
     fn execute(self) -> Result<(), Error> {
-        let db: game::GameDb = read_config(MAME, CACHE_MAME)?;
+        let db: game::GameDb = read_game_db(MAME, DB_MAME)?;
 
         let roms_dir = dirs::mame_roms(self.roms);
 
@@ -476,10 +476,10 @@ impl OptMessInit {
                     .map_err(|error| Error::XmlFile(FileError { error, file }))?;
 
             sl.populate_split_db(&mut split_db);
-            write_named_config(DIR_SL, &sl.name().to_owned(), sl.into_game_db())?;
+            write_named_db(DIR_SL, &sl.name().to_owned(), sl.into_game_db())?;
         }
 
-        write_config(CACHE_MESS_SPLIT, &split_db)?;
+        write_game_db(DB_MESS_SPLIT, &split_db)?;
 
         Ok(())
     }
@@ -506,14 +506,14 @@ impl OptMessList {
     fn execute(self) -> Result<(), Error> {
         match self.software_list.as_deref() {
             Some("any") => mess::list(
-                &read_collected_configs(DIR_SL),
+                &read_collected_dbs(DIR_SL),
                 self.search.as_deref(),
                 self.sort,
                 self.simple,
             ),
-            Some(software_list) => read_named_config::<game::GameDb>(MESS, DIR_SL, software_list)?
+            Some(software_list) => read_named_db::<game::GameDb>(MESS, DIR_SL, software_list)?
                 .list(self.search.as_deref(), self.sort, self.simple),
-            None => mess::list_all(&read_collected_configs(DIR_SL)),
+            None => mess::list_all(&read_collected_dbs(DIR_SL)),
         }
 
         Ok(())
@@ -535,7 +535,7 @@ struct OptMessGames {
 
 impl OptMessGames {
     fn execute(self) -> Result<(), Error> {
-        read_named_config(MESS, DIR_SL, &self.software_list)
+        read_named_db(MESS, DIR_SL, &self.software_list)
             .map(|db: game::GameDb| db.games(&self.games, self.simple))
     }
 }
@@ -551,7 +551,7 @@ struct OptMessParts {
 
 impl OptMessParts {
     fn execute(self) -> Result<(), Error> {
-        read_named_config(MESS, DIR_SL, &self.software_list)
+        read_named_db(MESS, DIR_SL, &self.software_list)
             .and_then(|db: game::GameDb| db.display_parts(&self.game))
     }
 }
@@ -585,7 +585,7 @@ impl OptMessReport {
             let sort = self.sort;
             let roms_dir = dirs::mess_roms_all(self.roms);
 
-            let mess_db = read_collected_configs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
+            let mess_db = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
 
             let mut results: Vec<(&str, GameRow)> = Vec::new();
 
@@ -608,7 +608,7 @@ impl OptMessReport {
 
             mess::display_results(&results);
         } else {
-            let db = read_named_config::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
+            let db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
 
             let software: HashSet<String> = dirs::mess_roms(self.roms, &self.software_list)
                 .as_ref()
@@ -651,7 +651,7 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
-        let mut db = read_named_config::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
+        let mut db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
 
         let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
 
@@ -707,7 +707,7 @@ impl OptMessVerifyAll {
         let roms_dir = dirs::mess_roms_all(self.roms);
 
         for (software_list, mut db) in
-            read_collected_configs::<BTreeMap<_, _>, game::GameDb>(DIR_SL)
+            read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL)
         {
             let roms_path = roms_dir.as_ref().join(&software_list);
 
@@ -758,7 +758,7 @@ struct OptMessAdd {
 
 impl OptMessAdd {
     fn execute(self) -> Result<(), Error> {
-        let db = read_named_config::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
+        let db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
 
         let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
 
@@ -795,7 +795,7 @@ struct OptMessAddAll {
 
 impl OptMessAddAll {
     fn execute(self) -> Result<(), Error> {
-        let db = read_collected_configs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
+        let db = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
 
         let roms_dir = dirs::mess_roms_all(self.roms);
 
@@ -829,7 +829,7 @@ impl OptMessSplit {
     fn execute(self) -> Result<(), Error> {
         use rayon::prelude::*;
 
-        let db = read_config::<split::SplitDb>(MESS, CACHE_MESS_SPLIT)?;
+        let db = read_game_db::<split::SplitDb>(MESS, DB_MESS_SPLIT)?;
 
         self.roms.par_iter().try_for_each(|rom| {
             let mut f = File::open(&rom)?;
@@ -941,12 +941,12 @@ struct OptExtraInit {
 impl OptExtraInit {
     fn execute(self) -> Result<(), Error> {
         if self.replace {
-            clear_named_configs(DIR_EXTRA)?;
+            clear_named_dbs(DIR_EXTRA)?;
         }
 
         for dats in self.dats.into_iter().map(dat::read_unflattened_dats) {
             for dat in dats? {
-                write_named_config(DIR_EXTRA, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_EXTRA, &dat.name().to_owned(), dat)?;
             }
         }
 
@@ -965,7 +965,7 @@ impl OptExtraDirs {
     fn execute(self) -> Result<(), Error> {
         display_dirs(
             dirs::extra_dirs(),
-            read_collected_configs(DIR_EXTRA),
+            read_collected_dbs(DIR_EXTRA),
             self.sort_by_version,
         );
 
@@ -982,8 +982,8 @@ struct OptExtraList {
 impl OptExtraList {
     fn execute(self) -> Result<(), Error> {
         match self.name.as_deref() {
-            Some(name) => read_named_config::<dat::DatFile>(EXTRA, DIR_EXTRA, name)?.list(),
-            None => dat::DatFile::list_all(read_collected_configs::<BTreeMap<_, _>, _>(DIR_EXTRA)),
+            Some(name) => read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, name)?.list(),
+            None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_EXTRA)),
         }
 
         Ok(())
@@ -1010,7 +1010,7 @@ struct OptExtraVerify {
 
 impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config(EXTRA, DIR_EXTRA, &self.extra)?;
+        let datfile = read_named_db(EXTRA, DIR_EXTRA, &self.extra)?;
 
         let mut table = init_dat_table();
 
@@ -1045,7 +1045,7 @@ impl OptExtraVerifyAll {
         let mut table = init_dat_table();
 
         for (name, dir) in dirs::extra_dirs() {
-            if let Ok(datfile) = read_named_config(EXTRA, DIR_EXTRA, &name) {
+            if let Ok(datfile) = read_named_db(EXTRA, DIR_EXTRA, &name) {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
@@ -1081,7 +1081,7 @@ struct OptExtraAdd {
 
 impl OptExtraAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config::<dat::DatFile>(EXTRA, DIR_EXTRA, &self.extra)?;
+        let datfile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &self.extra)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1128,7 +1128,7 @@ impl OptExtraAddAll {
         let mut table = init_dat_table();
 
         for (name, dir) in dirs::extra_dirs() {
-            if let Ok(datfile) = read_named_config(EXTRA, DIR_EXTRA, &name) {
+            if let Ok(datfile) = read_named_db(EXTRA, DIR_EXTRA, &name) {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
@@ -1213,11 +1213,11 @@ impl OptRedumpInit {
                 let dat = crate::dat::DatFile::new_flattened(datafile)
                     .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
 
-                write_named_config(DIR_REDUMP, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_REDUMP, &dat.name().to_owned(), dat)?;
             }
         }
 
-        write_config(CACHE_REDUMP_SPLIT, &split_db)?;
+        write_game_db(DB_REDUMP_SPLIT, &split_db)?;
 
         Ok(())
     }
@@ -1234,7 +1234,7 @@ impl OptRedumpDirs {
     fn execute(self) -> Result<(), Error> {
         display_dirs(
             dirs::redump_dirs(),
-            read_collected_configs(DIR_REDUMP),
+            read_collected_dbs(DIR_REDUMP),
             self.sort_by_version,
         );
 
@@ -1251,8 +1251,8 @@ struct OptRedumpList {
 impl OptRedumpList {
     fn execute(self) -> Result<(), Error> {
         match self.software_list.as_deref() {
-            Some(name) => read_named_config::<dat::DatFile>(REDUMP, DIR_REDUMP, name)?.list(),
-            None => dat::DatFile::list_all(read_collected_configs::<BTreeMap<_, _>, _>(DIR_REDUMP)),
+            Some(name) => read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, name)?.list(),
+            None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_REDUMP)),
         }
 
         Ok(())
@@ -1279,7 +1279,7 @@ struct OptRedumpVerify {
 
 impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config(REDUMP, DIR_REDUMP, &self.software_list)?;
+        let datfile = read_named_db(REDUMP, DIR_REDUMP, &self.software_list)?;
 
         let mut table = init_dat_table();
 
@@ -1319,7 +1319,7 @@ struct OptRedumpAdd {
 
 impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config::<dat::DatFile>(REDUMP, DIR_REDUMP, &self.software_list)?;
+        let datfile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &self.software_list)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1356,7 +1356,7 @@ struct OptRedumpSplit {
 
 impl OptRedumpSplit {
     fn execute(self) -> Result<(), Error> {
-        let db: split::SplitDb = read_config(REDUMP, CACHE_REDUMP_SPLIT)?;
+        let db: split::SplitDb = read_game_db(REDUMP, DB_REDUMP_SPLIT)?;
 
         self.bins.iter().try_for_each(|bin_path| {
             let matches = bin_path
@@ -1476,12 +1476,12 @@ struct OptNointroInit {
 impl OptNointroInit {
     fn execute(self) -> Result<(), Error> {
         if self.replace {
-            clear_named_configs(DIR_NOINTRO)?;
+            clear_named_dbs(DIR_NOINTRO)?;
         }
 
         for dats in self.dats.into_iter().map(dat::read_dats) {
             for dat in dats? {
-                write_named_config(DIR_NOINTRO, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_NOINTRO, &dat.name().to_owned(), dat)?;
             }
         }
 
@@ -1500,7 +1500,7 @@ impl OptNointroDirs {
     fn execute(self) -> Result<(), Error> {
         display_dirs(
             dirs::nointro_dirs(),
-            read_collected_configs(DIR_NOINTRO),
+            read_collected_dbs(DIR_NOINTRO),
             self.sort_by_version,
         );
 
@@ -1517,9 +1517,9 @@ struct OptNointroList {
 impl OptNointroList {
     fn execute(self) -> Result<(), Error> {
         match self.name.as_deref() {
-            Some(name) => read_named_config::<dat::DatFile>(NOINTRO, DIR_NOINTRO, name)?.list(),
+            Some(name) => read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, name)?.list(),
             None => {
-                dat::DatFile::list_all(read_collected_configs::<BTreeMap<_, _>, _>(DIR_NOINTRO))
+                dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_NOINTRO))
             }
         }
 
@@ -1547,7 +1547,7 @@ struct OptNointroVerify {
 
 impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config(NOINTRO, DIR_NOINTRO, &self.name)?;
+        let datfile = read_named_db(NOINTRO, DIR_NOINTRO, &self.name)?;
 
         let mut table = init_dat_table();
         game::display_dat_results(
@@ -1578,7 +1578,7 @@ impl OptNointroVerifyAll {
         let mut total = game::VerifyResultsSummary::default();
         let mut table = init_dat_table();
         for (name, dir) in dirs::nointro_dirs() {
-            if let Ok(datfile) = read_named_config(NOINTRO, DIR_NOINTRO, &name) {
+            if let Ok(datfile) = read_named_db(NOINTRO, DIR_NOINTRO, &name) {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
@@ -1613,7 +1613,7 @@ struct OptNointroAdd {
 
 impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_config::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &self.name)?;
+        let datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &self.name)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1660,7 +1660,7 @@ impl OptNointroAddAll {
         let mut table = init_dat_table();
         let mut total = game::VerifyResultsSummary::default();
         for (name, dir) in dirs::extra_dirs() {
-            if let Ok(datfile) = read_named_config(NOINTRO, DIR_NOINTRO, &name) {
+            if let Ok(datfile) = read_named_db(NOINTRO, DIR_NOINTRO, &name) {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
@@ -1704,13 +1704,13 @@ impl OptIdentify {
         if self.lookup {
             let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
 
-            let mame_db: GameDb = read_config(MAME, CACHE_MAME).unwrap_or_default();
-            let mess_db: BTreeMap<String, GameDb> = read_collected_configs(DIR_SL);
+            let mame_db: GameDb = read_game_db(MAME, DB_MAME).unwrap_or_default();
+            let mess_db: BTreeMap<String, GameDb> = read_collected_dbs(DIR_SL);
 
             let dat_parts: [(&str, BTreeMap<String, DatFile>); 3] = [
-                ("extra", read_collected_configs(DIR_EXTRA)),
-                ("nointro", read_collected_configs(DIR_NOINTRO)),
-                ("redump", read_collected_configs(DIR_REDUMP)),
+                ("extra", read_collected_dbs(DIR_EXTRA)),
+                ("nointro", read_collected_dbs(DIR_NOINTRO)),
+                ("redump", read_collected_dbs(DIR_REDUMP)),
             ];
 
             for game in mame_db.games_iter() {
@@ -2001,7 +2001,7 @@ enum Opt {
 
 impl Opt {
     fn execute(self) -> Result<(), Error> {
-        promote_configs()?;
+        promote_dbs()?;
 
         match self {
             Opt::Mame(o) => o.execute(),
@@ -2033,7 +2033,7 @@ where
     Ok(&buf == b"\x50\x4b\x03\x04")
 }
 
-fn write_config<S>(db_file: &'static str, cache: S) -> Result<(), Error>
+fn write_game_db<S>(db_file: &'static str, db: S) -> Result<(), Error>
 where
     S: Serialize,
 {
@@ -2046,12 +2046,11 @@ where
     create_dir_all(dir)?;
     let path = dir.join(db_file);
     let f = BufWriter::new(File::create(&path)?);
-    ciborium::ser::into_writer(&cache, f).map_err(Error::CborWrite)?;
-    println!("* Wrote \"{}\"", path.display());
+    ciborium::ser::into_writer(&db, f).map_err(Error::CborWrite)?;
     Ok(())
 }
 
-fn read_config<D>(utility: &'static str, db_file: &'static str) -> Result<D, Error>
+fn read_game_db<D>(utility: &'static str, db_file: &'static str) -> Result<D, Error>
 where
     D: DeserializeOwned,
 {
@@ -2066,24 +2065,25 @@ where
     ciborium::de::from_reader(f).map_err(|_| Error::InvalidCache(utility))
 }
 
-fn named_config_dir(db_dir: &'static str) -> PathBuf {
+fn named_db_dir(db_dir: &'static str) -> PathBuf {
     directories::ProjectDirs::from("", "", "EmuMan")
         .expect("no valid home directory found")
         .data_local_dir()
         .join(db_dir)
 }
 
-fn named_config_path(db_dir: &'static str, name: &str) -> PathBuf {
-    named_config_dir(db_dir).join(base64::encode_config(name, base64::URL_SAFE))
+fn named_db_path(db_dir: &'static str, name: &str) -> PathBuf {
+    named_db_dir(db_dir).join(base64::encode_config(name, base64::URL_SAFE))
 }
 
-fn path_config_name(path: &Path) -> Option<String> {
+// extracts database name from existing path, if any
+fn path_db_name(path: &Path) -> Option<String> {
     base64::decode_config(path.file_name()?.to_str()?, base64::URL_SAFE)
         .ok()
         .and_then(|v| String::from_utf8(v).ok())
 }
 
-fn write_named_config<S: Serialize>(
+fn write_named_db<S: Serialize>(
     db_dir: &'static str,
     name: &str,
     cache: S,
@@ -2091,31 +2091,33 @@ fn write_named_config<S: Serialize>(
     use std::fs::create_dir_all;
     use std::io::BufWriter;
 
-    let path = named_config_path(db_dir, name);
+    let path = named_db_path(db_dir, name);
+
     if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
+
     ciborium::ser::into_writer(&cache, BufWriter::new(File::create(&path)?))
         .map_err(Error::CborWrite)?;
-    println!("* Wrote \"{}\"", path.display());
+
     Ok(())
 }
 
-fn read_named_config<D: DeserializeOwned>(
+fn read_named_db<D: DeserializeOwned>(
     utility: &'static str,
     db_dir: &'static str,
     name: &str,
 ) -> Result<D, Error> {
     ciborium::de::from_reader(
-        File::open(named_config_path(db_dir, name))
+        File::open(named_db_path(db_dir, name))
             .map(std::io::BufReader::new)
             .map_err(|_| Error::MissingCache(utility))?,
     )
     .map_err(|_| Error::InvalidCache(utility))
 }
 
-fn clear_named_configs(db_dir: &'static str) -> Result<(), Error> {
-    let files: Vec<_> = std::fs::read_dir(named_config_dir(db_dir))
+fn clear_named_dbs(db_dir: &'static str) -> Result<(), Error> {
+    let files: Vec<_> = std::fs::read_dir(named_db_dir(db_dir))
         .map(|dir| dir.filter_map(|e| e.map(|e| e.path()).ok()).collect())
         .unwrap_or_default();
 
@@ -2125,14 +2127,14 @@ fn clear_named_configs(db_dir: &'static str) -> Result<(), Error> {
         .map_err(Error::IO)
 }
 
-fn read_named_configs<D>(db_dir: &'static str) -> Option<impl Iterator<Item = (String, D)>>
+fn read_named_dbs<D>(db_dir: &'static str) -> Option<impl Iterator<Item = (String, D)>>
 where
     D: DeserializeOwned,
 {
     #[inline]
-    fn read_config<D: DeserializeOwned>(path: &Path) -> Option<(String, D)> {
+    fn read_game_db<D: DeserializeOwned>(path: &Path) -> Option<(String, D)> {
         Some((
-            path_config_name(path)?,
+            path_db_name(path)?,
             File::open(path)
                 .ok()
                 .map(std::io::BufReader::new)
@@ -2140,28 +2142,28 @@ where
         ))
     }
 
-    match std::fs::read_dir(named_config_dir(db_dir)) {
+    match std::fs::read_dir(named_db_dir(db_dir)) {
         Ok(dir) => Some(dir.filter_map(|entry| {
             entry
                 .ok()
                 .map(|entry| entry.path())
-                .and_then(|path| read_config(&path))
+                .and_then(|path| read_game_db(&path))
         })),
         Err(_) => None,
     }
 }
 
-fn read_collected_configs<C, D>(db_dir: &'static str) -> C
+fn read_collected_dbs<C, D>(db_dir: &'static str) -> C
 where
     C: std::iter::FromIterator<(String, D)>,
     D: DeserializeOwned,
 {
-    read_named_configs(db_dir).into_iter().flatten().collect()
+    read_named_dbs(db_dir).into_iter().flatten().collect()
 }
 
 // takes older config formats and converts them to the new style
 // so that one doesn't have to re-init everything
-fn promote_configs() -> Result<(), Error> {
+fn promote_dbs() -> Result<(), Error> {
     fn promote<D, S>(
         config_name: &'static str,
         old_file: &'static str,
@@ -2171,15 +2173,15 @@ fn promote_configs() -> Result<(), Error> {
         D: DeserializeOwned + IntoIterator<Item = (String, S)>,
         S: Serialize,
     {
-        let old_config_name = named_config_dir(old_file);
+        let old_config_name = named_db_dir(old_file);
 
-        if !named_config_dir(new_dir).is_dir() && old_config_name.is_file() {
-            if let Ok(old_config) = read_config::<D>("", old_file) {
+        if !named_db_dir(new_dir).is_dir() && old_config_name.is_file() {
+            if let Ok(old_config) = read_game_db::<D>("", old_file) {
                 eprintln!("updating \"{config_name}\" config to new format");
 
                 old_config
                     .into_iter()
-                    .try_for_each(|(name, system)| write_named_config(new_dir, &name, system))
+                    .try_for_each(|(name, system)| write_named_db(new_dir, &name, system))
                     .and_then(|()| std::fs::remove_file(old_config_name).map_err(Error::IO))?;
             }
         }
