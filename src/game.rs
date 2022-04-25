@@ -356,21 +356,26 @@ impl Game {
     }
 }
 
-fn read_game_dir<'s, I, S, F>(dir: I, success: &mut S, failure: &mut F)
+fn read_game_dir<'s, I, S, F>(dir: I) -> (S, F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    S: ExtendOne<(String, PathBuf)>,
-    F: ExtendOne<VerifyFailure<'s>>,
+    S: Default + ExtendOne<(String, PathBuf)>,
+    F: Default + ExtendOne<VerifyFailure<'s>>,
 {
+    let mut successes = S::default();
+    let mut failures = F::default();
+
     for entry in dir
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
     {
         match entry.file_name().into_string() {
-            Ok(name) => success.extend_one((name, entry.path())),
-            Err(_) => failure.extend_one(VerifyFailure::extra(entry.path())),
+            Ok(name) => successes.extend_one((name, entry.path())),
+            Err(_) => failures.extend_one(VerifyFailure::extra(entry.path())),
         }
     }
+
+    (successes, failures)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -456,14 +461,9 @@ impl GameParts {
         use rayon::prelude::*;
         use std::sync::Mutex;
 
-        let mut failures = F::default();
-
-        // turn files on disk into a map, so extra files can be located
-        let mut files_on_disk: DashMap<String, PathBuf> = DashMap::new();
-
-        if let Ok(dir) = std::fs::read_dir(&game_root) {
-            read_game_dir(dir, &mut files_on_disk, &mut failures);
-        }
+        let (files_on_disk, failures): (DashMap<_, _>, F) = std::fs::read_dir(&game_root)
+            .map(read_game_dir)
+            .unwrap_or_default();
 
         let successes = Mutex::new(S::default());
         let failures = Mutex::new(failures);
