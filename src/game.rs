@@ -356,9 +356,10 @@ impl Game {
     }
 }
 
-fn read_game_dir<'s, I, F>(dir: I, files_on_disk: &DashMap<String, PathBuf>, failure: &mut F)
+fn read_game_dir<'s, I, S, F>(dir: I, success: &mut S, failure: &mut F)
 where
     I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+    S: ExtendOne<(String, PathBuf)>,
     F: ExtendOne<VerifyFailure<'s>>,
 {
     for entry in dir
@@ -366,9 +367,7 @@ where
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
     {
         match entry.file_name().into_string() {
-            Ok(name) => {
-                files_on_disk.insert(name, entry.path());
-            }
+            Ok(name) => success.extend_one((name, entry.path())),
             Err(_) => failure.extend_one(VerifyFailure::extra(entry.path())),
         }
     }
@@ -460,10 +459,10 @@ impl GameParts {
         let mut failures = F::default();
 
         // turn files on disk into a map, so extra files can be located
-        let files_on_disk: DashMap<String, PathBuf> = DashMap::new();
+        let mut files_on_disk: DashMap<String, PathBuf> = DashMap::new();
 
         if let Ok(dir) = std::fs::read_dir(&game_root) {
-            read_game_dir(dir, &files_on_disk, &mut failures);
+            read_game_dir(dir, &mut files_on_disk, &mut failures);
         }
 
         let successes = Mutex::new(S::default());
@@ -810,6 +809,13 @@ impl<I> ExtendOne<I> for Vec<I> {
         T: IntoIterator<Item = I>,
     {
         self.extend(iter);
+    }
+}
+
+impl<K: Eq + std::hash::Hash, V> ExtendOne<(K, V)> for DashMap<K, V> {
+    #[inline]
+    fn extend_one(&mut self, (key, value): (K, V)) {
+        self.insert(key, value);
     }
 }
 
