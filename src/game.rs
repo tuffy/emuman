@@ -362,7 +362,7 @@ where
     S: Default + ExtendOne<(String, PathBuf)>,
     F: Default + ExtendOne<VerifyFailure<'s>>,
 {
-    let mut successes = S::default();
+    let mut files_on_disk = S::default();
     let mut failures = F::default();
 
     for entry in dir
@@ -370,12 +370,12 @@ where
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
     {
         match entry.file_name().into_string() {
-            Ok(name) => successes.extend_one((name, entry.path())),
+            Ok(name) => files_on_disk.extend_one((name, entry.path())),
             Err(_) => failures.extend_one(VerifyFailure::extra(entry.path())),
         }
     }
 
-    (successes, failures)
+    (files_on_disk, failures)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -517,15 +517,6 @@ impl GameParts {
         Ok((successes.into_inner().unwrap(), failures))
     }
 
-    #[inline]
-    pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
-    where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
-        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
-    {
-        self.verify_with_progress(game_root, || {})
-    }
-
     pub fn verify_with_progress<'s, S, F, I>(
         &'s self,
         game_root: &Path,
@@ -545,8 +536,17 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn verify_failures(&self, game_root: &Path) -> Vec<VerifyFailure> {
-        let (_, failures): (ExtendSink<VerifySuccess>, Vec<_>) = self.verify(game_root);
+    pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
+    where
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
+    {
+        self.verify_with_progress(game_root, || {})
+    }
+
+    #[inline]
+    pub fn verify_failures<'s>(&'s self, game_root: &Path) -> Vec<VerifyFailure<'s>> {
+        let (_, failures): (ExtendSink<_>, _) = self.verify(game_root);
         failures
     }
 
@@ -594,9 +594,8 @@ impl GameParts {
     where
         H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
-        let (_, failures): (ExtendSink<VerifySuccess<'s>>, Vec<_>) =
-            self.add_and_verify(rom_sources, game_root, handle_failure)?;
-        Ok(failures)
+        self.add_and_verify(rom_sources, game_root, handle_failure)
+           .map(|(_, failures): (ExtendSink<_>, _)| failures)
     }
 }
 
