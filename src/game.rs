@@ -370,8 +370,8 @@ where
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
     {
         match entry.file_name().into_string() {
-            Ok(name) => files_on_disk.extend_one((name, entry.path())),
-            Err(_) => failures.extend_one(VerifyFailure::extra(entry.path())),
+            Ok(name) => files_on_disk.extend_item((name, entry.path())),
+            Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
         }
     }
 
@@ -472,15 +472,15 @@ impl GameParts {
         self.parts.par_iter().try_for_each(|(name, part)| {
             match files_on_disk.remove(name) {
                 Some((_, pathbuf)) => match part.verify(name, pathbuf) {
-                    Ok(success) => successes.lock().unwrap().extend_one(success),
+                    Ok(success) => successes.lock().unwrap().extend_item(success),
 
                     Err(failure) => match handle_failure(failure)? {
                         Ok(()) => successes
                             .lock()
                             .unwrap()
-                            .extend_one(VerifySuccess { name, part }),
+                            .extend_item(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend_one(failure),
+                        Err(failure) => failures.lock().unwrap().extend_item(failure),
                     },
                 },
 
@@ -493,9 +493,9 @@ impl GameParts {
                         Ok(()) => successes
                             .lock()
                             .unwrap()
-                            .extend_one(VerifySuccess { name, part }),
+                            .extend_item(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend_one(failure),
+                        Err(failure) => failures.lock().unwrap().extend_item(failure),
                     }
                 }
             }
@@ -783,24 +783,8 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
 }
 
 // a simple polyfill until extend_one stabilizes in the Extend trait
-pub trait ExtendOne<I> {
-    fn extend_one(&mut self, item: I);
-
-    fn extend_many<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = I>,
-    {
-        for i in iter {
-            self.extend_one(i);
-        }
-    }
-}
-
-impl<I> ExtendOne<I> for Vec<I> {
-    #[inline]
-    fn extend_one(&mut self, item: I) {
-        self.push(item);
-    }
+pub trait ExtendOne<I>: Extend<I> {
+    fn extend_item(&mut self, item: I);
 
     #[inline]
     fn extend_many<T>(&mut self, iter: T)
@@ -811,9 +795,16 @@ impl<I> ExtendOne<I> for Vec<I> {
     }
 }
 
+impl<I> ExtendOne<I> for Vec<I> {
+    #[inline]
+    fn extend_item(&mut self, item: I) {
+        self.push(item);
+    }
+}
+
 impl<K: Eq + std::hash::Hash, V> ExtendOne<(K, V)> for DashMap<K, V> {
     #[inline]
-    fn extend_one(&mut self, (key, value): (K, V)) {
+    fn extend_item(&mut self, (key, value): (K, V)) {
         self.insert(key, value);
     }
 }
@@ -827,17 +818,19 @@ impl<I> Default for ExtendSink<I> {
     }
 }
 
-impl<I> ExtendOne<I> for ExtendSink<I> {
+impl<I> Extend<I> for ExtendSink<I> {
     #[inline]
-    fn extend_one(&mut self, _: I) {
-        // do nothing
-    }
-
-    #[inline]
-    fn extend_many<T>(&mut self, _: T)
+    fn extend<T>(&mut self, _: T)
     where
         T: IntoIterator<Item = I>,
     {
+        // do nothing
+    }
+}
+
+impl<I> ExtendOne<I> for ExtendSink<I> {
+    #[inline]
+    fn extend_item(&mut self, _: I) {
         // do nothing
     }
 }
@@ -857,9 +850,21 @@ impl<I> Default for ExtendExists<I> {
     }
 }
 
+impl<I> Extend<I> for ExtendExists<I> {
+    #[inline]
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = I>,
+    {
+        if !self.exists {
+            self.exists = iter.into_iter().next().is_some()
+        }
+    }
+}
+
 impl<I> ExtendOne<I> for ExtendExists<I> {
     #[inline]
-    fn extend_one(&mut self, _: I) {
+    fn extend_item(&mut self, _: I) {
         self.exists = true;
     }
 }
