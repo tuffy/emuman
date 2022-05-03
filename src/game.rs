@@ -770,13 +770,13 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.extracted {
             Extracted::Copied { rate: None } => {
-                write!(f, "{} => {}", self.source, self.target.display())
+                write!(f, "{} \u{21D2} {}", self.source, self.target.display())
             }
             Extracted::Copied { rate: Some(rate) } => {
-                write!(f, "{} => {} ({})", self.source, self.target.display(), rate)
+                write!(f, "{} \u{21D2} {} ({})", self.source, self.target.display(), rate)
             }
             Extracted::Linked { .. } => {
-                write!(f, "{} -> {}", self.source, self.target.display())
+                write!(f, "{} \u{2192} {}", self.source, self.target.display())
             }
         }
     }
