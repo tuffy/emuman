@@ -953,6 +953,22 @@ impl OptExtraInit {
 }
 
 #[derive(Args)]
+struct OptExtraDestroy {
+    /// extra names
+    extras: Vec<String>,
+}
+
+impl OptExtraDestroy {
+    fn execute(self) -> Result<(), Error> {
+        for extra in self.extras {
+            destroy_named_db(DIR_EXTRA, &extra)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptExtraDirs {
     // sort output by version
     #[clap(short = 'V')]
@@ -1148,6 +1164,10 @@ enum OptExtra {
     #[clap(name = "init")]
     Init(OptExtraInit),
 
+    // remove extras from internal database
+    #[clap(name = "destroy")]
+    Destroy(OptExtraDestroy),
+
     /// list defined directories
     #[clap(name = "dirs")]
     Dirs(OptExtraDirs),
@@ -1177,6 +1197,7 @@ impl OptExtra {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptExtra::Init(o) => o.execute(),
+            OptExtra::Destroy(o) => o.execute(),
             OptExtra::Dirs(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
@@ -1216,6 +1237,22 @@ impl OptRedumpInit {
         }
 
         write_game_db(DB_REDUMP_SPLIT, &split_db)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptRedumpDestroy {
+    /// DAT file names
+    dats: Vec<String>,
+}
+
+impl OptRedumpDestroy {
+    fn execute(self) -> Result<(), Error> {
+        for dat in self.dats {
+            destroy_named_db(DIR_REDUMP, &dat)?;
+        }
 
         Ok(())
     }
@@ -1380,6 +1417,10 @@ enum OptRedump {
     #[clap(name = "init")]
     Init(OptRedumpInit),
 
+    /// remove dat file from internal database
+    #[clap(name = "destroy")]
+    Destroy(OptRedumpDestroy),
+
     /// list defined directories
     #[clap(name = "dirs")]
     Dirs(OptRedumpDirs),
@@ -1405,6 +1446,7 @@ impl OptRedump {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptRedump::Init(o) => o.execute(),
+            OptRedump::Destroy(o) => o.execute(),
             OptRedump::Dirs(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
@@ -1420,6 +1462,10 @@ enum OptNointro {
     /// initialize internal database
     #[clap(name = "init")]
     Init(OptNointroInit),
+
+    /// remove dat file from internal database
+    #[clap(name = "destroy")]
+    Destroy(OptNointroDestroy),
 
     /// list defined directories
     #[clap(name = "dirs")]
@@ -1450,6 +1496,7 @@ impl OptNointro {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptNointro::Init(o) => o.execute(),
+            OptNointro::Destroy(o) => o.execute(),
             OptNointro::Dirs(o) => o.execute(),
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
@@ -1481,6 +1528,22 @@ impl OptNointroInit {
             for dat in dats? {
                 write_named_db(DIR_NOINTRO, &dat.name().to_owned(), dat)?;
             }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroDestroy {
+    /// DAT file names
+    dats: Vec<String>,
+}
+
+impl OptNointroDestroy {
+    fn execute(self) -> Result<(), Error> {
+        for dat in self.dats {
+            destroy_named_db(DIR_NOINTRO, &dat)?;
         }
 
         Ok(())
@@ -2118,6 +2181,15 @@ fn clear_named_dbs(db_dir: &'static str) -> Result<(), Error> {
         .into_iter()
         .try_for_each(std::fs::remove_file)
         .map_err(Error::IO)
+}
+
+fn destroy_named_db(db_dir: &'static str, name: &str) -> Result<(), Error> {
+    let path = named_db_path(db_dir, name);
+    if path.is_file() {
+        std::fs::remove_file(path).map_err(Error::IO)
+    } else {
+        Err(Error::NoSuchDatFile(name.to_owned()))
+    }
 }
 
 fn read_named_dbs<D>(db_dir: &'static str) -> Option<impl Iterator<Item = (String, D)>>

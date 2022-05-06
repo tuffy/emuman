@@ -517,6 +517,7 @@ impl GameParts {
         Ok((successes.into_inner().unwrap(), failures))
     }
 
+    #[inline]
     pub fn verify_with_progress<'s, S, F, I>(
         &'s self,
         game_root: &Path,
@@ -595,7 +596,7 @@ impl GameParts {
         H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.add_and_verify(rom_sources, game_root, handle_failure)
-           .map(|(_, failures): (ExtendSink<_>, _)| failures)
+            .map(|(_, failures): (ExtendSink<_>, _)| failures)
     }
 }
 
@@ -773,7 +774,13 @@ impl<'u> fmt::Display for ExtractedPart<'u> {
                 write!(f, "{} \u{21D2} {}", self.source, self.target.display())
             }
             Extracted::Copied { rate: Some(rate) } => {
-                write!(f, "{} \u{21D2} {} ({})", self.source, self.target.display(), rate)
+                write!(
+                    f,
+                    "{} \u{21D2} {} ({})",
+                    self.source,
+                    self.target.display(),
+                    rate
+                )
             }
             Extracted::Linked { .. } => {
                 write!(f, "{} \u{2192} {}", self.source, self.target.display())
@@ -937,7 +944,7 @@ impl Part {
     #[inline]
     pub fn digest(&self) -> Digest {
         match self {
-            Part::Rom { sha1, .. } => Digest(sha1),
+            Part::Rom { sha1 } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),
         }
     }
