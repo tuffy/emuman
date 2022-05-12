@@ -56,8 +56,11 @@ pub enum Error {
     Zip(zip::result::ZipError),
     Http(attohttpc::Error),
     HttpCode(attohttpc::StatusCode),
+    Inquire(inquire::error::InquireError),
     NoSuchDatFile(String),
+    NoDatFiles,
     NoSuchSoftwareList(String),
+    NoSoftwareLists,
     NoSuchSoftware(String),
     MissingCache(&'static str),
     InvalidCache(&'static str),
@@ -91,6 +94,13 @@ impl From<toml::ser::Error> for Error {
     }
 }
 
+impl From<inquire::error::InquireError> for Error {
+    #[inline]
+    fn from(err: inquire::error::InquireError) -> Self {
+        Error::Inquire(err)
+    }
+}
+
 impl std::error::Error for Error {}
 
 impl fmt::Display for Error {
@@ -107,9 +117,12 @@ impl fmt::Display for Error {
                 Some(reason) => write!(f, "HTTP error {} - {}", code.as_str(), reason),
                 None => write!(f, "HTTP error {}", code.as_str()),
             },
+            Error::Inquire(err) => err.fmt(f),
             Error::NoSuchDatFile(s) => write!(f, "no such dat file \"{}\"", s),
+            Error::NoDatFiles => write!(f, "no dat files have been initialized"),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
+            Error::NoSoftwareLists => write!(f, "no software lists initialized"),
             Error::MissingCache(s) => write!(
                 f,
                 "missing cache files, please run \"emuman {} init\" to populate",
@@ -156,9 +169,30 @@ impl Resource {
     }
 }
 
+impl From<String> for Resource {
+    #[inline]
+    fn from(s: String) -> Self {
+        if url::Url::parse(&s).is_ok() {
+            Self::Url(s)
+        } else {
+            Self::File(s.into())
+        }
+    }
+}
+
 impl From<&std::ffi::OsStr> for Resource {
     #[inline]
     fn from(osstr: &std::ffi::OsStr) -> Self {
+        match osstr.to_str() {
+            Some(s) if url::Url::parse(s).is_ok() => Self::Url(s.to_string()),
+            _ => Self::File(PathBuf::from(osstr)),
+        }
+    }
+}
+
+impl From<std::ffi::OsString> for Resource {
+    #[inline]
+    fn from(osstr: std::ffi::OsString) -> Self {
         match osstr.to_str() {
             Some(s) if url::Url::parse(s).is_ok() => Self::Url(s.to_string()),
             _ => Self::File(PathBuf::from(osstr)),
@@ -488,6 +522,7 @@ impl OptMessInit {
 #[derive(Args)]
 struct OptMessList {
     /// software list to use
+    #[clap(short = 'L', long = "software")]
     software_list: Option<String>,
 
     /// sorting order, use "description", "year" or "publisher"
@@ -527,7 +562,8 @@ struct OptMessGames {
     simple: bool,
 
     /// software list to use
-    software_list: String,
+    #[clap(short = 'L', long = "software")]
+    software_list: Option<String>,
 
     /// games to search for, by short name
     games: Vec<String>,
@@ -535,24 +571,52 @@ struct OptMessGames {
 
 impl OptMessGames {
     fn execute(self) -> Result<(), Error> {
-        read_named_db(MESS, DIR_SL, &self.software_list)
-            .map(|db: game::GameDb| db.games(&self.games, self.simple))
+        let software_list = match self.software_list {
+            Some(software_list) => read_named_db(MESS, DIR_SL, &software_list)?,
+            None => select_software_list()?,
+        };
+
+        if self.games.is_empty() {
+            software_list.display_all_games(self.simple);
+        } else {
+            software_list.games(&self.games, self.simple);
+        }
+        Ok(())
     }
 }
 
 #[derive(Args)]
 struct OptMessParts {
     /// software list to use
-    software_list: String,
+    #[clap(short = 'L', long = "software")]
+    software_list: Option<String>,
 
     /// game's parts to search for
-    game: String,
+    game: Option<String>,
 }
 
 impl OptMessParts {
     fn execute(self) -> Result<(), Error> {
-        read_named_db(MESS, DIR_SL, &self.software_list)
-            .and_then(|db: game::GameDb| db.display_parts(&self.game))
+        use prettytable::{format, Table};
+
+        let mut software_list = match self.software_list {
+            Some(software_list) => read_named_db(MESS, DIR_SL, &software_list)?,
+            None => select_software_list()?,
+        };
+
+        let game = match self.game {
+            Some(game) => software_list
+                .remove_game(&game)
+                .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))?,
+            None => select_software_list_game(software_list)?,
+        };
+
+        let mut table = Table::new();
+        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        table.get_format().column_separator('\u{2502}');
+        game.display_parts(&mut table);
+        table.printstd();
+        Ok(())
     }
 }
 
@@ -567,7 +631,8 @@ struct OptMessReport {
     roms: Option<PathBuf>,
 
     /// software list to use
-    software_list: String,
+    #[clap(short = 'L', long = "software")]
+    software_list: Option<String>,
 
     /// display simple report with less information
     #[clap(short = 'S', long = "simple")]
@@ -579,45 +644,21 @@ struct OptMessReport {
 
 impl OptMessReport {
     fn execute(self) -> Result<(), Error> {
-        use crate::game::GameRow;
+        let (db, software_list) = match self.software_list {
+            Some(software_list) => (
+                read_named_db::<game::GameDb>(MESS, DIR_SL, &software_list)?,
+                software_list,
+            ),
+            None => select_software_list_and_name()?,
+        };
 
-        if self.software_list == "any" {
-            let sort = self.sort;
-            let roms_dir = dirs::mess_roms_all(self.roms);
+        let software: HashSet<String> = dirs::mess_roms(self.roms, &software_list)
+            .as_ref()
+            .read_dir()?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect();
 
-            let mess_db = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
-
-            let mut results: Vec<(&str, GameRow)> = Vec::new();
-
-            for (name, db) in &mess_db {
-                let roms = roms_dir.as_ref().join(name);
-                if let Ok(dir) = roms.read_dir() {
-                    let software: HashSet<String> = dir
-                        .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-                        .collect();
-
-                    results.extend(
-                        db.report_results(&software, self.search.as_deref(), self.simple)
-                            .into_iter()
-                            .map(|row| (name.as_str(), row)),
-                    );
-                }
-            }
-
-            results.sort_by(|(_, a), (_, b)| a.compare(b, sort));
-
-            mess::display_results(&results);
-        } else {
-            let db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
-
-            let software: HashSet<String> = dirs::mess_roms(self.roms, &self.software_list)
-                .as_ref()
-                .read_dir()?
-                .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-                .collect();
-
-            db.report(&software, self.search.as_deref(), self.sort, self.simple);
-        }
+        db.report(&software, self.search.as_deref(), self.sort, self.simple);
 
         Ok(())
     }
@@ -642,7 +683,8 @@ struct OptMessVerify {
     failures: bool,
 
     /// software list to use
-    software_list: String,
+    #[clap(short = 'L', long = "software")]
+    software_list: Option<String>,
 
     /// game to verify
     #[clap(short = 'g', long = "game")]
@@ -651,9 +693,15 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
-        let mut db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
+        let (mut db, software_list) = match self.software_list {
+            Some(software_list) => (
+                read_named_db::<game::GameDb>(MESS, DIR_SL, &software_list)?,
+                software_list,
+            ),
+            None => select_software_list_and_name()?,
+        };
 
-        let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
+        let roms_dir = dirs::mess_roms(self.roms, &software_list);
 
         if self.working {
             db.retain_working();
@@ -743,7 +791,8 @@ struct OptMessAdd {
     roms: Option<PathBuf>,
 
     /// software list to use
-    software_list: String,
+    #[clap(short = 'L', long = "software")]
+    software_list: Option<String>,
 
     /// game to add
     #[clap(short = 'g', long = "game")]
@@ -756,9 +805,15 @@ struct OptMessAdd {
 
 impl OptMessAdd {
     fn execute(self) -> Result<(), Error> {
-        let db = read_named_db::<game::GameDb>(MESS, DIR_SL, &self.software_list)?;
+        let (db, software_list) = match self.software_list {
+            Some(software_list) => (
+                read_named_db::<game::GameDb>(MESS, DIR_SL, &software_list)?,
+                software_list,
+            ),
+            None => select_software_list_and_name()?,
+        };
 
-        let roms_dir = dirs::mess_roms(self.roms, &self.software_list);
+        let roms_dir = dirs::mess_roms(self.roms, &software_list);
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1011,7 +1066,8 @@ struct OptExtraVerify {
     dir: Option<PathBuf>,
 
     /// extras category to verify
-    extra: String,
+    #[clap(short = 'E', long = "extra")]
+    extra: Option<String>,
 
     /// display only failures
     #[clap(long = "failures")]
@@ -1024,14 +1080,19 @@ struct OptExtraVerify {
 
 impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db(EXTRA, DIR_EXTRA, &self.extra)?;
+        let extra = match self.extra {
+            Some(extra) => extra,
+            None => dirs::select_extra_name()?,
+        };
+
+        let datfile = read_named_db(EXTRA, DIR_EXTRA, &extra)?;
 
         let mut table = init_dat_table();
 
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.verify(dirs::extra_dir(self.dir, &self.extra).as_ref(), self.all),
+            datfile.verify(dirs::extra_dir(self.dir, &extra).as_ref(), self.all),
             self.failures,
         );
 
@@ -1081,8 +1142,9 @@ struct OptExtraAdd {
     #[clap(short = 'd', long = "dir", parse(from_os_str))]
     dir: Option<PathBuf>,
 
-    /// extra to add
-    extra: String,
+    /// extras category to add files to
+    #[clap(short = 'E', long = "extra")]
+    extra: Option<String>,
 
     /// input file, directory, or URL
     #[clap(parse(from_os_str))]
@@ -1095,7 +1157,12 @@ struct OptExtraAdd {
 
 impl OptExtraAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &self.extra)?;
+        let extra = match self.extra {
+            Some(extra) => extra,
+            None => dirs::select_extra_name()?,
+        };
+
+        let datfile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &extra)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1108,7 +1175,7 @@ impl OptExtraAdd {
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
-                dirs::extra_dir(self.dir, &self.extra).as_ref(),
+                dirs::extra_dir(self.dir, &extra).as_ref(),
                 self.all,
             )?,
             true,
@@ -1164,7 +1231,7 @@ enum OptExtra {
     #[clap(name = "init")]
     Init(OptExtraInit),
 
-    // remove extras from internal database
+    /// remove extras from internal database
     #[clap(name = "destroy")]
     Destroy(OptExtraDestroy),
 
@@ -1300,8 +1367,9 @@ struct OptRedumpVerify {
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     root: Option<PathBuf>,
 
-    /// software list to use
-    software_list: String,
+    /// DAT name to verify disk images for
+    #[clap(short = 'D', long = "dat")]
+    software_list: Option<String>,
 
     /// display only failures
     #[clap(long = "failures")]
@@ -1314,7 +1382,12 @@ struct OptRedumpVerify {
 
 impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db(REDUMP, DIR_REDUMP, &self.software_list)?;
+        let software_list = match self.software_list {
+            Some(software_list) => software_list,
+            None => dirs::select_redump_name()?,
+        };
+
+        let datfile = read_named_db(REDUMP, DIR_REDUMP, &software_list)?;
 
         let mut table = init_dat_table();
 
@@ -1322,7 +1395,7 @@ impl OptRedumpVerify {
             &mut table,
             &datfile,
             datfile.verify(
-                dirs::redump_roms(self.root, &self.software_list).as_ref(),
+                dirs::redump_roms(self.root, &software_list).as_ref(),
                 self.all,
             ),
             self.failures,
@@ -1340,8 +1413,9 @@ struct OptRedumpAdd {
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     output: Option<PathBuf>,
 
-    /// software list to use
-    software_list: String,
+    /// DAT name to add disk images for
+    #[clap(short = 'D', long = "dat")]
+    software_list: Option<String>,
 
     /// input file, directory, or URL
     #[clap(parse(from_os_str))]
@@ -1354,7 +1428,12 @@ struct OptRedumpAdd {
 
 impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &self.software_list)?;
+        let software_list = match self.software_list {
+            Some(software_list) => software_list,
+            None => dirs::select_redump_name()?,
+        };
+
+        let datfile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &software_list)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1367,7 +1446,7 @@ impl OptRedumpAdd {
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
-                dirs::redump_roms(self.output, &self.software_list).as_ref(),
+                dirs::redump_roms(self.output, &software_list).as_ref(),
                 self.all,
             )?,
             true,
@@ -1592,8 +1671,9 @@ struct OptNointroVerify {
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
 
-    /// category name to verify
-    name: String,
+    /// DAT name to verify ROMs for
+    #[clap(short = 'D', long = "dat")]
+    name: Option<String>,
 
     /// display only failures
     #[clap(long = "failures")]
@@ -1606,13 +1686,18 @@ struct OptNointroVerify {
 
 impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db(NOINTRO, DIR_NOINTRO, &self.name)?;
+        let name = match self.name {
+            Some(name) => name,
+            None => dirs::select_nointro_name()?,
+        };
+
+        let datfile = read_named_db(NOINTRO, DIR_NOINTRO, &name)?;
 
         let mut table = init_dat_table();
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.verify(dirs::nointro_roms(self.roms, &self.name).as_ref(), self.all),
+            datfile.verify(dirs::nointro_roms(self.roms, &name).as_ref(), self.all),
             self.failures,
         );
         display_dat_table(table, None);
@@ -1658,8 +1743,9 @@ struct OptNointroAdd {
     #[clap(short = 'r', long = "roms", parse(from_os_str))]
     roms: Option<PathBuf>,
 
-    /// category name to add ROMs to
-    name: String,
+    /// DAT name to add ROMs to
+    #[clap(short = 'D', long = "dat")]
+    name: Option<String>,
 
     /// input file, directory, or URL
     #[clap(parse(from_os_str))]
@@ -1672,7 +1758,12 @@ struct OptNointroAdd {
 
 impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
-        let datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &self.name)?;
+        let name = match self.name {
+            Some(name) => name,
+            None => dirs::select_nointro_name()?,
+        };
+
+        let datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
 
         let (input, input_url) = Resource::partition(self.input);
 
@@ -1684,7 +1775,7 @@ impl OptNointroAdd {
             &datfile,
             datfile.add_and_verify(
                 &mut roms,
-                dirs::nointro_roms(self.roms, &self.name).as_ref(),
+                dirs::nointro_roms(self.roms, &name).as_ref(),
                 self.all,
             )?,
             true,
@@ -2224,6 +2315,66 @@ where
     D: DeserializeOwned,
 {
     read_named_dbs(db_dir).into_iter().flatten().collect()
+}
+
+fn select_software_list_and_name() -> Result<(game::GameDb, String), Error> {
+    struct DbEntry {
+        shortname: String,
+        db: game::GameDb,
+    }
+
+    impl fmt::Display for DbEntry {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            self.db.description().fmt(f)
+        }
+    }
+
+    let software_lists: mess::MessDb = read_collected_dbs(DIR_SL);
+
+    if software_lists.is_empty() {
+        Err(Error::NoSoftwareLists)
+    } else {
+        inquire::Select::new(
+            "select software list",
+            software_lists
+                .into_iter()
+                .map(|(shortname, db)| DbEntry { shortname, db })
+                .collect(),
+        )
+        .prompt()
+        .map(|DbEntry { db, shortname }| (db, shortname))
+        .map_err(Error::Inquire)
+    }
+}
+
+#[inline]
+fn select_software_list() -> Result<game::GameDb, Error> {
+    select_software_list_and_name().map(|(db, _)| db)
+}
+
+fn select_software_list_game(db: game::GameDb) -> Result<game::Game, Error> {
+    struct GameEntry {
+        game: game::Game,
+    }
+
+    impl fmt::Display for GameEntry {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            self.game.description.fmt(f)
+        }
+    }
+
+    let mut games = db
+        .into_games()
+        .map(|game| GameEntry { game })
+        .collect::<Vec<_>>();
+    games.sort_unstable_by(|x, y| x.game.description.cmp(&y.game.description));
+
+    inquire::Select::new("select game", games)
+        .prompt()
+        .map(|GameEntry { game }| game)
+        .map_err(Error::Inquire)
 }
 
 // takes older config formats and converts them to the new style

@@ -30,3 +30,4 @@ quick-xml = {version = "0.22", features=["serialize"]}
 url = "2.2"
 hex = "0.4"
 base64 = "0.13"
+inquire = "0.2"

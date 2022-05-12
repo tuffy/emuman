@@ -46,6 +46,11 @@ impl GameDb {
     }
 
     #[inline]
+    pub fn remove_game(&mut self, game: &str) -> Option<Game> {
+        self.games.remove(game)
+    }
+
+    #[inline]
     pub fn games_iter(&self) -> impl Iterator<Item = &Game> {
         self.games.values()
     }
@@ -53,6 +58,11 @@ impl GameDb {
     #[inline]
     pub fn all_games<C: FromIterator<String>>(&self) -> C {
         self.games.keys().cloned().collect()
+    }
+
+    #[inline]
+    pub fn into_games(self) -> impl Iterator<Item = Game> {
+        self.games.into_values()
     }
 
     #[inline]
@@ -155,6 +165,15 @@ impl GameDb {
             &games
                 .into_iter()
                 .filter_map(|g| self.game(g.as_ref()).map(|g| g.report(simple)))
+                .collect::<Vec<GameRow>>(),
+        )
+    }
+
+    pub fn display_all_games(self, simple: bool) {
+        GameDb::display_report(
+            &self
+                .games_iter()
+                .map(|g| g.report(simple))
                 .collect::<Vec<GameRow>>(),
         )
     }

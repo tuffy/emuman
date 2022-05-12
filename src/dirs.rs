@@ -289,6 +289,22 @@ pub fn extra_dir(dir: Option<PathBuf>, extra: &str) -> ExtraParts<'_> {
     ExtraParts::new(dir, extra)
 }
 
+pub fn extra_dir_names() -> Option<Vec<String>> {
+    DirectoryConfig::new()
+        .map(|DirectoryConfig { extra, .. }| extra.into_iter().map(|(k, _)| k).collect::<Vec<_>>())
+        .filter(|v| !v.is_empty())
+}
+
+pub fn select_extra_name() -> Result<String, Error> {
+    extra_dir_names()
+        .ok_or(Error::NoDatFiles)
+        .and_then(|names| {
+            inquire::Select::new("select extras category", names)
+                .prompt()
+                .map_err(Error::Inquire)
+        })
+}
+
 pub struct NointroRoms<'s> {
     roms: RomSource,
     name: &'s str,
@@ -350,6 +366,24 @@ pub fn nointro_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
     }
 }
 
+pub fn nointro_dir_names() -> Option<Vec<String>> {
+    DirectoryConfig::new()
+        .map(|DirectoryConfig { nointro, .. }| {
+            nointro.into_iter().map(|(k, _)| k).collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty())
+}
+
+pub fn select_nointro_name() -> Result<String, Error> {
+    nointro_dir_names()
+        .ok_or(Error::NoDatFiles)
+        .and_then(|names| {
+            inquire::Select::new("select DAT", names)
+                .prompt()
+                .map_err(Error::Inquire)
+        })
+}
+
 pub struct RedumpRoms<'r> {
     roms: RomSource,
     name: &'r str,
@@ -407,4 +441,22 @@ pub fn redump_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
         }
         None => Box::new(std::iter::empty()),
     }
+}
+
+pub fn redump_dir_names() -> Option<Vec<String>> {
+    DirectoryConfig::new()
+        .map(|DirectoryConfig { redump, .. }| {
+            redump.into_iter().map(|(k, _)| k).collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty())
+}
+
+pub fn select_redump_name() -> Result<String, Error> {
+    redump_dir_names()
+        .ok_or(Error::NoDatFiles)
+        .and_then(|names| {
+            inquire::Select::new("select DAT", names)
+                .prompt()
+                .map_err(Error::Inquire)
+        })
 }
