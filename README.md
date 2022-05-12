@@ -206,8 +206,10 @@ This is similar to MAME, but we'll also need to specify
 what software list to use for the ROMs.  Like if we're
 interested in the Vectrex catalog, try:
 
-    emuman sl add vectrex -r MAMEXXXX/software/vectrex/ input_dir/
+    emuman sl add -L vectrex -r MAMEXXXX/software/vectrex/ input_dir/
 
+Where the `-L` option indicates which software list we're interested in.
+If unspecified, `emuman` will provide an interactive list to choose from.
 As with MAME, this will keep track of the software list
 root directory (`MAMEXXXX/software`) so we only need to specify the
 target once.
@@ -224,8 +226,10 @@ These are similar to MAME's Software List in that ROMs
 are organized on a per-system basis and the system should be
 specified, like:
 
-    emuman nointro add "GCE - Vectrex" -r Vectrex/ input_dir/
+    emuman nointro add -D "GCE - Vectrex" -r Vectrex/ input_dir/
 
+The `-D` option indicates which DAT file name to use.
+Again, if unspecified, `emuman` will let the user pick one.
 The difference is that these don't expect a single "root"
 directory like the Software List; the target directories
 can be placed wherever.
