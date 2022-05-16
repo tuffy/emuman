@@ -375,28 +375,6 @@ impl Game {
     }
 }
 
-fn read_game_dir<'s, I, S, F>(dir: I) -> (S, F)
-where
-    I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-    S: Default + ExtendOne<(String, PathBuf)>,
-    F: Default + ExtendOne<VerifyFailure<'s>>,
-{
-    let mut files_on_disk = S::default();
-    let mut failures = F::default();
-
-    for entry in dir
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-    {
-        match entry.file_name().into_string() {
-            Ok(name) => files_on_disk.extend_item((name, entry.path())),
-            Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
-        }
-    }
-
-    (files_on_disk, failures)
-}
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct GameParts {
@@ -479,6 +457,28 @@ impl GameParts {
     {
         use rayon::prelude::*;
         use std::sync::Mutex;
+
+        fn read_game_dir<'s, I, S, F>(dir: I) -> (S, F)
+        where
+            I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+            S: Default + ExtendOne<(String, PathBuf)>,
+            F: Default + ExtendOne<VerifyFailure<'s>>,
+        {
+            let mut files_on_disk = S::default();
+            let mut failures = F::default();
+
+            for entry in dir
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            {
+                match entry.file_name().into_string() {
+                    Ok(name) => files_on_disk.extend_item((name, entry.path())),
+                    Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
+                }
+            }
+
+            (files_on_disk, failures)
+        }
 
         let (files_on_disk, failures): (DashMap<_, _>, F) = std::fs::read_dir(&game_root)
             .map(read_game_dir)
