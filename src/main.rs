@@ -1621,8 +1621,24 @@ struct OptNointroDestroy {
 
 impl OptNointroDestroy {
     fn execute(self) -> Result<(), Error> {
-        for dat in self.dats {
-            destroy_named_db(DIR_NOINTRO, &dat)?;
+        if self.dats.is_empty() {
+            let dbs: BTreeMap<String, dat::DatFile> = read_collected_dbs(DIR_NOINTRO);
+
+            for dat in inquire::MultiSelect::new(
+                "destroy which DAT files?",
+                dirs::nointro_dirs()
+                    .map(|(db, _)| db)
+                    .filter(|db| dbs.contains_key(db))
+                    .collect::<Vec<_>>(),
+            )
+            .prompt()?
+            {
+                destroy_named_db(DIR_NOINTRO, &dat)?;
+            }
+        } else {
+            for dat in self.dats {
+                destroy_named_db(DIR_NOINTRO, &dat)?;
+            }
         }
 
         Ok(())
