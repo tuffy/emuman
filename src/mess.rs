@@ -222,7 +222,7 @@ pub fn list(db: &MessDb, search: Option<&str>, sort: GameColumn, simple: bool) {
 }
 
 pub fn display_results(results: &[(&str, GameRow)]) {
-    use prettytable::{cell, format, row, Table};
+    use prettytable::{format, row, Table};
 
     let mut table = Table::new();
 
@@ -246,7 +246,7 @@ pub fn display_results(results: &[(&str, GameRow)]) {
 }
 
 pub fn list_all(db: &MessDb) {
-    use prettytable::{cell, format, row, Table};
+    use prettytable::{format, row, Table};
     let mut table = Table::new();
 
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);

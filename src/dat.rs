@@ -232,7 +232,7 @@ impl DatFile {
     where
         I: IntoIterator<Item = (T, Self)>,
     {
-        use prettytable::{cell, format, row, Table};
+        use prettytable::{format, row, Table};
         let mut table = Table::new();
 
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
@@ -245,7 +245,7 @@ impl DatFile {
     }
 
     pub fn list(&self) {
-        use prettytable::{cell, format, row, Table};
+        use prettytable::{format, row, Table};
 
         let mut games = self.games().collect::<Vec<_>>();
         games.sort_unstable();

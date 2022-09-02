@@ -54,10 +54,14 @@ fn progress_bar(source: &str, total_bytes: Option<u64>) -> ProgressBar {
 
     match total_bytes {
         Some(total_bytes) => ProgressBar::new(total_bytes).with_style(
-            ProgressStyle::default_bar().template("{wide_msg} {bytes} ({bytes_per_sec}) {eta}"),
+            ProgressStyle::default_bar()
+                .template("{wide_msg} {bytes} ({bytes_per_sec}) {eta}")
+                .unwrap(),
         ),
         None => ProgressBar::new_spinner().with_style(
-            ProgressStyle::default_spinner().template("{wide_msg} {bytes} ({bytes_per_sec})"),
+            ProgressStyle::default_spinner()
+                .template("{wide_msg} {bytes} ({bytes_per_sec})")
+                .unwrap(),
         ),
     }
     .with_message(source.to_owned())

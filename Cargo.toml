@@ -1,17 +1,17 @@
 [package]
 name = "emuman"
 description = "Utility for managing emulator ROM files."
-version = "2.2.0"
+version = "2.2.1"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/tuffy/emuman"
 edition = "2018"
 
 [dependencies]
-clap = {version = "3.1", features=["derive"]}
+clap = {version = "3.2", features=["derive"]}
 sha1_smol = "1.0"
 rayon = "1.5"
-prettytable-rs = "0.8"
+prettytable-rs = "0.9"
 walkdir = "2"
 directories = "4.0"
 serde = "1.0"
@@ -20,14 +20,14 @@ toml = "0.5"
 ciborium = "0.2"
 fxhash = "0.2"
 nohash-hasher = "0.2"
-indicatif = {version = "0.16", features=["with_rayon"]}
-zip = "0.5"
-once_cell = "1.10"
-dashmap = {version = "5.2", features=["rayon"]}
+indicatif = {version = "0.17", features=["rayon"]}
+zip = "0.6"
+once_cell = "1.14"
+dashmap = {version = "5.4", features=["rayon"]}
 xattr = "0.2"
 attohttpc = "0.22"
 quick-xml = {version = "0.22", features=["serialize"]}
 url = "2.2"
 hex = "0.4"
 base64 = "0.13"
-inquire = "0.2"
+inquire = "0.3"

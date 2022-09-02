@@ -1855,7 +1855,7 @@ impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::dat::DatFile;
         use crate::game::{GameDb, Part, RomSource};
-        use prettytable::{cell, format, row, Table};
+        use prettytable::{format, row, Table};
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
         use std::collections::{BTreeSet, HashMap};
 
@@ -2494,8 +2494,11 @@ where
     use indicatif::{ProgressBar, ProgressStyle};
 
     let pb = match games.size_hint() {
-        (_, Some(total)) => ProgressBar::new(total as u64)
-            .with_style(ProgressStyle::default_bar().template("{wide_msg} {pos} / {len}")),
+        (_, Some(total)) => ProgressBar::new(total as u64).with_style(
+            ProgressStyle::default_bar()
+                .template("{wide_msg} {pos} / {len}")
+                .unwrap(),
+        ),
         (_, None) => ProgressBar::new_spinner(),
     }
     .with_message("adding and verifying");
@@ -2552,7 +2555,7 @@ fn display_dirs<D>(dirs: D, db: BTreeMap<String, dat::DatFile>, sort_by_version:
 where
     D: Iterator<Item = (String, PathBuf)>,
 {
-    use prettytable::{cell, format, row, Table};
+    use prettytable::{format, row, Table};
 
     let mut results: Vec<[String; 3]> = dirs
         .filter_map(|(name, dir)| {
@@ -2580,7 +2583,7 @@ where
 }
 
 fn init_dat_table() -> prettytable::Table {
-    use prettytable::{cell, format, row, Table};
+    use prettytable::{format, row, Table};
 
     let mut table = Table::new();
     table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
@@ -2591,7 +2594,7 @@ fn init_dat_table() -> prettytable::Table {
 
 fn display_dat_table(mut table: prettytable::Table, summary: Option<game::VerifyResultsSummary>) {
     if let Some(summary) = summary {
-        use prettytable::{cell, row};
+        use prettytable::row;
 
         table.add_row(row![r->summary.total, r->summary.successes, "Total"]);
     }

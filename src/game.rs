@@ -213,7 +213,7 @@ impl GameDb {
     }
 
     fn display_report(games: &[GameRow]) {
-        use prettytable::{cell, format, row};
+        use prettytable::{format, row};
 
         let mut table = Table::new();
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
@@ -236,7 +236,7 @@ impl GameDb {
     }
 
     pub fn display_parts(&self, name: &str) -> Result<(), Error> {
-        use prettytable::{cell, format, row};
+        use prettytable::{format, row};
 
         let game = self
             .game(name)
@@ -359,7 +359,7 @@ impl Game {
     }
 
     pub fn display_parts(&self, table: &mut Table) {
-        use prettytable::{cell, row};
+        use prettytable::row;
 
         let parts: BTreeMap<&str, &Part> = self
             .parts
@@ -1203,12 +1203,16 @@ impl FromStr for GameColumn {
 
 #[inline]
 pub fn find_files_style() -> ProgressStyle {
-    ProgressStyle::default_spinner().template("{spinner} {wide_msg} {pos}")
+    ProgressStyle::default_spinner()
+        .template("{spinner} {wide_msg} {pos}")
+        .unwrap()
 }
 
 #[inline]
 pub fn verify_style() -> ProgressStyle {
-    ProgressStyle::default_bar().template("{spinner} {wide_msg} {pos} / {len}")
+    ProgressStyle::default_bar()
+        .template("{spinner} {wide_msg} {pos} / {len}")
+        .unwrap()
 }
 
 fn subdir_files(root: &Path) -> Vec<PathBuf> {
@@ -1217,7 +1221,6 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
 
     let pbar = ProgressBar::new_spinner().with_style(find_files_style());
     pbar.set_message("locating files");
-    pbar.set_draw_delta(100);
 
     let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
 
@@ -1524,7 +1527,6 @@ where
 
     let pbar = ProgressBar::new(files.len() as u64).with_style(verify_style());
     pbar.set_message("cataloging files");
-    pbar.set_draw_delta(files.len() as u64 / 1000);
 
     let results = files
         .into_par_iter()
@@ -1641,7 +1643,7 @@ pub fn display_dat_results(
     results: BTreeMap<&str, Vec<VerifyFailure>>,
     failures_only: bool,
 ) -> VerifyResultsSummary {
-    use prettytable::{cell, row};
+    use prettytable::row;
 
     let summary = VerifyResultsSummary {
         successes: results.values().filter(|v| v.is_empty()).count(),
