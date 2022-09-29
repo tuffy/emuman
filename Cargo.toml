@@ -8,7 +8,7 @@ repository = "https://github.com/tuffy/emuman"
 edition = "2018"
 
 [dependencies]
-clap = {version = "3.2", features=["derive"]}
+clap = {version = "4.0", features=["derive"]}
 sha1_smol = "1.0"
 rayon = "1.5"
 prettytable-rs = "0.9"

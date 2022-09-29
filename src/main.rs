@@ -139,6 +139,7 @@ impl fmt::Display for Error {
     }
 }
 
+#[derive(Clone)]
 enum Resource {
     File(PathBuf),
     Url(String),
@@ -228,7 +229,6 @@ impl std::io::Seek for ResourceFile {
 #[derive(Args)]
 struct OptMameInit {
     /// MAME's XML file or URL
-    #[clap(parse(from_os_str))]
     xml: Option<Resource>,
 }
 
@@ -320,7 +320,7 @@ struct OptMameReport {
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// display simple report with less information
@@ -349,7 +349,7 @@ impl OptMameReport {
 #[derive(Args)]
 struct OptMameVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// verify all possible machines
@@ -408,7 +408,7 @@ impl OptMameVerify {
 #[derive(Args)]
 struct OptMameAdd {
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// game to add
@@ -416,7 +416,6 @@ struct OptMameAdd {
     machines: Vec<String>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 }
 
@@ -496,7 +495,6 @@ impl OptMame {
 #[derive(Args)]
 struct OptMessInit {
     /// XML files from hash database
-    #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
 }
 
@@ -627,7 +625,7 @@ struct OptMessReport {
     sort: game::GameColumn,
 
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// software list to use
@@ -667,7 +665,7 @@ impl OptMessReport {
 #[derive(Args)]
 struct OptMessVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// verify all possible machines
@@ -734,7 +732,7 @@ impl OptMessVerify {
 #[derive(Args)]
 struct OptMessVerifyAll {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// verify all possible machines
@@ -787,7 +785,7 @@ impl OptMessVerifyAll {
 #[derive(Args)]
 struct OptMessAdd {
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// software list to use
@@ -799,7 +797,6 @@ struct OptMessAdd {
     software: Vec<String>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 }
 
@@ -838,11 +835,10 @@ impl OptMessAdd {
 #[derive(Args)]
 struct OptMessAddAll {
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 }
 
@@ -870,11 +866,10 @@ impl OptMessAddAll {
 #[derive(Args)]
 struct OptMessSplit {
     /// target directory for split ROMs
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", default_value = ".")]
     output: PathBuf,
 
     /// ROMs to split
-    #[clap(parse(from_os_str))]
     roms: Vec<PathBuf>,
 }
 
@@ -983,7 +978,6 @@ impl OptMess {
 #[derive(Args)]
 struct OptExtraInit {
     /// extras .DAT file files
-    #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
 
     /// completely replace old dat files
@@ -1062,7 +1056,7 @@ impl OptExtraList {
 #[derive(Args)]
 struct OptExtraVerify {
     /// extras directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    #[clap(short = 'd', long = "dir")]
     dir: Option<PathBuf>,
 
     /// extras category to verify
@@ -1139,7 +1133,7 @@ impl OptExtraVerifyAll {
 #[derive(Args)]
 struct OptExtraAdd {
     /// output directory
-    #[clap(short = 'd', long = "dir", parse(from_os_str))]
+    #[clap(short = 'd', long = "dir")]
     dir: Option<PathBuf>,
 
     /// extras category to add files to
@@ -1147,7 +1141,6 @@ struct OptExtraAdd {
     extra: Option<String>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 
     /// verify all possible machines
@@ -1194,7 +1187,6 @@ struct OptExtraAddAll {
     all: bool,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 }
 
@@ -1278,7 +1270,6 @@ impl OptExtra {
 #[derive(Args)]
 struct OptRedumpInit {
     /// Redump XML or Zip file
-    #[clap(parse(from_os_str))]
     xml: Vec<PathBuf>,
 }
 
@@ -1364,7 +1355,7 @@ impl OptRedumpList {
 #[derive(Args)]
 struct OptRedumpVerify {
     /// root directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     root: Option<PathBuf>,
 
     /// DAT name to verify disk images for
@@ -1410,7 +1401,7 @@ impl OptRedumpVerify {
 #[derive(Args)]
 struct OptRedumpAdd {
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     output: Option<PathBuf>,
 
     /// DAT name to add disk images for
@@ -1418,7 +1409,6 @@ struct OptRedumpAdd {
     software_list: Option<String>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 
     /// verify all possible machines
@@ -1460,11 +1450,10 @@ impl OptRedumpAdd {
 #[derive(Args)]
 struct OptRedumpSplit {
     /// directory to place output tracks
-    #[clap(short = 'r', long = "roms", parse(from_os_str), default_value = ".")]
+    #[clap(short = 'r', long = "roms", default_value = ".")]
     root: PathBuf,
 
     /// input .bin file
-    #[clap(parse(from_os_str))]
     bins: Vec<PathBuf>,
 }
 
@@ -1589,7 +1578,6 @@ impl OptNointro {
 #[derive(Args)]
 struct OptNointroInit {
     /// No-Intro DAT or Zip file
-    #[clap(parse(from_os_str))]
     dats: Vec<PathBuf>,
 
     /// completely replace old dat files
@@ -1684,7 +1672,7 @@ impl OptNointroList {
 #[derive(Args)]
 struct OptNointroVerify {
     /// ROMs directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// DAT name to verify ROMs for
@@ -1756,7 +1744,7 @@ impl OptNointroVerifyAll {
 #[derive(Args)]
 struct OptNointroAdd {
     /// output directory
-    #[clap(short = 'r', long = "roms", parse(from_os_str))]
+    #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
     /// DAT name to add ROMs to
@@ -1764,7 +1752,6 @@ struct OptNointroAdd {
     name: Option<String>,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 
     /// verify all possible machines
@@ -1809,7 +1796,6 @@ struct OptNointroAddAll {
     failures: bool,
 
     /// input file, directory, or URL
-    #[clap(parse(from_os_str))]
     input: Vec<Resource>,
 
     /// verify all possible machines
@@ -1958,7 +1944,6 @@ impl OptCache {
 #[derive(Args)]
 struct OptCacheAdd {
     /// files or directories
-    #[clap(parse(from_os_str))]
     paths: Vec<PathBuf>,
 }
 
@@ -2001,7 +1986,6 @@ impl OptCacheAdd {
 #[derive(Args)]
 struct OptCacheDelete {
     /// files or directories
-    #[clap(parse(from_os_str))]
     paths: Vec<PathBuf>,
 }
 
@@ -2030,7 +2014,6 @@ impl OptCacheDelete {
 #[derive(Args)]
 struct OptCacheVerify {
     /// files or directories
-    #[clap(parse(from_os_str))]
     paths: Vec<PathBuf>,
 }
 
@@ -2082,7 +2065,6 @@ impl OptCacheVerify {
 #[derive(Args)]
 struct OptCacheLinkDupes {
     /// files or directories
-    #[clap(parse(from_os_str))]
     paths: Vec<PathBuf>,
 }
 
