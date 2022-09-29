@@ -1132,6 +1132,11 @@ impl Part {
     pub fn is_valid(&self, path: &Path) -> Result<bool, std::io::Error> {
         Part::from_path(path).map(|disk_part| self == &disk_part)
     }
+
+    #[inline]
+    pub fn is_placeholder(&self) -> bool {
+        matches!(self, Part::Disk{ sha1 } if sha1 == b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" )
+    }
 }
 
 struct Sha1Reader<R> {

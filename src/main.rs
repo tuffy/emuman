@@ -1868,7 +1868,7 @@ impl OptIdentify {
             .flatten();
 
         if self.lookup {
-            let mut lookup: HashMap<&Part, BTreeSet<[&str; 4]>> = HashMap::default();
+            use iter_group::IntoGroup;
 
             let mame_db: GameDb = read_game_db(MAME, DB_MAME).unwrap_or_default();
             let mess_db: BTreeMap<String, GameDb> = read_collected_dbs(DIR_SL);
@@ -1879,41 +1879,31 @@ impl OptIdentify {
                 ("redump", read_collected_dbs(DIR_REDUMP)),
             ];
 
-            for game in mame_db.games_iter() {
-                for (rom, part) in game.parts.iter() {
-                    lookup
-                        .entry(part)
-                        .or_default()
-                        .insert(["mame", "", game.name.as_str(), rom]);
-                }
-            }
-
-            // invert caches into a Part -> [identifiers] lookup table
-            for (system, game_db) in mess_db.iter() {
-                for game in game_db.games_iter() {
-                    for (rom, part) in game.parts.iter() {
-                        lookup.entry(part).or_default().insert([
-                            "mess",
-                            system,
-                            game.name.as_str(),
-                            rom,
-                        ]);
-                    }
-                }
-            }
-
-            for (category, datfiles) in &dat_parts {
-                for (system, datfile) in datfiles.iter() {
-                    for (game, parts) in datfile.game_parts() {
-                        for (rom, part) in parts.iter() {
-                            lookup
-                                .entry(part)
-                                .or_default()
-                                .insert([category, system, game, rom]);
-                        }
-                    }
-                }
-            }
+            let lookup = mame_db
+                .games_iter()
+                .flat_map(|game| {
+                    game.parts
+                        .iter()
+                        .map(move |(rom, part)| (part, ["mame", "", game.name.as_str(), rom]))
+                })
+                .chain(mess_db.iter().flat_map(|(system, game_db)| {
+                    game_db.games_iter().flat_map(move |game| {
+                        game.parts.iter().map(move |(rom, part)| {
+                            (part, ["mess", system, game.name.as_str(), rom])
+                        })
+                    })
+                }))
+                .chain(dat_parts.iter().flat_map(|(category, datfiles)| {
+                    datfiles.iter().flat_map(move |(system, datfile)| {
+                        datfile.game_parts().flat_map(move |(game, parts)| {
+                            parts.iter().map(move |(rom, part)| {
+                                (part, [category, system.as_str(), game, rom])
+                            })
+                        })
+                    })
+                }))
+                .filter(|(part, _)| !part.is_placeholder())
+                .group::<HashMap<&Part, BTreeSet<[&str; 4]>>>();
 
             let mut table = Table::new();
             table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
