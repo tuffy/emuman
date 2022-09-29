@@ -742,7 +742,7 @@ impl VerifyFailure<'_> {
                 Ok(ExtractedPart {
                     extracted,
                     source: entry.insert(RomSource::File {
-                        file: Arc::new(target.clone()),
+                        file: Arc::from(target.clone().into_boxed_path()),
                         has_xattr: true,
                         zip_parts: ZipParts::default(),
                     }),
@@ -1262,7 +1262,7 @@ type ZipParts = Vec<usize>;
 #[derive(Clone, Debug)]
 pub enum RomSource<'u> {
     File {
-        file: Arc<PathBuf>,
+        file: Arc<Path>,
         has_xattr: bool,
         zip_parts: ZipParts,
     },
@@ -1285,20 +1285,20 @@ impl<'u> RomSource<'u> {
             return Ok(vec![(
                 part,
                 RomSource::File {
-                    file: Arc::new(pb),
+                    file: Arc::from(pb.into_boxed_path()),
                     has_xattr: true,
                     zip_parts: ZipParts::default(),
                 },
             )]);
         }
 
-        let file = Arc::new(pb);
-        let mut r = File::open(file.as_ref()).map(BufReader::new)?;
+        let file = Arc::from(pb.into_boxed_path());
+        let mut r = File::open(&file).map(BufReader::new)?;
 
         let mut result = vec![(
             Part::from_reader(&mut r)?,
             RomSource::File {
-                file: file.clone(),
+                file: Arc::clone(&file),
                 has_xattr: false,
                 zip_parts: ZipParts::default(),
             },
@@ -1311,7 +1311,7 @@ impl<'u> RomSource<'u> {
                 (
                     part,
                     RomSource::File {
-                        file: file.clone(),
+                        file: Arc::clone(&file),
                         has_xattr: false,
                         zip_parts,
                     },
@@ -1363,12 +1363,12 @@ impl<'u> RomSource<'u> {
                 has_xattr,
                 zip_parts,
             } => match zip_parts.split_first() {
-                None => hard_link(source.as_path(), &target)
+                None => hard_link(source, &target)
                     .map(|()| Extracted::Linked {
                         has_xattr: *has_xattr,
                     })
                     .or_else(|_| {
-                        Rate::from_copy(|| copy(source.as_path(), &target))
+                        Rate::from_copy(|| copy(source, &target))
                             .map(|rate| Extracted::Copied { rate })
                             .map_err(Error::IO)
                     }),
