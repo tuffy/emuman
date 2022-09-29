@@ -742,7 +742,7 @@ impl VerifyFailure<'_> {
                 Ok(ExtractedPart {
                     extracted,
                     source: entry.insert(RomSource::File {
-                        file: Arc::from(target.clone().into_boxed_path()),
+                        file: Arc::from(target.clone()),
                         has_xattr: true,
                         zip_parts: ZipParts::default(),
                     }),
@@ -1285,14 +1285,14 @@ impl<'u> RomSource<'u> {
             return Ok(vec![(
                 part,
                 RomSource::File {
-                    file: Arc::from(pb.into_boxed_path()),
+                    file: Arc::from(pb),
                     has_xattr: true,
                     zip_parts: ZipParts::default(),
                 },
             )]);
         }
 
-        let file = Arc::from(pb.into_boxed_path());
+        let file = Arc::from(pb);
         let mut r = File::open(&file).map(BufReader::new)?;
 
         let mut result = vec![(
