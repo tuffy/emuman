@@ -1,4 +1,5 @@
 use crate::game::{FileId, Part};
+use nohash::IntMap;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,7 @@ pub trait Duplicates {
 #[derive(Default)]
 pub struct DuplicateFiles {
     seen: HashSet<FileId>,
-    parts: HashMap<u64, DuplicateParts>,
+    parts: IntMap<u64, DuplicateParts>,
 }
 
 impl Duplicates for DuplicateFiles {

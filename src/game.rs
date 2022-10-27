@@ -1230,7 +1230,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
     let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
 
     let results = if cfg!(unix) {
-        use nohash_hasher::IntSet;
+        use nohash::IntSet;
         use walkdir::DirEntryExt;
 
         let mut files = IntSet::default();
