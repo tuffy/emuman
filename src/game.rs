@@ -1291,6 +1291,32 @@ pub enum RomSource<'u> {
 }
 
 impl<'u> RomSource<'u> {
+    // returns true if this source is more "local" than the other,
+    // (that is, local files are more local than remote URLs,
+    //  and non-zipped files are more local than zipped files)
+    fn more_local_than(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                RomSource::File {
+                    zip_parts: parts_a, ..
+                },
+                RomSource::File {
+                    zip_parts: parts_b, ..
+                },
+            )
+            | (
+                RomSource::Url {
+                    zip_parts: parts_a, ..
+                },
+                RomSource::Url {
+                    zip_parts: parts_b, ..
+                },
+            ) => parts_a.len() < parts_b.len(),
+            (RomSource::File { .. }, RomSource::Url { .. }) => true,
+            (RomSource::Url { .. }, RomSource::File { .. }) => false,
+        }
+    }
+
     pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
         use std::fs::File;
         use std::io::BufReader;
@@ -1588,13 +1614,28 @@ fn multi_rom_sources<'u, F>(
 where
     F: Fn(&Part) -> bool + Sync + Send + Copy,
 {
+    fn merge_sources<'u>(base: RomSources<'u>, extend: RomSources<'u>) -> RomSources<'u> {
+        use dashmap::mapref::entry::Entry;
+
+        for (part, source) in extend {
+            match base.entry(part) {
+                Entry::Occupied(mut o) if source.more_local_than(o.get()) => {
+                    o.insert(source);
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(v) => {
+                    v.insert(source);
+                }
+            }
+        }
+
+        base
+    }
+
     urls.iter()
         .map(|url| url_rom_sources(url, part_filter))
         .chain(roots.iter().map(|root| file_rom_sources(root, part_filter)))
-        .reduce(|mut acc, item| {
-            acc.extend(item);
-            acc
-        })
+        .reduce(merge_sources)
         .unwrap_or_else(|| file_rom_sources(Path::new("."), part_filter))
 }
 
