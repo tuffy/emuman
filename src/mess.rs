@@ -222,40 +222,59 @@ pub fn list(db: &MessDb, search: Option<&str>, sort: GameColumn, simple: bool) {
 }
 
 pub fn display_results(results: &[(&str, GameRow)]) {
-    use prettytable::{format, row, Table};
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL_CONDENSED;
+    use comfy_table::{Cell, Color, Table};
 
     let mut table = Table::new();
+    table
+        .set_header(vec!["Game", "Creator", "Year", "List", "Shortname"])
+        .load_preset(UTF8_FULL_CONDENSED)
+        .apply_modifier(UTF8_ROUND_CORNERS);
 
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    table.get_format().column_separator('\u{2502}');
-
-    for (db_name, game) in results {
-        let description = game.description;
-        let creator = game.creator;
-        let year = game.year;
-        let name = game.name;
-
-        table.add_row(match game.status {
-            Status::Working => row![description, creator, year, db_name, name],
-            Status::Partial => row![FY => description, creator, year, db_name, name],
-            Status::NotWorking => row![FR => description, creator, year, db_name, name],
-        });
+    for (
+        db_name,
+        GameRow {
+            description,
+            creator,
+            year,
+            name,
+            status,
+        },
+    ) in results
+    {
+        table.add_row(vec![
+            match status {
+                Status::Working => Cell::new(description),
+                Status::Partial => Cell::new(description).fg(Color::Yellow),
+                Status::NotWorking => Cell::new(description).fg(Color::Red),
+            },
+            Cell::new(creator),
+            Cell::new(year),
+            Cell::new(db_name),
+            Cell::new(name),
+        ]);
     }
 
-    table.printstd();
+    println!("{table}");
 }
 
 pub fn list_all(db: &MessDb) {
-    use prettytable::{format, row, Table};
-    let mut table = Table::new();
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL_CONDENSED;
+    use comfy_table::Table;
 
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+    let mut table = Table::new();
+    table
+        .set_header(vec!["Software List", "Shortname"])
+        .load_preset(UTF8_FULL_CONDENSED)
+        .apply_modifier(UTF8_ROUND_CORNERS);
 
     for (name, game_db) in db.iter() {
-        table.add_row(row![game_db.description(), name]);
+        table.add_row(vec![game_db.description(), name]);
     }
 
-    table.printstd();
+    println!("{table}");
 }
 
 pub fn strip_ines_header(data: &[u8]) -> &[u8] {

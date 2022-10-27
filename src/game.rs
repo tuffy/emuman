@@ -1,10 +1,10 @@
 use super::{is_zip, Error};
+use comfy_table::Table;
 use core::num::ParseIntError;
 use dashmap::mapref::entry::OccupiedEntry;
 use dashmap::DashMap;
 use fxhash::FxHashSet;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::Table;
 use serde_derive::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::cmp::Ordering;
@@ -213,38 +213,53 @@ impl GameDb {
     }
 
     fn display_report(games: &[GameRow]) {
-        use prettytable::{format, row};
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::{Cell, Color};
 
         let mut table = Table::new();
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-        table.get_format().column_separator('\u{2502}');
+        table
+            .set_header(vec!["Game", "Creator", "Year", "Shortname"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
 
-        for game in games {
-            let description = game.description;
-            let creator = game.creator;
-            let year = game.year;
-            let name = game.name;
-
-            table.add_row(match game.status {
-                Status::Working => row![description, creator, year, name],
-                Status::Partial => row![FY => description, creator, year, name],
-                Status::NotWorking => row![FR => description, creator, year, name],
-            });
+        for GameRow {
+            description,
+            creator,
+            year,
+            name,
+            status,
+        } in games
+        {
+            table.add_row(vec![
+                match status {
+                    Status::Working => Cell::new(description),
+                    Status::Partial => Cell::new(description).fg(Color::Yellow),
+                    Status::NotWorking => Cell::new(description).fg(Color::Red),
+                },
+                Cell::new(creator),
+                Cell::new(year),
+                Cell::new(name),
+            ]);
         }
 
-        table.printstd();
+        println!("{table}");
     }
 
     pub fn display_parts(&self, name: &str) -> Result<(), Error> {
-        use prettytable::{format, row};
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::{Attribute, Cell, CellAlignment};
 
         let game = self
             .game(name)
             .ok_or_else(|| Error::NoSuchSoftware(name.to_string()))?;
 
         let mut table = Table::new();
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-        table.get_format().column_separator('\u{2502}');
+        table
+            .set_header(vec!["Game", "Creator", "Year", "List", "Shortname"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
 
         let devices: BTreeMap<&str, &Game> = game
             .devices
@@ -257,15 +272,19 @@ impl GameDb {
         if devices.is_empty() {
             game.display_parts(&mut table);
         } else {
-            table.add_row(row![H3cu->name]);
+            table.add_row(vec![Cell::new(name)
+                .set_alignment(CellAlignment::Center)
+                .add_attribute(Attribute::Bold)]);
             game.display_parts(&mut table);
             for (dev_name, dev) in devices.into_iter() {
-                table.add_row(row![H3cu->dev_name]);
+                table.add_row(vec![Cell::new(dev_name)
+                    .set_alignment(CellAlignment::Center)
+                    .add_attribute(Attribute::Bold)]);
                 dev.display_parts(&mut table);
             }
         }
 
-        table.printstd();
+        println!("{table}");
         Ok(())
     }
 }
@@ -359,8 +378,6 @@ impl Game {
     }
 
     pub fn display_parts(&self, table: &mut Table) {
-        use prettytable::row;
-
         let parts: BTreeMap<&str, &Part> = self
             .parts
             .iter()
@@ -369,7 +386,7 @@ impl Game {
 
         if !parts.is_empty() {
             for (name, part) in parts {
-                table.add_row(row![name, part.digest()]);
+                table.add_row(vec![name, &part.digest().to_string()]);
             }
         }
     }
@@ -1643,12 +1660,12 @@ impl std::ops::AddAssign for VerifyResultsSummary {
 }
 
 pub fn display_dat_results(
-    table: &mut prettytable::Table,
+    table: &mut comfy_table::Table,
     dat: &crate::dat::DatFile,
     results: BTreeMap<&str, Vec<VerifyFailure>>,
     failures_only: bool,
 ) -> VerifyResultsSummary {
-    use prettytable::row;
+    use comfy_table::{Cell, CellAlignment};
 
     let summary = VerifyResultsSummary {
         successes: results.values().filter(|v| v.is_empty()).count(),
@@ -1665,7 +1682,11 @@ pub fn display_dat_results(
         }
     }
 
-    table.add_row(row![r->summary.total, r->summary.successes, dat.name()]);
+    table.add_row(vec![
+        Cell::new(summary.total).set_alignment(CellAlignment::Right),
+        Cell::new(summary.successes).set_alignment(CellAlignment::Right),
+        Cell::new(dat.name()),
+    ]);
 
     summary
 }

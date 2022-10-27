@@ -232,33 +232,42 @@ impl DatFile {
     where
         I: IntoIterator<Item = (T, Self)>,
     {
-        use prettytable::{format, row, Table};
-        let mut table = Table::new();
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
 
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Version", "DAT Name"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
 
         for (_, datfile) in iter {
-            table.add_row(row![datfile.name(), datfile.version()]);
+            table.add_row(vec![datfile.version(), datfile.name()]);
         }
 
-        table.printstd();
+        println!("{table}");
     }
 
     pub fn list(&self) {
-        use prettytable::{format, row, Table};
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
 
         let mut games = self.games().collect::<Vec<_>>();
         games.sort_unstable();
 
         let mut table = Table::new();
-
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        table
+            .set_header(vec!["Game"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
 
         for game in games {
-            table.add_row(row![game]);
+            table.add_row(vec![game]);
         }
 
-        table.printstd();
+        println!("{table}");
     }
 
     pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<&str, Vec<VerifyFailure>> {

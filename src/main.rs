@@ -595,7 +595,9 @@ struct OptMessParts {
 
 impl OptMessParts {
     fn execute(self) -> Result<(), Error> {
-        use prettytable::{format, Table};
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
 
         let mut software_list = match self.software_list {
             Some(software_list) => read_named_db(MESS, DIR_SL, &software_list)?,
@@ -610,10 +612,13 @@ impl OptMessParts {
         };
 
         let mut table = Table::new();
-        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-        table.get_format().column_separator('\u{2502}');
+        table
+            .set_header(vec!["Part", "SHA1 Hash"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
         game.display_parts(&mut table);
-        table.printstd();
+        println!("{table}");
         Ok(())
     }
 }
@@ -1841,7 +1846,9 @@ impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::dat::DatFile;
         use crate::game::{GameDb, Part, RomSource};
-        use prettytable::{format, row, Table};
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
         use std::collections::{BTreeSet, HashMap};
 
@@ -1892,16 +1899,24 @@ impl OptIdentify {
                 .group::<HashMap<&Part, BTreeSet<[&str; 4]>>>();
 
             let mut table = Table::new();
-            table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-            table.get_format().column_separator('\u{2502}');
+            table
+                .set_header(vec!["Source", "Category", "System", "Game", "Part"])
+                .load_preset(UTF8_FULL_CONDENSED)
+                .apply_modifier(UTF8_ROUND_CORNERS);
 
             for (part, source) in sources {
                 for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
-                    table.add_row(row![source, category, system, game, rom]);
+                    table.add_row(vec![
+                        source.to_string().as_str(),
+                        category,
+                        system,
+                        game,
+                        rom,
+                    ]);
                 }
             }
 
-            table.printstd();
+            println!("{table}");
         } else {
             for (part, source) in sources {
                 println!("{}  {}", part.digest(), source);
@@ -2527,7 +2542,9 @@ fn display_dirs<D>(dirs: D, db: BTreeMap<String, dat::DatFile>, sort_by_version:
 where
     D: Iterator<Item = (String, PathBuf)>,
 {
-    use prettytable::{format, row, Table};
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL_CONDENSED;
+    use comfy_table::Table;
 
     let mut results: Vec<[String; 3]> = dirs
         .filter_map(|(name, dir)| {
@@ -2546,31 +2563,46 @@ where
     }
 
     let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    table.get_format().column_separator('\u{2502}');
+    table
+        .set_header(vec!["Version", "DAT Name", "Directory"])
+        .load_preset(UTF8_FULL_CONDENSED)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
     for [version, name, dir] in results {
-        table.add_row(row![r->version, name, dir]);
+        table.add_row(vec![version, name, dir]);
     }
-    table.printstd();
+    println!("{table}");
 }
 
-fn init_dat_table() -> prettytable::Table {
-    use prettytable::{format, row, Table};
+fn init_dat_table() -> comfy_table::Table {
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL_CONDENSED;
+    use comfy_table::{Cell, CellAlignment};
 
-    let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
-    table.get_format().column_separator('\u{2502}');
-    table.set_titles(row![r->"Tested", r->"OK", ""]);
+    let mut table = comfy_table::Table::new();
+    table
+        .set_header(vec![
+            Cell::new("Tested").set_alignment(CellAlignment::Right),
+            Cell::new("OK").set_alignment(CellAlignment::Right),
+            Cell::new(""),
+        ])
+        .load_preset(UTF8_FULL_CONDENSED)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
     table
 }
 
-fn display_dat_table(mut table: prettytable::Table, summary: Option<game::VerifyResultsSummary>) {
+fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::VerifyResultsSummary>) {
     if let Some(summary) = summary {
-        use prettytable::row;
+        use comfy_table::{Cell, CellAlignment};
 
-        table.add_row(row![r->summary.total, r->summary.successes, "Total"]);
+        table.add_row(vec![
+            Cell::new(summary.total).set_alignment(CellAlignment::Right),
+            Cell::new(summary.successes).set_alignment(CellAlignment::Right),
+            Cell::new("Total"),
+        ]);
     }
-    table.printstd();
+    println!("{table}");
 }
 
 fn sub_files(root: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {
