@@ -257,7 +257,7 @@ impl GameDb {
 
         let mut table = Table::new();
         table
-            .set_header(vec!["Game", "Creator", "Year", "List", "Shortname"])
+            .set_header(vec!["Part", "SHA1 Hash"])
             .load_preset(UTF8_FULL_CONDENSED)
             .apply_modifier(UTF8_ROUND_CORNERS);
 
