@@ -384,10 +384,8 @@ impl Game {
             .map(|(name, part)| (name.as_str(), part))
             .collect();
 
-        if !parts.is_empty() {
-            for (name, part) in parts {
-                table.add_row(vec![name, &part.digest().to_string()]);
-            }
+        for (name, part) in parts {
+            table.add_row(vec![name, &part.digest().to_string()]);
         }
     }
 }
@@ -454,6 +452,11 @@ impl GameParts {
     #[inline]
     pub fn insert(&mut self, k: String, v: Part) -> Option<Part> {
         self.parts.insert(k, v)
+    }
+
+    #[inline]
+    pub fn remove(&mut self, name: &str) -> Option<Part> {
+        self.parts.remove(name)
     }
 
     // game_root is the root directory to start looking for files

@@ -1,5 +1,6 @@
 use super::{Error, FileError};
 use crate::game::{GameParts, Part, RomSources, VerifyFailure};
+use comfy_table::Table;
 use fxhash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -223,9 +224,24 @@ impl DatFile {
         self.flat.keys().chain(self.tree.keys()).map(|s| s.as_str())
     }
 
+    // un-flattens the DAT into (game_name, parts) tuples
+    pub fn into_game_parts(self) -> impl Iterator<Item = (String, GameParts)> {
+        self.flat
+            .into_iter()
+            .map(|(game, part)| (game.clone(), std::iter::once((game, part)).collect()))
+            .chain(self.tree.into_iter())
+    }
+
     pub fn game_parts(&self) -> impl Iterator<Item = (&str, &GameParts)> {
         std::iter::once(("", &self.flat))
             .chain(self.tree.iter().map(|(game, parts)| (game.as_str(), parts)))
+    }
+
+    pub fn remove_game(&mut self, name: &str) -> Option<GameParts> {
+        self.flat
+            .remove(name)
+            .map(|part| std::iter::once((name.to_string(), part)).collect())
+            .or_else(|| self.tree.remove(name))
     }
 
     pub fn list_all<I, T>(iter: I)
@@ -234,7 +250,6 @@ impl DatFile {
     {
         use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
-        use comfy_table::Table;
 
         let mut table = Table::new();
         table
@@ -252,7 +267,6 @@ impl DatFile {
     pub fn list(&self) {
         use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
-        use comfy_table::Table;
 
         let mut games = self.games().collect::<Vec<_>>();
         games.sort_unstable();

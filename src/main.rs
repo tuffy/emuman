@@ -1563,6 +1563,10 @@ enum OptNointro {
     /// add ROMs to all categories
     #[clap(name = "add-all")]
     AddAll(OptNointroAddAll),
+
+    /// display game's parts
+    #[clap(name = "parts")]
+    Parts(OptNointroParts),
 }
 
 impl OptNointro {
@@ -1576,6 +1580,7 @@ impl OptNointro {
             OptNointro::VerifyAll(o) => o.execute(),
             OptNointro::Add(o) => o.execute(),
             OptNointro::AddAll(o) => o.execute(),
+            OptNointro::Parts(o) => o.execute(),
         }
     }
 }
@@ -1827,6 +1832,51 @@ impl OptNointroAddAll {
             }
         }
         display_dat_table(table, Some(total));
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroParts {
+    /// DAT name to find parts for
+    #[clap(short = 'D', long = "dat")]
+    name: Option<String>,
+
+    /// game's parts to search for
+    game: Option<String>,
+}
+
+impl OptNointroParts {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let name = match self.name {
+            Some(name) => name,
+            None => dirs::select_nointro_name()?,
+        };
+
+        let mut datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
+
+        let game = match self.game {
+            Some(game) => datfile
+                .remove_game(&game)
+                .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))?,
+            None => select_datfile_game(datfile)?,
+        };
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Part", "SHA1 Hash"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        for (name, part) in game.into_iter() {
+            table.add_row(vec![name, part.digest().to_string()]);
+        }
+        println!("{table}");
 
         Ok(())
     }
@@ -2377,6 +2427,31 @@ fn select_software_list_game(db: game::GameDb) -> Result<game::Game, Error> {
     inquire::Select::new("select game", games)
         .prompt()
         .map(|GameEntry { game }| game)
+        .map_err(Error::Inquire)
+}
+
+fn select_datfile_game(dat: dat::DatFile) -> Result<game::GameParts, Error> {
+    struct GameEntry {
+        name: String,
+        game: game::GameParts,
+    }
+
+    impl fmt::Display for GameEntry {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            self.name.fmt(f)
+        }
+    }
+
+    let mut games = dat
+        .into_game_parts()
+        .map(|(name, game)| GameEntry { name, game })
+        .collect::<Vec<_>>();
+    games.sort_unstable_by(|x, y| x.name.cmp(&y.name));
+
+    inquire::Select::new("select game", games)
+        .prompt()
+        .map(|GameEntry { game, .. }| game)
         .map_err(Error::Inquire)
 }
 
