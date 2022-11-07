@@ -4,10 +4,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub trait Duplicates {
+    type Item: ToOwned + ?Sized;
+
     fn get_or_add(
         &mut self,
-        source: PathBuf,
-    ) -> Result<Option<(PathBuf, &Path)>, (PathBuf, std::io::Error)>;
+        source: <Self::Item as ToOwned>::Owned,
+    ) -> Result<
+        Option<(<Self::Item as ToOwned>::Owned, &Self::Item)>,
+        (<Self::Item as ToOwned>::Owned, std::io::Error),
+    >;
 }
 
 #[derive(Default)]
@@ -17,6 +22,8 @@ pub struct DuplicateFiles {
 }
 
 impl Duplicates for DuplicateFiles {
+    type Item = Path;
+
     fn get_or_add(
         &mut self,
         source: PathBuf,
@@ -52,6 +59,8 @@ impl Duplicates for DuplicateFiles {
 pub struct DuplicateParts(HashMap<Part, PathBuf>);
 
 impl Duplicates for DuplicateParts {
+    type Item = Path;
+
     fn get_or_add(
         &mut self,
         source: PathBuf,
