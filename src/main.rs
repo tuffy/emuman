@@ -1500,7 +1500,7 @@ impl OptRedumpParts {
             .load_preset(UTF8_FULL_CONDENSED)
             .apply_modifier(UTF8_ROUND_CORNERS);
 
-        for (name, part) in game.into_iter() {
+        for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
         }
         println!("{table}");
@@ -1524,18 +1524,17 @@ impl OptRedumpSplit {
         let db: split::SplitDb = read_game_db(REDUMP, DB_REDUMP_SPLIT)?;
 
         self.bins.iter().try_for_each(|bin_path| {
-            let matches = bin_path
-                .metadata()
-                .map(|m| db.possible_matches(m.len()))
-                .unwrap_or(&[]);
-            if !matches.is_empty() {
-                let mut bin_data = Vec::new();
-                File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
-                if let Some(exact_match) = matches.iter().find(|m| m.matches(&bin_data)) {
-                    exact_match.extract(&self.root, &bin_data)?;
+            match bin_path.metadata().map(|m| db.possible_matches(m.len())) {
+                Err(_) | Ok([]) => Ok(()),
+                Ok(matches) => {
+                    let mut bin_data = Vec::new();
+                    File::open(bin_path).and_then(|mut f| f.read_to_end(&mut bin_data))?;
+                    if let Some(exact_match) = matches.iter().find(|m| m.matches(&bin_data)) {
+                        exact_match.extract(&self.root, &bin_data)?;
+                    }
+                    Ok(())
                 }
             }
-            Ok(())
         })
     }
 }
@@ -1946,7 +1945,7 @@ impl OptNointroParts {
             .load_preset(UTF8_FULL_CONDENSED)
             .apply_modifier(UTF8_ROUND_CORNERS);
 
-        for (name, part) in game.into_iter() {
+        for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
         }
         println!("{table}");
