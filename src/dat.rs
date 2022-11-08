@@ -162,6 +162,12 @@ pub struct DatFile {
     tree: BTreeMap<String, GameParts>,
 }
 
+impl std::fmt::Display for DatFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 impl DatFile {
     pub fn new_flattened(datafile: Datafile) -> Result<Self, hex::FromHexError> {
         let mut flat = GameParts::default();

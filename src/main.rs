@@ -30,6 +30,8 @@ static DIR_EXTRA: &str = "extra";
 static DIR_NOINTRO: &str = "nointro";
 static DIR_REDUMP: &str = "redump";
 
+pub const PAGE_SIZE: usize = 25;
+
 // used to add context about which file caused a given error
 #[derive(Debug)]
 pub struct FileError<E> {
@@ -1453,6 +1455,61 @@ impl OptRedumpAdd {
 }
 
 #[derive(Args)]
+struct OptRedumpParts {
+    /// DAT name to find parts for
+    #[clap(short = 'D', long = "dat")]
+    name: Option<String>,
+
+    /// game's parts to search for
+    game: Option<String>,
+}
+
+impl OptRedumpParts {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let mut datfile = match self.name {
+            Some(name) => read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &name),
+            None => {
+                let mut dats = read_named_dbs(DIR_REDUMP)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
+
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+                inquire::Select::new("select DAT", dats)
+                    .with_page_size(PAGE_SIZE)
+                    .prompt()
+                    .map_err(Error::Inquire)
+            }
+        }?;
+
+        let game = match self.game {
+            Some(game) => datfile
+                .remove_game(&game)
+                .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))?,
+            None => select_datfile_game(datfile)?,
+        };
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Part", "SHA1 Hash"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        for (name, part) in game.into_iter() {
+            table.add_row(vec![name, part.digest().to_string()]);
+        }
+        println!("{table}");
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptRedumpSplit {
     /// directory to place output tracks
     #[clap(short = 'r', long = "roms", default_value = ".")]
@@ -1513,6 +1570,10 @@ enum OptRedump {
     /// split .bin file into multiple tracks
     #[clap(name = "split")]
     Split(OptRedumpSplit),
+
+    /// display game's parts
+    #[clap(name = "parts")]
+    Parts(OptRedumpParts),
 }
 
 impl OptRedump {
@@ -1525,6 +1586,7 @@ impl OptRedump {
             OptRedump::Verify(o) => o.execute(),
             OptRedump::Add(o) => o.execute(),
             OptRedump::Split(o) => o.execute(),
+            OptRedump::Parts(o) => o.execute(),
         }
     }
 }
@@ -1629,6 +1691,7 @@ impl OptNointroDestroy {
                     .filter(|db| dbs.contains_key(db))
                     .collect::<Vec<_>>(),
             )
+            .with_page_size(PAGE_SIZE)
             .prompt()?
             {
                 destroy_named_db(DIR_NOINTRO, &dat)?;
@@ -1853,12 +1916,22 @@ impl OptNointroParts {
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
-        let name = match self.name {
-            Some(name) => name,
-            None => dirs::select_nointro_name()?,
-        };
+        let mut datfile = match self.name {
+            Some(name) => read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name),
+            None => {
+                let mut dats = read_named_dbs(DIR_NOINTRO)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
 
-        let mut datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+                inquire::Select::new("select DAT", dats)
+                    .with_page_size(PAGE_SIZE)
+                    .prompt()
+                    .map_err(Error::Inquire)
+            }
+        }?;
 
         let game = match self.game {
             Some(game) => datfile
@@ -2395,6 +2468,7 @@ fn select_software_list_and_name() -> Result<(game::GameDb, String), Error> {
                 .map(|(shortname, db)| DbEntry { shortname, db })
                 .collect(),
         )
+        .with_page_size(PAGE_SIZE)
         .prompt()
         .map(|DbEntry { db, shortname }| (db, shortname))
         .map_err(Error::Inquire)
@@ -2425,6 +2499,7 @@ fn select_software_list_game(db: game::GameDb) -> Result<game::Game, Error> {
     games.sort_unstable_by(|x, y| x.game.description.cmp(&y.game.description));
 
     inquire::Select::new("select game", games)
+        .with_page_size(PAGE_SIZE)
         .prompt()
         .map(|GameEntry { game }| game)
         .map_err(Error::Inquire)
@@ -2450,6 +2525,7 @@ fn select_datfile_game(dat: dat::DatFile) -> Result<game::GameParts, Error> {
     games.sort_unstable_by(|x, y| x.name.cmp(&y.name));
 
     inquire::Select::new("select game", games)
+        .with_page_size(PAGE_SIZE)
         .prompt()
         .map(|GameEntry { game, .. }| game)
         .map_err(Error::Inquire)

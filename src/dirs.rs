@@ -1,4 +1,4 @@
-use super::Error;
+use super::{Error, PAGE_SIZE};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -300,6 +300,7 @@ pub fn select_extra_name() -> Result<String, Error> {
         .ok_or(Error::NoDatFiles)
         .and_then(|names| {
             inquire::Select::new("select extras category", names)
+                .with_page_size(PAGE_SIZE)
                 .prompt()
                 .map_err(Error::Inquire)
         })
@@ -379,6 +380,7 @@ pub fn select_nointro_name() -> Result<String, Error> {
         .ok_or(Error::NoDatFiles)
         .and_then(|names| {
             inquire::Select::new("select DAT", names)
+                .with_page_size(PAGE_SIZE)
                 .prompt()
                 .map_err(Error::Inquire)
         })
@@ -456,6 +458,7 @@ pub fn select_redump_name() -> Result<String, Error> {
         .ok_or(Error::NoDatFiles)
         .and_then(|names| {
             inquire::Select::new("select DAT", names)
+                .with_page_size(PAGE_SIZE)
                 .prompt()
                 .map_err(Error::Inquire)
         })
