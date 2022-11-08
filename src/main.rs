@@ -887,7 +887,7 @@ impl OptMessSplit {
         let db = read_game_db::<split::SplitDb>(MESS, DB_MESS_SPLIT)?;
 
         self.roms.par_iter().try_for_each(|rom| {
-            let mut f = File::open(&rom)?;
+            let mut f = File::open(rom)?;
 
             let roms: Vec<Vec<u8>> = if is_zip(&mut f)? {
                 let mut zip = zip::ZipArchive::new(f)?;
@@ -2224,7 +2224,7 @@ impl OptCacheLinkDupes {
                 Ok(None) => {}
                 Ok(Some((duplicate, original))) => {
                     match fs::remove_file(&duplicate)
-                        .and_then(|()| fs::hard_link(&original, &duplicate))
+                        .and_then(|()| fs::hard_link(original, &duplicate))
                     {
                         Ok(()) => pb.println(format!(
                             "{} \u{2192} {}",

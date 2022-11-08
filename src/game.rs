@@ -500,7 +500,7 @@ impl GameParts {
             (files_on_disk, failures)
         }
 
-        let (files_on_disk, failures): (DashMap<_, _>, F) = std::fs::read_dir(&game_root)
+        let (files_on_disk, failures): (DashMap<_, _>, F) = std::fs::read_dir(game_root)
             .map(read_game_dir)
             .unwrap_or_default();
 
@@ -1409,12 +1409,12 @@ impl<'u> RomSource<'u> {
                 has_xattr,
                 zip_parts,
             } => match zip_parts.split_first() {
-                None => hard_link(source, &target)
+                None => hard_link(source, target)
                     .map(|()| Extracted::Linked {
                         has_xattr: *has_xattr,
                     })
                     .or_else(|_| {
-                        Rate::from_copy(|| copy(source, &target))
+                        Rate::from_copy(|| copy(source, target))
                             .map(|rate| Extracted::Copied { rate })
                             .map_err(Error::IO)
                     }),
