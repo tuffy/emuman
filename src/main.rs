@@ -1883,7 +1883,7 @@ impl OptNointroAddAll {
 
         let mut table = init_dat_table();
         let mut total = game::VerifyResultsSummary::default();
-        for (name, dir) in dirs::extra_dirs() {
+        for (name, dir) in dirs::nointro_dirs() {
             if let Ok(datfile) = read_named_db(NOINTRO, DIR_NOINTRO, &name) {
                 total += game::display_dat_results(
                     &mut table,
