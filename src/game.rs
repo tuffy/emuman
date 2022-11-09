@@ -685,6 +685,9 @@ pub enum VerifyFailure<'s> {
         path: PathBuf,
         part: Result<Part, std::io::Error>,
     },
+    ExtraDir {
+        path: PathBuf,
+    },
     Bad {
         path: PathBuf,
         name: &'s str,
@@ -704,6 +707,11 @@ impl VerifyFailure<'_> {
             part: Part::from_path(&path),
             path,
         }
+    }
+
+    #[inline]
+    pub fn extra_dir(path: PathBuf) -> Self {
+        Self::ExtraDir { path }
     }
 
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
@@ -743,6 +751,8 @@ impl VerifyFailure<'_> {
             },
 
             extra @ VerifyFailure::Extra { .. } => Ok(Err(extra)),
+
+            extra @ VerifyFailure::ExtraDir { .. } => Ok(Err(extra)),
 
             err @ VerifyFailure::Error { .. } => Ok(Err(err)),
         }
@@ -791,7 +801,9 @@ impl fmt::Display for VerifyFailure<'_> {
             VerifyFailure::Missing { path, .. } => {
                 write!(f, "MISSING : {}", path.display())
             }
-            VerifyFailure::Extra { path, .. } => write!(f, "EXTRA : {}", path.display()),
+            VerifyFailure::Extra { path, .. } | VerifyFailure::ExtraDir { path } => {
+                write!(f, "EXTRA : {}", path.display())
+            }
             VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
                 write!(f, "ERROR : {} : {}", path.display(), err)
@@ -1724,7 +1736,10 @@ pub fn display_dat_results(
 
     // don't count non-games in the final tally
     let summary = VerifyResultsSummary {
-        successes: results.iter().filter(|(g, v)| g.is_some() && v.is_empty()).count(),
+        successes: results
+            .iter()
+            .filter(|(g, v)| g.is_some() && v.is_empty())
+            .count(),
         total: results.keys().filter(|g| g.is_some()).count(),
     };
 

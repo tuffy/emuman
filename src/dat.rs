@@ -291,10 +291,21 @@ impl DatFile {
     }
 
     pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
+        use std::collections::HashSet;
+
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
                 .with_message(format!("verifying : {} ({})", self.name, self.version));
+
+        let mut directories = std::fs::read_dir(root)
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                    .map(|e| e.path())
+                    .collect::<HashSet<PathBuf>>()
+            })
+            .unwrap_or_default();
 
         let mut failures = BTreeMap::default();
 
@@ -315,7 +326,7 @@ impl DatFile {
                         VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
                             Some(name)
                         }
-                        VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => None,
+                        _ => None,
                     })
                     .or_default()
                     .push(failure);
@@ -325,7 +336,9 @@ impl DatFile {
                 progress_bar
                     .wrap_iter(self.tree.iter())
                     .map(|(name, game)| {
-                        (Some(name.as_str()), game.verify_failures(&root.join(name)))
+                        let game_root = root.join(name);
+                        directories.remove(&game_root);
+                        (Some(name.as_str()), game.verify_failures(&game_root))
                     }),
             );
         } else {
@@ -335,14 +348,13 @@ impl DatFile {
                     VerifyFailure::Bad { name, .. } => {
                         failures.entry(Some(name)).or_default().push(failure)
                     }
-                    VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => {
-                        failures.entry(None).or_default().push(failure)
-                    }
+                    _ => failures.entry(None).or_default().push(failure),
                 }
             }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 let game_root = root.join(name);
+                directories.remove(&game_root);
                 if game_root.is_dir() {
                     failures.insert(Some(name), game.verify_failures(&game_root));
                 }
@@ -350,6 +362,11 @@ impl DatFile {
         }
 
         progress_bar.finish_and_clear();
+
+        failures
+            .entry(None)
+            .or_default()
+            .extend(directories.into_iter().map(VerifyFailure::extra_dir));
 
         failures
     }
@@ -360,6 +377,8 @@ impl DatFile {
         root: &Path,
         all: bool,
     ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
+        use std::collections::HashSet;
+
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
@@ -367,6 +386,15 @@ impl DatFile {
                     "adding and verifying : {} ({})",
                     self.name, self.version
                 ));
+
+        let mut directories = std::fs::read_dir(root)
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                    .map(|e| e.path())
+                    .collect::<HashSet<PathBuf>>()
+            })
+            .unwrap_or_default();
 
         let mut failures: BTreeMap<Option<&str>, Vec<_>> = BTreeMap::default();
 
@@ -391,16 +419,20 @@ impl DatFile {
                         VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
                             Some(name)
                         }
-                        VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => None,
+                        _ => None,
                     })
                     .or_default()
                     .push(failure);
             }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
+                let game_root = root.join(name);
+
+                directories.remove(&game_root);
+
                 failures.insert(
                     Some(name),
-                    game.add_and_verify_failures(roms, &root.join(name), |r| {
+                    game.add_and_verify_failures(roms, &game_root, |r| {
                         progress_bar.println(r.to_string())
                     })?,
                 );
@@ -412,22 +444,23 @@ impl DatFile {
                     VerifyFailure::Bad { name, .. } => {
                         failures.entry(Some(name)).or_default().push(failure)
                     }
-                    VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => {
-                        failures.entry(None).or_default().push(failure)
-                    }
+                    _ => failures.entry(None).or_default().push(failure),
                 }
             }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
+                let game_root = root.join(name);
+
+                directories.remove(&game_root);
+
                 let (
                     crate::game::ExtendExists {
                         exists: has_successes,
                         ..
                     },
                     game_failures,
-                ): (_, Vec<_>) = game.add_and_verify(roms, &root.join(name), |r| {
-                    progress_bar.println(r.to_string())
-                })?;
+                ): (_, Vec<_>) =
+                    game.add_and_verify(roms, &game_root, |r| progress_bar.println(r.to_string()))?;
 
                 if has_successes
                     || !game_failures
@@ -440,6 +473,11 @@ impl DatFile {
         }
 
         progress_bar.finish_and_clear();
+
+        failures
+            .entry(None)
+            .or_default()
+            .extend(directories.into_iter().map(VerifyFailure::extra_dir));
 
         Ok(failures)
     }
