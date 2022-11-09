@@ -1656,23 +1656,34 @@ pub fn get_rom_sources<'u>(
     multi_rom_sources(roots, urls, |part| required.contains(part))
 }
 
-pub fn display_all_results(game: &str, failures: &[VerifyFailure]) {
+pub fn display_all_results(game: Option<&str>, failures: &[VerifyFailure]) {
     if failures.is_empty() {
-        println!("OK : {}", game);
+        if let Some(game) = game {
+            println!("OK : {}", game);
+        }
     } else {
         display_bad_results(game, failures)
     }
 }
 
-pub fn display_bad_results(game: &str, failures: &[VerifyFailure]) {
+pub fn display_bad_results(game: Option<&str>, failures: &[VerifyFailure]) {
     if !failures.is_empty() {
         use std::io::{stdout, Write};
 
         // ensure results are generated as a unit
         let stdout = stdout();
         let mut handle = stdout.lock();
-        for failure in failures {
-            writeln!(&mut handle, "{failure} : {game}").unwrap();
+        match game {
+            Some(game) => {
+                for failure in failures {
+                    writeln!(&mut handle, "{failure} : {game}").unwrap();
+                }
+            }
+            None => {
+                for failure in failures {
+                    writeln!(&mut handle, "{failure}").unwrap();
+                }
+            }
         }
     }
 }
@@ -1706,14 +1717,15 @@ impl std::ops::AddAssign for VerifyResultsSummary {
 pub fn display_dat_results(
     table: &mut comfy_table::Table,
     dat: &crate::dat::DatFile,
-    results: BTreeMap<&str, Vec<VerifyFailure>>,
+    results: BTreeMap<Option<&str>, Vec<VerifyFailure>>,
     failures_only: bool,
 ) -> VerifyResultsSummary {
     use comfy_table::{Cell, CellAlignment};
 
+    // don't count non-games in the final tally
     let summary = VerifyResultsSummary {
-        successes: results.values().filter(|v| v.is_empty()).count(),
-        total: results.len(),
+        successes: results.iter().filter(|(g, v)| g.is_some() && v.is_empty()).count(),
+        total: results.keys().filter(|g| g.is_some()).count(),
     };
 
     if failures_only {

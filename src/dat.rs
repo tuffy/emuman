@@ -290,7 +290,7 @@ impl DatFile {
         println!("{table}");
     }
 
-    pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<&str, Vec<VerifyFailure>> {
+    pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
@@ -305,39 +305,46 @@ impl DatFile {
         failures.extend(
             flat_successes
                 .into_iter()
-                .map(|success| (success.name, Vec::new())),
+                .map(|success| (Some(success.name), Vec::new())),
         );
 
         if all {
-            failures.extend(
-                flat_failures
-                    .into_iter()
-                    .filter_map(|failure| match failure {
-                        VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
-                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                        _ => None,
-                    }),
-            );
+            for failure in flat_failures {
+                failures
+                    .entry(match failure {
+                        VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
+                            Some(name)
+                        }
+                        VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => None,
+                    })
+                    .or_default()
+                    .push(failure);
+            }
 
             failures.extend(
                 progress_bar
                     .wrap_iter(self.tree.iter())
-                    .map(|(name, game)| (name.as_str(), game.verify_failures(&root.join(name)))),
-            );
-        } else {
-            failures.extend(
-                flat_failures
-                    .into_iter()
-                    .filter_map(|failure| match failure {
-                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                        _ => None,
+                    .map(|(name, game)| {
+                        (Some(name.as_str()), game.verify_failures(&root.join(name)))
                     }),
             );
+        } else {
+            for failure in flat_failures {
+                match failure {
+                    VerifyFailure::Missing { .. } => { /* do nothing*/ }
+                    VerifyFailure::Bad { name, .. } => {
+                        failures.entry(Some(name)).or_default().push(failure)
+                    }
+                    VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => {
+                        failures.entry(None).or_default().push(failure)
+                    }
+                }
+            }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 let game_root = root.join(name);
                 if game_root.is_dir() {
-                    failures.insert(name, game.verify_failures(&game_root));
+                    failures.insert(Some(name), game.verify_failures(&game_root));
                 }
             }
         }
@@ -352,7 +359,7 @@ impl DatFile {
         roms: &mut RomSources,
         root: &Path,
         all: bool,
-    ) -> Result<BTreeMap<&str, Vec<VerifyFailure>>, Error> {
+    ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
@@ -361,7 +368,7 @@ impl DatFile {
                     self.name, self.version
                 ));
 
-        let mut failures: BTreeMap<&str, Vec<_>> = BTreeMap::default();
+        let mut failures: BTreeMap<Option<&str>, Vec<_>> = BTreeMap::default();
 
         let (flat_successes, flat_failures): (Vec<_>, Vec<_>) =
             self.flat.add_and_verify_with_progress(
@@ -374,37 +381,42 @@ impl DatFile {
         failures.extend(
             flat_successes
                 .into_iter()
-                .map(|success| (success.name, Vec::new())),
+                .map(|success| (Some(success.name), Vec::new())),
         );
 
         if all {
-            failures.extend(
-                flat_failures
-                    .into_iter()
-                    .filter_map(|failure| match failure {
-                        VerifyFailure::Missing { name, .. } => Some((name, vec![failure])),
-                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                        _ => None,
-                    }),
-            );
+            for failure in flat_failures {
+                failures
+                    .entry(match failure {
+                        VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
+                            Some(name)
+                        }
+                        VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => None,
+                    })
+                    .or_default()
+                    .push(failure);
+            }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 failures.insert(
-                    name,
+                    Some(name),
                     game.add_and_verify_failures(roms, &root.join(name), |r| {
                         progress_bar.println(r.to_string())
                     })?,
                 );
             }
         } else {
-            failures.extend(
-                flat_failures
-                    .into_iter()
-                    .filter_map(|failure| match failure {
-                        VerifyFailure::Bad { name, .. } => Some((name, vec![failure])),
-                        _ => None,
-                    }),
-            );
+            for failure in flat_failures {
+                match failure {
+                    VerifyFailure::Missing { .. } => { /* do nothing*/ }
+                    VerifyFailure::Bad { name, .. } => {
+                        failures.entry(Some(name)).or_default().push(failure)
+                    }
+                    VerifyFailure::Extra { .. } | VerifyFailure::Error { .. } => {
+                        failures.entry(None).or_default().push(failure)
+                    }
+                }
+            }
 
             for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
                 let (
@@ -422,7 +434,7 @@ impl DatFile {
                         .iter()
                         .all(|f| matches!(f, VerifyFailure::Missing { .. }))
                 {
-                    failures.insert(name, game_failures);
+                    failures.insert(Some(name), game_failures);
                 }
             }
         }

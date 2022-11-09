@@ -2587,7 +2587,7 @@ fn verify<P: AsRef<Path>>(
     };
 
     for (game, failures) in results.iter() {
-        display(game, failures);
+        display(Some(game), failures);
     }
 
     eprintln!("{} tested, {} OK", games.len(), successes);
@@ -2611,7 +2611,7 @@ fn verify_all(
     };
 
     for (game, failures) in results.iter() {
-        display(&format!("{software_list}/{game}"), failures);
+        display(Some(&format!("{software_list}/{game}")), failures);
     }
 
     eprintln!("{} tested, {} OK", games.len(), successes);
@@ -2666,7 +2666,12 @@ where
     P: AsRef<Path>,
     I: Iterator<Item = &'g game::Game>,
 {
-    add_and_verify_games(game::display_bad_results, roms, root, games)
+    add_and_verify_games(
+        |game, failures| game::display_bad_results(Some(game), failures),
+        roms,
+        root,
+        games,
+    )
 }
 
 #[inline]
@@ -2681,7 +2686,9 @@ where
     I: Iterator<Item = &'g game::Game>,
 {
     add_and_verify_games(
-        |game, failures| game::display_bad_results(&format!("{software_list}/{game}"), failures),
+        |game, failures| {
+            game::display_bad_results(Some(&format!("{software_list}/{game}")), failures)
+        },
         roms,
         root,
         games,
