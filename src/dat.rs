@@ -322,7 +322,7 @@ impl DatFile {
             &handle_failure,
         )?;
 
-        let mut failures = successes
+        let mut results = successes
             .into_iter()
             .map(|success| (Some(success.name), Vec::new()))
             .chain(std::iter::once((None, failures)))
@@ -335,19 +335,19 @@ impl DatFile {
                 || { /* increment progress on each game, not game's parts*/ },
                 &handle_failure,
             )?;
-            failures.insert(Some(name), game_failures);
+            results.insert(Some(name), game_failures);
             increment_progress();
         }
 
         // mark any leftover directories as extras
         if !dirs.is_empty() {
-            failures
+            results
                 .entry(None)
                 .or_default()
                 .extend(dirs.into_values().map(VerifyFailure::extra_dir));
         }
 
-        Ok(failures)
+        Ok(results)
     }
 
     pub fn verify(&self, root: &Path) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {

@@ -1379,6 +1379,33 @@ impl OptRedumpVerify {
 }
 
 #[derive(Args)]
+struct OptRedumpVerifyAll {
+    /// display only failures
+    #[clap(long = "failures")]
+    failures: bool,
+}
+
+impl OptRedumpVerifyAll {
+    fn execute(self) -> Result<(), Error> {
+        let mut total = game::VerifyResultsSummary::default();
+        let mut table = init_dat_table();
+        for (name, dir) in dirs::redump_dirs() {
+            if let Ok(datfile) = read_named_db(REDUMP, DIR_REDUMP, &name) {
+                total += game::display_dat_results(
+                    &mut table,
+                    &datfile,
+                    datfile.verify(&dir),
+                    self.failures,
+                );
+            }
+        }
+        display_dat_table(table, Some(total));
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptRedumpAdd {
     /// output directory
     #[clap(short = 'r', long = "roms")]
@@ -1530,6 +1557,10 @@ enum OptRedump {
     #[clap(name = "verify")]
     Verify(OptRedumpVerify),
 
+    /// verify all ROMs in all categories
+    #[clap(name = "verify-all")]
+    VerifyAll(OptRedumpVerifyAll),
+
     /// add tracks to directory
     #[clap(name = "add")]
     Add(OptRedumpAdd),
@@ -1551,6 +1582,7 @@ impl OptRedump {
             OptRedump::Dirs(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
+            OptRedump::VerifyAll(o) => o.execute(),
             OptRedump::Add(o) => o.execute(),
             OptRedump::Split(o) => o.execute(),
             OptRedump::Parts(o) => o.execute(),
