@@ -390,6 +390,59 @@ impl Game {
     }
 }
 
+#[derive(Default)]
+pub struct GameDir<F, D, E> {
+    pub files: F,
+    pub dirs: D,
+    pub failures: E,
+}
+
+impl<'s, F, D, E> GameDir<F, D, E>
+where
+    F: Default + ExtendOne<(String, PathBuf)>,
+    D: Default + ExtendOne<(String, PathBuf)>,
+    E: Default + ExtendOne<VerifyFailure<'s>>,
+{
+    fn open(root: &Path) -> Self {
+        fn entry_to_part(entry: std::fs::DirEntry) -> Result<(String, PathBuf), PathBuf> {
+            match entry.file_name().into_string() {
+                Ok(name) => Ok((name, entry.path())),
+                Err(_) => Err(entry.path()),
+            }
+        }
+
+        let dir = match std::fs::read_dir(root) {
+            Ok(dir) => dir,
+            Err(_) => return Self::default(),
+        };
+
+        let mut files = F::default();
+        let mut dirs = D::default();
+        let mut failures = E::default();
+
+        for entry in dir.filter_map(|e| e.ok()) {
+            match entry.file_type() {
+                Ok(t) if t.is_file() => match entry_to_part(entry) {
+                    Ok(pair) => files.extend_item(pair),
+                    Err(pb) => failures.extend_item(VerifyFailure::extra(pb)),
+                },
+                Ok(t) if t.is_dir() => match entry_to_part(entry) {
+                    Ok(pair) => dirs.extend_item(pair),
+                    Err(pb) => failures.extend_item(VerifyFailure::extra(pb)),
+                },
+                Ok(_) => { /* neither file or dir, so do nothing*/ }
+                Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
+            }
+        }
+
+        Self {
+            files,
+            dirs,
+            failures,
+        }
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct GameParts {
@@ -478,38 +531,16 @@ impl GameParts {
         use rayon::prelude::*;
         use std::sync::Mutex;
 
-        fn read_game_dir<'s, I, S, F>(dir: I) -> (S, F)
-        where
-            I: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
-            S: Default + ExtendOne<(String, PathBuf)>,
-            F: Default + ExtendOne<VerifyFailure<'s>>,
-        {
-            let mut files_on_disk = S::default();
-            let mut failures = F::default();
-
-            for entry in dir
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-            {
-                match entry.file_name().into_string() {
-                    Ok(name) => files_on_disk.extend_item((name, entry.path())),
-                    Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
-                }
-            }
-
-            (files_on_disk, failures)
-        }
-
-        let (files_on_disk, failures): (DashMap<_, _>, F) = std::fs::read_dir(game_root)
-            .map(read_game_dir)
-            .unwrap_or_default();
+        let GameDir {
+            files, failures, ..
+        }: GameDir<DashMap<_, _>, ExtendSink<_>, F> = GameDir::open(game_root);
 
         let successes = Mutex::new(S::default());
         let failures = Mutex::new(failures);
 
         // verify all game parts
         self.parts.par_iter().try_for_each(|(name, part)| {
-            match files_on_disk.remove(name) {
+            match files.remove(name) {
                 Some((_, pathbuf)) => match part.verify(name, pathbuf) {
                     Ok(success) => successes.lock().unwrap().extend_item(success),
 
@@ -547,11 +578,7 @@ impl GameParts {
         let mut failures = failures.into_inner().unwrap();
 
         // mark any leftover files on disk as extras
-        failures.extend_many(
-            files_on_disk
-                .into_iter()
-                .map(|(_, pb)| VerifyFailure::extra(pb)),
-        );
+        failures.extend_many(files.into_iter().map(|(_, pb)| VerifyFailure::extra(pb)));
 
         Ok((successes.into_inner().unwrap(), failures))
     }
