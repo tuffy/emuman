@@ -528,12 +528,46 @@ impl GameParts {
         H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
-        use rayon::prelude::*;
-        use std::sync::Mutex;
-
         let GameDir {
             files, failures, ..
         }: GameDir<DashMap<_, _>, ExtendSink<_>, F> = GameDir::open(game_root);
+
+        self.process(
+            files,
+            failures,
+            |name, part| VerifyFailure::Missing {
+                path: game_root.join(name),
+                part,
+                name,
+            },
+            increment_progress,
+            handle_failure,
+        )
+    }
+
+    // files is a map of files to be processed
+    // failures is a running total of existing validation failures
+    // missing is how to build failures from missing files (maybe handled later)
+    // increment_progress is called once per (name, part) pair
+    // handle failure is how to handle failures that might occur
+    fn process<'s, S, F, M, I, H, E>(
+        &'s self,
+        files: DashMap<String, PathBuf>,
+        failures: F,
+        missing: M,
+        increment_progress: I,
+        handle_failure: H,
+    ) -> Result<(S, F), E>
+    where
+        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
+        M: Fn(&'s str, &'s Part) -> VerifyFailure<'s> + Send + Sync,
+        I: Fn() + Send + Sync,
+        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        E: Send,
+    {
+        use rayon::prelude::*;
+        use std::sync::Mutex;
 
         let successes = Mutex::new(S::default());
         let failures = Mutex::new(failures);
@@ -554,20 +588,14 @@ impl GameParts {
                     },
                 },
 
-                None => {
-                    match handle_failure(VerifyFailure::Missing {
-                        path: game_root.join(name),
-                        part,
-                        name,
-                    })? {
-                        Ok(()) => successes
-                            .lock()
-                            .unwrap()
-                            .extend_item(VerifySuccess { name, part }),
+                None => match handle_failure(missing(name, part))? {
+                    Ok(()) => successes
+                        .lock()
+                        .unwrap()
+                        .extend_item(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend_item(failure),
-                    }
-                }
+                    Err(failure) => failures.lock().unwrap().extend_item(failure),
+                },
             }
 
             increment_progress();
