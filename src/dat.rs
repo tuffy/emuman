@@ -290,85 +290,85 @@ impl DatFile {
         println!("{table}");
     }
 
+    // returns a game => failures map for each game in this dat
+    // where an empty failures vec indicates the game verifies okay
+    fn process<I, H, E>(
+        &self,
+        root: &Path,
+        increment_progress: I,
+        handle_failure: H,
+    ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, E>
+    where
+        I: Fn() + Send + Sync,
+        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        E: Send,
+    {
+        use crate::game::{ExtendSink, GameDir};
+        use dashmap::DashMap;
+        use std::collections::HashMap;
+
+        let GameDir {
+            files,
+            mut dirs,
+            failures,
+        }: GameDir<DashMap<_, _>, HashMap<_, _>, Vec<_>> = GameDir::open(root);
+
+        // first, handle loose files not in subdirectories
+        let (successes, failures): (Vec<_>, Vec<_>) = self.flat.process(
+            files,
+            failures,
+            |name, part| VerifyFailure::missing(root, name, part),
+            &increment_progress,
+            &handle_failure,
+        )?;
+
+        let mut failures = successes
+            .into_iter()
+            .map(|success| (Some(success.name), Vec::new()))
+            .chain(std::iter::once((None, failures)))
+            .collect::<BTreeMap<Option<&str>, Vec<_>>>();
+
+        // then handle everything with a subdirectory
+        for (name, parts) in self.tree.iter() {
+            let (_, game_failures): (ExtendSink<_>, Vec<_>) = parts.process_parts(
+                &dirs.remove(name).unwrap_or_else(|| root.join(name)),
+                || { /* increment progress on each game, not game's parts*/ },
+                &handle_failure,
+            )?;
+            failures.insert(Some(name), game_failures);
+            increment_progress();
+        }
+
+        // mark any leftover directories as extras
+        if !dirs.is_empty() {
+            failures
+                .entry(None)
+                .or_default()
+                .extend(dirs.into_values().map(VerifyFailure::extra_dir));
+        }
+
+        Ok(failures)
+    }
+
     pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
-        use std::collections::HashSet;
+        use crate::game::Never;
 
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
                 .with_message(format!("verifying : {} ({})", self.name, self.version));
 
-        let mut directories = std::fs::read_dir(root)
-            .map(|d| {
-                d.filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                    .map(|e| e.path())
-                    .collect::<HashSet<PathBuf>>()
-            })
-            .unwrap_or_default();
-
-        let mut failures = BTreeMap::default();
-
-        let (flat_successes, flat_failures) = self
-            .flat
-            .verify_with_progress::<Vec<_>, Vec<_>, _>(root, || progress_bar.inc(1));
-
-        failures.extend(
-            flat_successes
-                .into_iter()
-                .map(|success| (Some(success.name), Vec::new())),
-        );
-
-        if all {
-            for failure in flat_failures {
-                failures
-                    .entry(match failure {
-                        VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
-                            Some(name)
-                        }
-                        _ => None,
-                    })
-                    .or_default()
-                    .push(failure);
-            }
-
-            failures.extend(
-                progress_bar
-                    .wrap_iter(self.tree.iter())
-                    .map(|(name, game)| {
-                        let game_root = root.join(name);
-                        directories.remove(&game_root);
-                        (Some(name.as_str()), game.verify_failures(&game_root))
-                    }),
-            );
-        } else {
-            for failure in flat_failures {
-                match failure {
-                    VerifyFailure::Missing { .. } => { /* do nothing*/ }
-                    VerifyFailure::Bad { name, .. } => {
-                        failures.entry(Some(name)).or_default().push(failure)
-                    }
-                    _ => failures.entry(None).or_default().push(failure),
-                }
-            }
-
-            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
-                let game_root = root.join(name);
-                directories.remove(&game_root);
-                if game_root.is_dir() {
-                    failures.insert(Some(name), game.verify_failures(&game_root));
-                }
-            }
-        }
+        let results = self
+            .process(
+                root,
+                || progress_bar.inc(1),
+                |failure| -> Result<_, Never> { Ok(Err(failure)) },
+            )
+            .unwrap();
 
         progress_bar.finish_and_clear();
 
-        failures
-            .entry(None)
-            .or_default()
-            .extend(directories.into_iter().map(VerifyFailure::extra_dir));
-
-        failures
+        results
     }
 
     pub fn add_and_verify(
@@ -377,8 +377,6 @@ impl DatFile {
         root: &Path,
         all: bool,
     ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
-        use std::collections::HashSet;
-
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
                 .with_style(crate::game::verify_style())
@@ -387,99 +385,22 @@ impl DatFile {
                     self.name, self.version
                 ));
 
-        let mut directories = std::fs::read_dir(root)
-            .map(|d| {
-                d.filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                    .map(|e| e.path())
-                    .collect::<HashSet<PathBuf>>()
-            })
-            .unwrap_or_default();
-
-        let mut failures: BTreeMap<Option<&str>, Vec<_>> = BTreeMap::default();
-
-        let (flat_successes, flat_failures): (Vec<_>, Vec<_>) =
-            self.flat.add_and_verify_with_progress(
-                roms,
-                root,
-                || progress_bar.inc(1),
-                |r| progress_bar.println(r.to_string()),
-            )?;
-
-        failures.extend(
-            flat_successes
-                .into_iter()
-                .map(|success| (Some(success.name), Vec::new())),
+        let results = self.process(
+            root,
+            || progress_bar.inc(1),
+            |failure| match failure.try_fix(roms) {
+                Ok(Ok(fix)) => {
+                    progress_bar.println(fix.to_string());
+                    Ok(Ok(()))
+                }
+                Ok(Err(f)) => Ok(Err(f)),
+                Err(e) => Err(e),
+            },
         );
-
-        if all {
-            for failure in flat_failures {
-                failures
-                    .entry(match failure {
-                        VerifyFailure::Missing { name, .. } | VerifyFailure::Bad { name, .. } => {
-                            Some(name)
-                        }
-                        _ => None,
-                    })
-                    .or_default()
-                    .push(failure);
-            }
-
-            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
-                let game_root = root.join(name);
-
-                directories.remove(&game_root);
-
-                failures.insert(
-                    Some(name),
-                    game.add_and_verify_failures(roms, &game_root, |r| {
-                        progress_bar.println(r.to_string())
-                    })?,
-                );
-            }
-        } else {
-            for failure in flat_failures {
-                match failure {
-                    VerifyFailure::Missing { .. } => { /* do nothing*/ }
-                    VerifyFailure::Bad { name, .. } => {
-                        failures.entry(Some(name)).or_default().push(failure)
-                    }
-                    _ => failures.entry(None).or_default().push(failure),
-                }
-            }
-
-            for (name, game) in progress_bar.wrap_iter(self.tree.iter()) {
-                let game_root = root.join(name);
-
-                directories.remove(&game_root);
-
-                let (
-                    crate::game::ExtendExists {
-                        exists: has_successes,
-                        ..
-                    },
-                    game_failures,
-                ): (_, Vec<_>) =
-                    game.add_and_verify(roms, &game_root, |r| progress_bar.println(r.to_string()))?;
-
-                if has_successes
-                    || !game_failures
-                        .iter()
-                        .all(|f| matches!(f, VerifyFailure::Missing { .. }))
-                {
-                    failures.insert(Some(name), game_failures);
-                }
-            }
-        }
 
         progress_bar.finish_and_clear();
 
-        failures
-            .entry(None)
-            .or_default()
-            .extend(directories.into_iter().map(VerifyFailure::extra_dir));
-
-        Ok(failures)
+        results
     }
 
     pub fn required_parts(&self) -> FxHashSet<Part> {

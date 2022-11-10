@@ -403,7 +403,7 @@ where
     D: Default + ExtendOne<(String, PathBuf)>,
     E: Default + ExtendOne<VerifyFailure<'s>>,
 {
-    fn open(root: &Path) -> Self {
+    pub fn open(root: &Path) -> Self {
         fn entry_to_part(entry: std::fs::DirEntry) -> Result<(String, PathBuf), PathBuf> {
             match entry.file_name().into_string() {
                 Ok(name) => Ok((name, entry.path())),
@@ -515,7 +515,7 @@ impl GameParts {
     // game_root is the root directory to start looking for files
     // increment_progress is called once per (name, part) pair
     // handle_failure is an attempt to recover from failures
-    fn process_parts<'s, S, F, I, H, E>(
+    pub fn process_parts<'s, S, F, I, H, E>(
         &'s self,
         game_root: &Path,
         increment_progress: I,
@@ -546,7 +546,7 @@ impl GameParts {
     // missing is how to build failures from missing files (maybe handled later)
     // increment_progress is called once per (name, part) pair
     // handle failure is how to handle failures that might occur
-    fn process<'s, S, F, M, I, H, E>(
+    pub fn process<'s, S, F, M, I, H, E>(
         &'s self,
         files: DashMap<String, PathBuf>,
         failures: F,
@@ -621,7 +621,7 @@ impl GameParts {
         self.process_parts(
             game_root,
             increment_progress,
-            |failure| -> Result<Result<(), VerifyFailure>, Never> { Ok(Err(failure)) },
+            |failure| -> Result<_, Never> { Ok(Err(failure)) },
         )
         .unwrap()
     }
@@ -753,7 +753,7 @@ pub enum VerifyFailure<'s> {
 
 impl<'s> VerifyFailure<'s> {
     #[inline]
-    fn missing(root: &Path, name: &'s str, part: &'s Part) -> Self {
+    pub fn missing(root: &Path, name: &'s str, part: &'s Part) -> Self {
         Self::Missing {
             path: root.join(name),
             name,
@@ -775,7 +775,7 @@ impl<'s> VerifyFailure<'s> {
     }
 
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
-    fn try_fix<'u>(
+    pub fn try_fix<'u>(
         self,
         rom_sources: &RomSources<'u>,
     ) -> Result<Result<ExtractedPart<'u>, Self>, Error> {
@@ -920,6 +920,13 @@ impl<I> ExtendOne<I> for Vec<I> {
     }
 }
 
+impl<K: Eq + std::hash::Hash, V> ExtendOne<(K, V)> for HashMap<K, V> {
+    #[inline]
+    fn extend_item(&mut self, (key, value): (K, V)) {
+        self.insert(key, value);
+    }
+}
+
 impl<K: Eq + std::hash::Hash, V> ExtendOne<(K, V)> for DashMap<K, V> {
     #[inline]
     fn extend_item(&mut self, (key, value): (K, V)) {
@@ -927,7 +934,7 @@ impl<K: Eq + std::hash::Hash, V> ExtendOne<(K, V)> for DashMap<K, V> {
     }
 }
 
-struct ExtendSink<I>(std::marker::PhantomData<I>);
+pub struct ExtendSink<I>(std::marker::PhantomData<I>);
 
 impl<I> Default for ExtendSink<I> {
     #[inline]
@@ -1840,4 +1847,4 @@ pub fn parse_int(s: &str) -> Result<u64, ParseIntError> {
 
 // an error that never happens
 #[derive(Debug)]
-enum Never {}
+pub enum Never {}
