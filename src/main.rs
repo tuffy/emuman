@@ -1073,10 +1073,6 @@ struct OptExtraVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
-
-    /// verify all possible entries
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptExtraVerify {
@@ -1093,7 +1089,7 @@ impl OptExtraVerify {
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.verify(dirs::extra_dir(self.dir, &extra).as_ref(), self.all),
+            datfile.verify(dirs::extra_dir(self.dir, &extra).as_ref()),
             self.failures,
         );
 
@@ -1108,10 +1104,6 @@ struct OptExtraVerifyAll {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
-
-    /// verify all possible entries
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptExtraVerifyAll {
@@ -1125,7 +1117,7 @@ impl OptExtraVerifyAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.verify(&dir, self.all),
+                    datfile.verify(&dir),
                     self.failures,
                 );
             }
@@ -1149,10 +1141,6 @@ struct OptExtraAdd {
 
     /// input file, directory, or URL
     input: Vec<Resource>,
-
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptExtraAdd {
@@ -1173,11 +1161,7 @@ impl OptExtraAdd {
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.add_and_verify(
-                &mut roms,
-                dirs::extra_dir(self.dir, &extra).as_ref(),
-                self.all,
-            )?,
+            datfile.add_and_verify(&mut roms, dirs::extra_dir(self.dir, &extra).as_ref())?,
             true,
         );
 
@@ -1189,10 +1173,6 @@ impl OptExtraAdd {
 
 #[derive(Args)]
 struct OptExtraAddAll {
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
-
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
@@ -1212,7 +1192,7 @@ impl OptExtraAddAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.add_and_verify(&mut parts, &dir, self.all)?,
+                    datfile.add_and_verify(&mut parts, &dir)?,
                     true,
                 );
             }
@@ -1372,10 +1352,6 @@ struct OptRedumpVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
-
-    /// verify all possible entries
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptRedumpVerify {
@@ -1392,10 +1368,7 @@ impl OptRedumpVerify {
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.verify(
-                dirs::redump_roms(self.root, &software_list).as_ref(),
-                self.all,
-            ),
+            datfile.verify(dirs::redump_roms(self.root, &software_list).as_ref()),
             self.failures,
         );
 
@@ -1417,10 +1390,6 @@ struct OptRedumpAdd {
 
     /// input file, directory, or URL
     input: Vec<Resource>,
-
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptRedumpAdd {
@@ -1444,7 +1413,6 @@ impl OptRedumpAdd {
             datfile.add_and_verify(
                 &mut roms,
                 dirs::redump_roms(self.output, &software_list).as_ref(),
-                self.all,
             )?,
             true,
         );
@@ -1754,10 +1722,6 @@ struct OptNointroVerify {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
-
-    /// verify all possible entries
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptNointroVerify {
@@ -1773,7 +1737,7 @@ impl OptNointroVerify {
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.verify(dirs::nointro_roms(self.roms, &name).as_ref(), self.all),
+            datfile.verify(dirs::nointro_roms(self.roms, &name).as_ref()),
             self.failures,
         );
         display_dat_table(table, None);
@@ -1787,10 +1751,6 @@ struct OptNointroVerifyAll {
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
-
-    /// verify all possible entries
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptNointroVerifyAll {
@@ -1802,7 +1762,7 @@ impl OptNointroVerifyAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.verify(&dir, self.all),
+                    datfile.verify(&dir),
                     self.failures,
                 );
             }
@@ -1825,10 +1785,6 @@ struct OptNointroAdd {
 
     /// input file, directory, or URL
     input: Vec<Resource>,
-
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptNointroAdd {
@@ -1848,11 +1804,7 @@ impl OptNointroAdd {
         game::display_dat_results(
             &mut table,
             &datfile,
-            datfile.add_and_verify(
-                &mut roms,
-                dirs::nointro_roms(self.roms, &name).as_ref(),
-                self.all,
-            )?,
+            datfile.add_and_verify(&mut roms, dirs::nointro_roms(self.roms, &name).as_ref())?,
             true,
         );
         display_dat_table(table, None);
@@ -1869,10 +1821,6 @@ struct OptNointroAddAll {
 
     /// input file, directory, or URL
     input: Vec<Resource>,
-
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
 }
 
 impl OptNointroAddAll {
@@ -1888,7 +1836,7 @@ impl OptNointroAddAll {
                 total += game::display_dat_results(
                     &mut table,
                     &datfile,
-                    datfile.add_and_verify(&mut parts, &dir, self.all)?,
+                    datfile.add_and_verify(&mut parts, &dir)?,
                     self.failures,
                 );
             }

@@ -350,7 +350,7 @@ impl DatFile {
         Ok(failures)
     }
 
-    pub fn verify(&self, root: &Path, all: bool) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
+    pub fn verify(&self, root: &Path) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
         use crate::game::Never;
 
         let progress_bar =
@@ -375,7 +375,6 @@ impl DatFile {
         &self,
         roms: &mut RomSources,
         root: &Path,
-        all: bool,
     ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
         let progress_bar =
             indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
