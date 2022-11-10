@@ -535,11 +535,7 @@ impl GameParts {
         self.process(
             files,
             failures,
-            |name, part| VerifyFailure::Missing {
-                path: game_root.join(name),
-                part,
-                name,
-            },
+            |name, part| VerifyFailure::missing(game_root, name, part),
             increment_progress,
             handle_failure,
         )
@@ -755,7 +751,16 @@ pub enum VerifyFailure<'s> {
     },
 }
 
-impl VerifyFailure<'_> {
+impl<'s> VerifyFailure<'s> {
+    #[inline]
+    fn missing(root: &Path, name: &'s str, part: &'s Part) -> Self {
+        Self::Missing {
+            path: root.join(name),
+            name,
+            part,
+        }
+    }
+
     #[inline]
     fn extra(path: PathBuf) -> Self {
         Self::Extra {
