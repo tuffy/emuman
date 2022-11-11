@@ -65,11 +65,6 @@ impl GameDb {
         self.games.into_values()
     }
 
-    #[inline]
-    pub fn retain_working(&mut self) {
-        self.games.retain(|_, game| game.is_working())
-    }
-
     pub fn validate_games<I>(&self, games: I) -> Result<(), Error>
     where
         I: IntoIterator,
@@ -315,14 +310,6 @@ pub struct Game {
 }
 
 impl Game {
-    #[inline]
-    pub fn is_working(&self) -> bool {
-        match self.status {
-            Status::Working | Status::Partial => true,
-            Status::NotWorking => false,
-        }
-    }
-
     pub fn report(&self, simple: bool) -> GameRow {
         #[inline]
         fn no_parens(s: &str) -> &str {

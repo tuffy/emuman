@@ -354,14 +354,6 @@ struct OptMameVerify {
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
-
-    /// verify only working machines
-    #[clap(long = "working")]
-    working: bool,
-
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
@@ -373,32 +365,17 @@ struct OptMameVerify {
 
 impl OptMameVerify {
     fn execute(self) -> Result<(), Error> {
-        let mut db: game::GameDb = read_game_db(MAME, DB_MAME)?;
-
-        if self.working {
-            db.retain_working();
-        }
+        let db: game::GameDb = read_game_db(MAME, DB_MAME)?;
 
         let roms_dir = dirs::mame_roms(self.roms);
 
-        let games: HashSet<String> = if self.all {
+        let games: HashSet<String> = if self.machines.is_empty() {
             db.all_games()
-        } else if !self.machines.is_empty() {
+        } else {
             // only validate user-specified machines
             let machines = self.machines.iter().cloned().collect();
             db.validate_games(&machines)?;
             machines
-        } else {
-            // ignore stuff that's on disk but not valid machines
-            roms_dir
-                .as_ref()
-                .read_dir()?
-                .filter_map(|e| {
-                    e.ok()
-                        .and_then(|e| e.file_name().into_string().ok())
-                        .filter(|s| db.is_game(s))
-                })
-                .collect()
         };
 
         verify(&db, roms_dir, &games, self.failures);
@@ -675,14 +652,6 @@ struct OptMessVerify {
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
-
-    /// verify only working machines
-    #[clap(long = "working")]
-    working: bool,
-
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
@@ -698,7 +667,7 @@ struct OptMessVerify {
 
 impl OptMessVerify {
     fn execute(self) -> Result<(), Error> {
-        let (mut db, software_list) = match self.software_list {
+        let (db, software_list) = match self.software_list {
             Some(software_list) => (
                 read_named_db::<game::GameDb>(MESS, DIR_SL, &software_list)?,
                 software_list,
@@ -708,26 +677,12 @@ impl OptMessVerify {
 
         let roms_dir = dirs::mess_roms(self.roms, &software_list);
 
-        if self.working {
-            db.retain_working();
-        }
-
-        let software: HashSet<String> = if self.all {
+        let software: HashSet<String> = if self.software.is_empty() {
             db.all_games()
-        } else if !self.software.is_empty() {
+        } else {
             let software = self.software.clone().into_iter().collect();
             db.validate_games(&software)?;
             software
-        } else {
-            roms_dir
-                .as_ref()
-                .read_dir()?
-                .filter_map(|e| {
-                    e.ok()
-                        .and_then(|e| e.file_name().into_string().ok())
-                        .filter(|s| db.is_game(s))
-                })
-                .collect()
         };
 
         verify(&db, &roms_dir, &software, self.failures);
@@ -742,14 +697,6 @@ struct OptMessVerifyAll {
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
-    /// verify all possible machines
-    #[clap(long = "all")]
-    all: bool,
-
-    /// verify only working machines
-    #[clap(long = "working")]
-    working: bool,
-
     /// display only failures
     #[clap(long = "failures")]
     failures: bool,
@@ -759,30 +706,14 @@ impl OptMessVerifyAll {
     fn execute(self) -> Result<(), Error> {
         let roms_dir = dirs::mess_roms_all(self.roms);
 
-        for (software_list, mut db) in read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL) {
-            let roms_path = roms_dir.as_ref().join(&software_list);
-
-            if self.working {
-                db.retain_working();
-            }
-
-            let software: HashSet<String> = if self.all {
-                db.all_games()
-            } else {
-                roms_path
-                    .read_dir()
-                    .map(|dir| {
-                        dir.filter_map(|e| {
-                            e.ok()
-                                .and_then(|e| e.file_name().into_string().ok())
-                                .filter(|s| db.is_game(s))
-                        })
-                        .collect()
-                    })
-                    .unwrap_or_default()
-            };
-
-            verify_all(&software_list, &db, &roms_path, &software, self.failures);
+        for (software_list, db) in read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL) {
+            verify_all(
+                &software_list,
+                &db,
+                &roms_dir.as_ref().join(&software_list),
+                &db.all_games(),
+                self.failures,
+            );
         }
 
         Ok(())
