@@ -428,7 +428,7 @@ where
                 },
                 Ok(t) if t.is_dir() => match entry_to_part(entry) {
                     Ok(pair) => dirs.extend_item(pair),
-                    Err(pb) => failures.extend_item(VerifyFailure::extra(pb)),
+                    Err(pb) => failures.extend_item(VerifyFailure::extra_dir(pb)),
                 },
                 Ok(_) => { /* neither file or dir, so do nothing*/ }
                 Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
@@ -529,8 +529,15 @@ impl GameParts {
         E: Send,
     {
         let GameDir {
-            files, failures, ..
-        }: GameDir<DashMap<_, _>, ExtendSink<_>, F> = GameDir::open(game_root);
+            files,
+            dirs,
+            mut failures,
+        }: GameDir<DashMap<_, _>, Vec<_>, F> = GameDir::open(game_root);
+
+        failures.extend(
+            dirs.into_iter()
+                .map(|(_, dir)| VerifyFailure::extra_dir(dir)),
+        );
 
         self.process(
             files,
