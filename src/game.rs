@@ -36,6 +36,11 @@ impl GameDb {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.games.len()
+    }
+
+    #[inline]
     pub fn is_game(&self, game: &str) -> bool {
         self.games.contains_key(game)
     }
@@ -63,6 +68,11 @@ impl GameDb {
     #[inline]
     pub fn into_games(self) -> impl Iterator<Item = Game> {
         self.games.into_values()
+    }
+
+    #[inline]
+    pub fn games_map(&self) -> &HashMap<String, Game> {
+        &self.games
     }
 
     pub fn validate_games<I>(&self, games: I) -> Result<(), Error>

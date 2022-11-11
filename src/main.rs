@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use indicatif::MultiProgress;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -704,17 +705,15 @@ struct OptMessVerifyAll {
 
 impl OptMessVerifyAll {
     fn execute(self) -> Result<(), Error> {
-        let roms_dir = dirs::mess_roms_all(self.roms);
+        use crate::game::Never;
 
-        for (software_list, db) in read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL) {
-            verify_all(
-                &software_list,
-                &db,
-                &roms_dir.as_ref().join(&software_list),
-                &db.all_games(),
-                self.failures,
-            );
-        }
+        process_all_mess(
+            "verifying software lists",
+            self.roms,
+            |parts, path, _| -> Result<_, Never> { Ok(parts.verify_failures(path)) },
+            self.failures,
+        )
+        .unwrap();
 
         Ok(())
     }
@@ -782,22 +781,20 @@ struct OptMessAddAll {
 
 impl OptMessAddAll {
     fn execute(self) -> Result<(), Error> {
-        let db = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
-
-        let roms_dir = dirs::mess_roms_all(self.roms);
-
         let (input, input_url) = Resource::partition(self.input);
 
-        let mut roms = game::all_rom_sources(&input, &input_url);
+        let rom_sources = game::all_rom_sources(&input, &input_url);
 
-        db.into_iter().try_for_each(|(software, db)| {
-            add_and_verify_all(
-                &software,
-                &mut roms,
-                &roms_dir.as_ref().join(&software),
-                db.games_iter(),
-            )
-        })
+        process_all_mess(
+            "adding and verifying software lists",
+            self.roms,
+            |parts, path, mbar| {
+                parts.add_and_verify_failures(&rom_sources, path, |extracted| {
+                    mbar.println(extracted.to_string()).unwrap()
+                })
+            },
+            true,
+        )
     }
 }
 
@@ -2504,30 +2501,6 @@ fn verify<P: AsRef<Path>>(
     eprintln!("{} tested, {} OK", games.len(), successes);
 }
 
-fn verify_all(
-    software_list: &str,
-    db: &game::GameDb,
-    root: &Path,
-    games: &HashSet<String>,
-    only_failures: bool,
-) {
-    let results = db.verify(root, games);
-
-    let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
-
-    let display = if only_failures {
-        game::display_bad_results
-    } else {
-        game::display_all_results
-    };
-
-    for (game, failures) in results.iter() {
-        display(Some(&format!("{software_list}/{game}")), failures);
-    }
-
-    eprintln!("{} tested, {} OK", games.len(), successes);
-}
-
 fn add_and_verify_games<'g, I, F, P>(
     mut display: F,
     roms: &mut game::RomSources,
@@ -2585,25 +2558,92 @@ where
     )
 }
 
-#[inline]
-fn add_and_verify_all<'g, I, P>(
-    software_list: &str,
-    roms: &mut game::RomSources,
-    root: P,
-    games: I,
-) -> Result<(), Error>
+fn process_all_mess<H, E>(
+    message: &'static str,
+    roms: Option<PathBuf>,
+    handle_parts: H,
+    only_failures: bool,
+) -> Result<(), E>
 where
-    P: AsRef<Path>,
-    I: Iterator<Item = &'g game::Game>,
+    H: for<'g> Fn(
+            &'g game::GameParts,
+            &Path,
+            &MultiProgress,
+        ) -> Result<Vec<game::VerifyFailure<'g>>, E>
+        + Sync,
+    E: Send,
 {
-    add_and_verify_games(
-        |game, failures| {
-            game::display_bad_results(Some(&format!("{software_list}/{game}")), failures)
-        },
-        roms,
-        root,
-        games,
-    )
+    use crate::game::verify_style;
+    use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
+    use std::convert::TryInto;
+
+    let roms_dir = dirs::mess_roms_all(roms);
+    let mut total = game::VerifyResultsSummary::default();
+    let mut table = init_dat_table();
+    let dbs = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
+
+    let mbar = MultiProgress::new();
+    let pbar1 =
+        mbar.add(ProgressBar::new(dbs.len().try_into().unwrap()).with_style(verify_style()));
+    pbar1.set_message(message);
+
+    for (software_list, db) in dbs.into_iter().progress_with(pbar1.clone()) {
+        use crate::game::{Game, VerifyFailure};
+        use comfy_table::{Cell, CellAlignment};
+        use rayon::prelude::*;
+
+        let pbar2 = mbar.insert_after(
+            &pbar1,
+            ProgressBar::new(db.len().try_into().unwrap()).with_style(verify_style()),
+        );
+        pbar2.set_message(software_list.clone());
+
+        let db_root = roms_dir.as_ref().join(&software_list);
+
+        let results = db
+            .games_map()
+            .par_iter()
+            .progress_with(pbar2.clone())
+            .map(|(_, Game { name, parts, .. })| {
+                Ok((
+                    name.as_str(),
+                    handle_parts(parts, &db_root.join(name), &mbar)?,
+                ))
+            })
+            .collect::<Result<BTreeMap<&str, Vec<VerifyFailure>>, E>>()?;
+
+        let db_total = game::VerifyResultsSummary {
+            successes: results.values().filter(|v| v.is_empty()).count(),
+            total: db.len(),
+        };
+
+        for (game, failures) in results {
+            if failures.is_empty() {
+                if !only_failures {
+                    mbar.println(format!("OK : {game}")).unwrap();
+                }
+            } else {
+                for failure in failures {
+                    mbar.println(format!("{failure} : {game}")).unwrap();
+                }
+            }
+        }
+
+        table.add_row(vec![
+            Cell::new(db_total.successes).set_alignment(CellAlignment::Right),
+            Cell::new(db_total.total).set_alignment(CellAlignment::Right),
+            Cell::new(software_list),
+        ]);
+
+        total += db_total;
+
+        mbar.remove(&pbar2);
+    }
+
+    mbar.clear().unwrap();
+    display_dat_table(table, Some(total));
+
+    Ok(())
 }
 
 fn display_dirs<D>(dirs: D, db: BTreeMap<String, dat::DatFile>, sort_by_version: bool)
