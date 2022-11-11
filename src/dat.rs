@@ -350,13 +350,18 @@ impl DatFile {
         Ok(results)
     }
 
-    pub fn verify(&self, root: &Path) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
-        use crate::game::Never;
+    pub fn progress_bar(&self) -> indicatif::ProgressBar {
+        indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
+            .with_style(crate::game::verify_style())
+            .with_message(format!("{} ({})", self.name, self.version))
+    }
 
-        let progress_bar =
-            indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
-                .with_style(crate::game::verify_style())
-                .with_message(format!("verifying : {} ({})", self.name, self.version));
+    pub fn verify(
+        &self,
+        root: &Path,
+        progress_bar: &indicatif::ProgressBar,
+    ) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
+        use crate::game::Never;
 
         let results = self
             .process(
@@ -366,8 +371,6 @@ impl DatFile {
             )
             .unwrap();
 
-        progress_bar.finish_and_clear();
-
         results
     }
 
@@ -375,15 +378,8 @@ impl DatFile {
         &self,
         roms: &mut RomSources,
         root: &Path,
+        progress_bar: &indicatif::ProgressBar,
     ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
-        let progress_bar =
-            indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
-                .with_style(crate::game::verify_style())
-                .with_message(format!(
-                    "adding and verifying : {} ({})",
-                    self.name, self.version
-                ));
-
         let results = self.process(
             root,
             || progress_bar.inc(1),
@@ -396,8 +392,6 @@ impl DatFile {
                 Err(e) => Err(e),
             },
         );
-
-        progress_bar.finish_and_clear();
 
         results
     }
