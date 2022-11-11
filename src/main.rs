@@ -1315,19 +1315,15 @@ struct OptRedumpVerifyAll {
 
 impl OptRedumpVerifyAll {
     fn execute(self) -> Result<(), Error> {
-        let mut total = game::VerifyResultsSummary::default();
-        let mut table = init_dat_table();
-        for (name, dir) in dirs::redump_dirs() {
-            if let Ok(datfile) = read_named_db(REDUMP, DIR_REDUMP, &name) {
-                total += game::display_dat_results(
-                    &mut table,
-                    &datfile,
-                    datfile.verify(&dir),
-                    self.failures,
-                );
-            }
-        }
-        display_dat_table(table, Some(total));
+        use game::Never;
+
+        process_all_dat(
+            dirs::redump_dirs(),
+            |name| read_named_db(REDUMP, DIR_REDUMP, name),
+            |datfile, dir| -> Result<_, Never> { Ok(datfile.verify(dir)) },
+            self.failures,
+        )
+        .unwrap();
 
         Ok(())
     }
@@ -1374,6 +1370,30 @@ impl OptRedumpAdd {
         display_dat_table(table, None);
 
         Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptRedumpAddAll {
+    /// display only failures
+    #[clap(long = "failures")]
+    failures: bool,
+
+    /// input file, directory, or URL
+    input: Vec<Resource>,
+}
+
+impl OptRedumpAddAll {
+    fn execute(self) -> Result<(), Error> {
+        let (input, input_url) = Resource::partition(self.input);
+        let mut parts = game::all_rom_sources(&input, &input_url);
+
+        process_all_dat(
+            dirs::redump_dirs(),
+            |name| read_named_db(REDUMP, DIR_REDUMP, name),
+            |datfile, dir| datfile.add_and_verify(&mut parts, dir),
+            self.failures,
+        )
     }
 }
 
@@ -1493,6 +1513,10 @@ enum OptRedump {
     #[clap(name = "add")]
     Add(OptRedumpAdd),
 
+    /// attempt to add tracks to all games in all categories
+    #[clap(name = "add-all")]
+    AddAll(OptRedumpAddAll),
+
     /// split .bin file into multiple tracks
     #[clap(name = "split")]
     Split(OptRedumpSplit),
@@ -1512,6 +1536,7 @@ impl OptRedump {
             OptRedump::Verify(o) => o.execute(),
             OptRedump::VerifyAll(o) => o.execute(),
             OptRedump::Add(o) => o.execute(),
+            OptRedump::AddAll(o) => o.execute(),
             OptRedump::Split(o) => o.execute(),
             OptRedump::Parts(o) => o.execute(),
         }
@@ -1715,19 +1740,15 @@ struct OptNointroVerifyAll {
 
 impl OptNointroVerifyAll {
     fn execute(self) -> Result<(), Error> {
-        let mut total = game::VerifyResultsSummary::default();
-        let mut table = init_dat_table();
-        for (name, dir) in dirs::nointro_dirs() {
-            if let Ok(datfile) = read_named_db(NOINTRO, DIR_NOINTRO, &name) {
-                total += game::display_dat_results(
-                    &mut table,
-                    &datfile,
-                    datfile.verify(&dir),
-                    self.failures,
-                );
-            }
-        }
-        display_dat_table(table, Some(total));
+        use game::Never;
+
+        process_all_dat(
+            dirs::nointro_dirs(),
+            |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
+            |datfile, dir| -> Result<_, Never> { Ok(datfile.verify(dir)) },
+            self.failures,
+        )
+        .unwrap();
 
         Ok(())
     }
@@ -1786,24 +1807,14 @@ struct OptNointroAddAll {
 impl OptNointroAddAll {
     fn execute(self) -> Result<(), Error> {
         let (input, input_url) = Resource::partition(self.input);
-
         let mut parts = game::all_rom_sources(&input, &input_url);
 
-        let mut table = init_dat_table();
-        let mut total = game::VerifyResultsSummary::default();
-        for (name, dir) in dirs::nointro_dirs() {
-            if let Ok(datfile) = read_named_db(NOINTRO, DIR_NOINTRO, &name) {
-                total += game::display_dat_results(
-                    &mut table,
-                    &datfile,
-                    datfile.add_and_verify(&mut parts, &dir)?,
-                    self.failures,
-                );
-            }
-        }
-        display_dat_table(table, Some(total));
-
-        Ok(())
+        process_all_dat(
+            dirs::nointro_dirs(),
+            |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
+            |datfile, dir| datfile.add_and_verify(&mut parts, dir),
+            self.failures,
+        )
     }
 }
 
@@ -2641,6 +2652,37 @@ where
     }
 
     mbar.clear().unwrap();
+    display_dat_table(table, Some(total));
+
+    Ok(())
+}
+
+fn process_all_dat<I, N, P, E>(
+    dirs: I,
+    read_named_db: N,
+    mut process_dat: P,
+    failures_only: bool,
+) -> Result<(), E>
+where
+    I: Iterator<Item = (String, PathBuf)>,
+    N: Fn(&str) -> Result<dat::DatFile, Error>,
+    P: for<'d> FnMut(
+        &'d dat::DatFile,
+        &Path,
+    ) -> Result<BTreeMap<Option<&'d str>, Vec<game::VerifyFailure<'d>>>, E>,
+{
+    let mut table = init_dat_table();
+    let mut total = game::VerifyResultsSummary::default();
+    for (name, dir) in dirs {
+        if let Ok(datfile) = read_named_db(&name) {
+            total += game::display_dat_results(
+                &mut table,
+                &datfile,
+                process_dat(&datfile, &dir)?,
+                failures_only,
+            );
+        }
+    }
     display_dat_table(table, Some(total));
 
     Ok(())
