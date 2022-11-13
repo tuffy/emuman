@@ -1810,6 +1810,18 @@ pub struct VerifyResultsSummary {
     pub total: usize,
 }
 
+impl VerifyResultsSummary {
+    pub fn row(&self, name: &str) -> Vec<comfy_table::Cell> {
+        use comfy_table::{Cell, CellAlignment};
+
+        vec![
+            Cell::new(self.total).set_alignment(CellAlignment::Right),
+            Cell::new(self.successes).set_alignment(CellAlignment::Right),
+            Cell::new(name),
+        ]
+    }
+}
+
 impl fmt::Display for VerifyResultsSummary {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1828,25 +1840,6 @@ impl std::ops::AddAssign for VerifyResultsSummary {
         self.successes += rhs.successes;
         self.total += rhs.total;
     }
-}
-
-pub fn display_dat_results(
-    table: &mut comfy_table::Table,
-    results: crate::dat::VerifyResults,
-) -> VerifyResultsSummary {
-    use comfy_table::{Cell, CellAlignment};
-
-    for failure in results.failures {
-        println!("{failure}");
-    }
-
-    table.add_row(vec![
-        Cell::new(results.summary.total).set_alignment(CellAlignment::Right),
-        Cell::new(results.summary.successes).set_alignment(CellAlignment::Right),
-        Cell::new(results.datfile.name()),
-    ]);
-
-    results.summary
 }
 
 #[inline]

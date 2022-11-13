@@ -2549,9 +2549,12 @@ where
 {
     let mut table = init_dat_table();
     let pbar = datfile.progress_bar();
-    let results = process(&datfile, &pbar)?;
+    let dat::VerifyResults { failures, summary } = process(&datfile, &pbar)?;
     pbar.finish_and_clear();
-    game::display_dat_results(&mut table, results);
+    for failure in failures {
+        println!("{failure}");
+    }
+    table.add_row(summary.row(datfile.name()));
     display_dat_table(table, None);
 
     Ok(())
@@ -2572,9 +2575,13 @@ where
     for (name, dir) in dirs {
         if let Ok(datfile) = read_named_db(&name) {
             let pbar = datfile.progress_bar();
-            let results = process_dat(&datfile, &dir, &pbar)?;
+            let dat::VerifyResults { failures, summary } = process_dat(&datfile, &dir, &pbar)?;
             pbar.finish_and_clear();
-            total += game::display_dat_results(&mut table, results);
+            for failure in failures {
+                println!("{failure}");
+            }
+            table.add_row(summary.row(datfile.name()));
+            total += summary;
         }
     }
     display_dat_table(table, Some(total));
@@ -2638,13 +2645,7 @@ fn init_dat_table() -> comfy_table::Table {
 
 fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::VerifyResultsSummary>) {
     if let Some(summary) = summary {
-        use comfy_table::{Cell, CellAlignment};
-
-        table.add_row(vec![
-            Cell::new(summary.total).set_alignment(CellAlignment::Right),
-            Cell::new(summary.successes).set_alignment(CellAlignment::Right),
-            Cell::new("Total"),
-        ]);
+        table.add_row(summary.row("Total"));
     }
     println!("{table}");
 }

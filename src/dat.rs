@@ -349,7 +349,6 @@ impl DatFile {
         failures.sort_unstable_by(|x, y| x.path().cmp(y.path()));
 
         Ok(VerifyResults {
-            datfile: self,
             failures,
             summary: crate::game::VerifyResultsSummary {
                 successes,
@@ -410,7 +409,6 @@ impl DatFile {
 }
 
 pub struct VerifyResults<'v> {
-    pub datfile: &'v DatFile,
     pub failures: Vec<VerifyFailure<'v>>,
     pub summary: crate::game::VerifyResultsSummary,
 }
