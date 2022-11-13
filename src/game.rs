@@ -778,6 +778,17 @@ impl<'s> VerifyFailure<'s> {
         Self::ExtraDir { path }
     }
 
+    #[inline]
+    pub fn path(&self) -> &Path {
+        match self {
+            VerifyFailure::Missing { path, ..} => path.as_path(),
+            VerifyFailure::Extra { path, ..} => path.as_path(),
+            VerifyFailure::ExtraDir { path, ..} => path.as_path(),
+            VerifyFailure::Bad { path, ..} => path.as_path(),
+            VerifyFailure::Error { path, ..} => path.as_path(),
+        }
+    }
+
     // attempt to fix failure by populating missing/bad ROMs from rom_sources
     pub fn try_fix<'u>(
         self,
@@ -995,6 +1006,38 @@ impl<I> ExtendOne<I> for ExtendExists<I> {
     #[inline]
     fn extend_item(&mut self, _: I) {
         self.exists = true;
+    }
+}
+
+pub struct ExtendCounter<I> {
+    pub value: usize,
+    phantom: std::marker::PhantomData<I>,
+}
+
+impl<I> Extend<I> for ExtendCounter<I> {
+    #[inline]
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = I>,
+    {
+        self.value += iter.into_iter().count();
+    }
+}
+
+impl<I> ExtendOne<I> for ExtendCounter<I> {
+    #[inline]
+    fn extend_item(&mut self, _: I) {
+        self.value += 1;
+    }
+}
+
+impl<I> Default for ExtendCounter<I> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            value: 0,
+            phantom: std::marker::PhantomData,
+        }
     }
 }
 
@@ -1739,16 +1782,6 @@ pub fn get_rom_sources<'u>(
     multi_rom_sources(roots, urls, |part| required.contains(part))
 }
 
-pub fn display_all_results(game: Option<&str>, failures: &[VerifyFailure]) {
-    if failures.is_empty() {
-        if let Some(game) = game {
-            println!("OK : {}", game);
-        }
-    } else {
-        display_bad_results(game, failures)
-    }
-}
-
 pub fn display_bad_results(game: Option<&str>, failures: &[VerifyFailure]) {
     if !failures.is_empty() {
         use std::io::{stdout, Write};
@@ -1799,38 +1832,21 @@ impl std::ops::AddAssign for VerifyResultsSummary {
 
 pub fn display_dat_results(
     table: &mut comfy_table::Table,
-    dat: &crate::dat::DatFile,
-    results: BTreeMap<Option<&str>, Vec<VerifyFailure>>,
-    failures_only: bool,
+    results: crate::dat::VerifyResults,
 ) -> VerifyResultsSummary {
     use comfy_table::{Cell, CellAlignment};
 
-    // don't count non-games in the final tally
-    let summary = VerifyResultsSummary {
-        successes: results
-            .iter()
-            .filter(|(g, v)| g.is_some() && v.is_empty())
-            .count(),
-        total: results.keys().filter(|g| g.is_some()).count(),
-    };
-
-    if failures_only {
-        for (name, failures) in results {
-            display_bad_results(name, &failures);
-        }
-    } else {
-        for (name, failures) in results {
-            display_all_results(name, &failures);
-        }
+    for failure in results.failures {
+        println!("{failure}");
     }
 
     table.add_row(vec![
-        Cell::new(summary.total).set_alignment(CellAlignment::Right),
-        Cell::new(summary.successes).set_alignment(CellAlignment::Right),
-        Cell::new(dat.name()),
+        Cell::new(results.summary.total).set_alignment(CellAlignment::Right),
+        Cell::new(results.summary.successes).set_alignment(CellAlignment::Right),
+        Cell::new(results.datfile.name()),
     ]);
 
-    summary
+    results.summary
 }
 
 #[inline]

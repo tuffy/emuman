@@ -297,13 +297,13 @@ impl DatFile {
         root: &Path,
         increment_progress: I,
         handle_failure: H,
-    ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, E>
+    ) -> Result<VerifyResults, E>
     where
         I: Fn() + Send + Sync,
         H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
-        use crate::game::{ExtendSink, GameDir};
+        use crate::game::{ExtendCounter, ExtendSink, GameDir};
         use dashmap::DashMap;
         use std::collections::HashMap;
 
@@ -314,19 +314,19 @@ impl DatFile {
         }: GameDir<DashMap<_, _>, HashMap<_, _>, Vec<_>> = GameDir::open(root);
 
         // first, handle loose files not in subdirectories
-        let (successes, failures): (Vec<_>, Vec<_>) = self.flat.process(
+        let (
+            ExtendCounter {
+                value: mut successes,
+                ..
+            },
+            mut failures,
+        ): (_, Vec<_>) = self.flat.process(
             files,
             failures,
             |name, part| VerifyFailure::missing(root, name, part),
             &increment_progress,
             &handle_failure,
         )?;
-
-        let mut results = successes
-            .into_iter()
-            .map(|success| (Some(success.name), Vec::new()))
-            .chain(std::iter::once((None, failures)))
-            .collect::<BTreeMap<Option<&str>, Vec<_>>>();
 
         // then handle everything with a subdirectory
         for (name, parts) in self.tree.iter() {
@@ -335,19 +335,27 @@ impl DatFile {
                 || { /* increment progress on each game, not game's parts*/ },
                 &handle_failure,
             )?;
-            results.insert(Some(name), game_failures);
+            if game_failures.is_empty() {
+                successes += 1;
+            } else {
+                failures.extend(game_failures);
+            }
             increment_progress();
         }
 
         // mark any leftover directories as extras
-        if !dirs.is_empty() {
-            results
-                .entry(None)
-                .or_default()
-                .extend(dirs.into_values().map(VerifyFailure::extra_dir));
-        }
+        failures.extend(dirs.into_values().map(VerifyFailure::extra_dir));
 
-        Ok(results)
+        failures.sort_unstable_by(|x, y| x.path().cmp(y.path()));
+
+        Ok(VerifyResults {
+            datfile: self,
+            failures,
+            summary: crate::game::VerifyResultsSummary {
+                successes,
+                total: self.flat.len() + self.tree.len(),
+            },
+        })
     }
 
     pub fn progress_bar(&self) -> indicatif::ProgressBar {
@@ -356,11 +364,7 @@ impl DatFile {
             .with_message(format!("{} ({})", self.name, self.version))
     }
 
-    pub fn verify(
-        &self,
-        root: &Path,
-        progress_bar: &indicatif::ProgressBar,
-    ) -> BTreeMap<Option<&str>, Vec<VerifyFailure>> {
+    pub fn verify(&self, root: &Path, progress_bar: &indicatif::ProgressBar) -> VerifyResults {
         use crate::game::Never;
 
         let results = self
@@ -379,7 +383,7 @@ impl DatFile {
         roms: &mut RomSources,
         root: &Path,
         progress_bar: &indicatif::ProgressBar,
-    ) -> Result<BTreeMap<Option<&str>, Vec<VerifyFailure>>, Error> {
+    ) -> Result<VerifyResults, Error> {
         let results = self.process(
             root,
             || progress_bar.inc(1),
@@ -403,6 +407,12 @@ impl DatFile {
             .cloned()
             .collect()
     }
+}
+
+pub struct VerifyResults<'v> {
+    pub datfile: &'v DatFile,
+    pub failures: Vec<VerifyFailure<'v>>,
+    pub summary: crate::game::VerifyResultsSummary,
 }
 
 #[inline]

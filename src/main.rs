@@ -355,10 +355,6 @@ struct OptMameVerify {
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-
     /// game to verify
     #[clap(short = 'g', long = "game")]
     machines: Vec<String>,
@@ -379,7 +375,7 @@ impl OptMameVerify {
             machines
         };
 
-        verify(&db, roms_dir, &games, self.failures);
+        verify(&db, roms_dir, &games);
 
         Ok(())
     }
@@ -653,10 +649,6 @@ struct OptMessVerify {
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
 
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-
     /// software list to use
     #[clap(short = 'L', long = "software")]
     software_list: Option<String>,
@@ -686,7 +678,7 @@ impl OptMessVerify {
             software
         };
 
-        verify(&db, &roms_dir, &software, self.failures);
+        verify(&db, &roms_dir, &software);
 
         Ok(())
     }
@@ -697,10 +689,6 @@ struct OptMessVerifyAll {
     /// ROMs directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
 }
 
 impl OptMessVerifyAll {
@@ -711,7 +699,6 @@ impl OptMessVerifyAll {
             "verifying software lists",
             self.roms,
             |parts, path, _| -> Result<_, Never> { Ok(parts.verify_failures(path)) },
-            self.failures,
         )
         .unwrap();
 
@@ -793,7 +780,6 @@ impl OptMessAddAll {
                     mbar.println(extracted.to_string()).unwrap()
                 })
             },
-            true,
         )
     }
 }
@@ -997,10 +983,6 @@ struct OptExtraVerify {
     /// extras category to verify
     #[clap(short = 'E', long = "extra")]
     extra: Option<String>,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
 }
 
 impl OptExtraVerify {
@@ -1017,7 +999,7 @@ impl OptExtraVerify {
         let pbar = datfile.progress_bar();
         let results = datfile.verify(dirs::extra_dir(self.dir, &extra).as_ref(), &pbar);
         pbar.finish_and_clear();
-        game::display_dat_results(&mut table, &datfile, results, self.failures);
+        game::display_dat_results(&mut table, results);
 
         display_dat_table(table, None);
 
@@ -1026,11 +1008,7 @@ impl OptExtraVerify {
 }
 
 #[derive(Args)]
-struct OptExtraVerifyAll {
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-}
+struct OptExtraVerifyAll;
 
 impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1040,7 +1018,6 @@ impl OptExtraVerifyAll {
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
-            self.failures,
         )
         .unwrap();
 
@@ -1082,7 +1059,7 @@ impl OptExtraAdd {
             datfile.add_and_verify(&mut roms, dirs::extra_dir(self.dir, &extra).as_ref(), &pbar)?;
         pbar.finish_and_clear();
 
-        game::display_dat_results(&mut table, &datfile, results, true);
+        game::display_dat_results(&mut table, results);
 
         display_dat_table(table, None);
 
@@ -1105,7 +1082,6 @@ impl OptExtraAddAll {
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
-            true,
         )
     }
 }
@@ -1255,10 +1231,6 @@ struct OptRedumpVerify {
     /// DAT name to verify disk images for
     #[clap(short = 'D', long = "dat")]
     software_list: Option<String>,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
 }
 
 impl OptRedumpVerify {
@@ -1275,7 +1247,7 @@ impl OptRedumpVerify {
         let pbar = datfile.progress_bar();
         let results = datfile.verify(dirs::redump_roms(self.root, &software_list).as_ref(), &pbar);
         pbar.finish_and_clear();
-        game::display_dat_results(&mut table, &datfile, results, self.failures);
+        game::display_dat_results(&mut table, results);
         display_dat_table(table, None);
 
         Ok(())
@@ -1283,11 +1255,7 @@ impl OptRedumpVerify {
 }
 
 #[derive(Args)]
-struct OptRedumpVerifyAll {
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-}
+struct OptRedumpVerifyAll;
 
 impl OptRedumpVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1297,7 +1265,6 @@ impl OptRedumpVerifyAll {
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
-            self.failures,
         )
         .unwrap();
 
@@ -1341,7 +1308,7 @@ impl OptRedumpAdd {
             &pbar,
         )?;
         pbar.finish_and_clear();
-        game::display_dat_results(&mut table, &datfile, results, true);
+        game::display_dat_results(&mut table, results);
         display_dat_table(table, None);
 
         Ok(())
@@ -1350,10 +1317,6 @@ impl OptRedumpAdd {
 
 #[derive(Args)]
 struct OptRedumpAddAll {
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
@@ -1367,7 +1330,6 @@ impl OptRedumpAddAll {
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
-            self.failures,
         )
     }
 }
@@ -1678,10 +1640,6 @@ struct OptNointroVerify {
     /// DAT name to verify ROMs for
     #[clap(short = 'D', long = "dat")]
     name: Option<String>,
-
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
 }
 
 impl OptNointroVerify {
@@ -1697,7 +1655,7 @@ impl OptNointroVerify {
         let pbar = datfile.progress_bar();
         let results = datfile.verify(dirs::nointro_roms(self.roms, &name).as_ref(), &pbar);
         pbar.finish_and_clear();
-        game::display_dat_results(&mut table, &datfile, results, self.failures);
+        game::display_dat_results(&mut table, results);
         display_dat_table(table, None);
 
         Ok(())
@@ -1705,11 +1663,7 @@ impl OptNointroVerify {
 }
 
 #[derive(Args)]
-struct OptNointroVerifyAll {
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-}
+struct OptNointroVerifyAll;
 
 impl OptNointroVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1719,7 +1673,6 @@ impl OptNointroVerifyAll {
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
-            self.failures,
         )
         .unwrap();
 
@@ -1762,7 +1715,7 @@ impl OptNointroAdd {
             &pbar,
         )?;
         pbar.finish_and_clear();
-        game::display_dat_results(&mut table, &datfile, results, true);
+        game::display_dat_results(&mut table, results);
         display_dat_table(table, None);
 
         Ok(())
@@ -1771,10 +1724,6 @@ impl OptNointroAdd {
 
 #[derive(Args)]
 struct OptNointroAddAll {
-    /// display only failures
-    #[clap(long = "failures")]
-    failures: bool,
-
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
@@ -1788,7 +1737,6 @@ impl OptNointroAddAll {
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
-            self.failures,
         )
     }
 }
@@ -2464,24 +2412,13 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-fn verify<P: AsRef<Path>>(
-    db: &game::GameDb,
-    root: P,
-    games: &HashSet<String>,
-    only_failures: bool,
-) {
+fn verify<P: AsRef<Path>>(db: &game::GameDb, root: P, games: &HashSet<String>) {
     let results = db.verify(root.as_ref(), games);
 
     let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
 
-    let display = if only_failures {
-        game::display_bad_results
-    } else {
-        game::display_all_results
-    };
-
     for (game, failures) in results.iter() {
-        display(Some(game), failures);
+        game::display_bad_results(Some(game), failures);
     }
 
     eprintln!("{} tested, {} OK", games.len(), successes);
@@ -2548,7 +2485,6 @@ fn process_all_mess<H, E>(
     message: &'static str,
     roms: Option<PathBuf>,
     handle_parts: H,
-    only_failures: bool,
 ) -> Result<(), E>
 where
     H: for<'g> Fn(
@@ -2604,14 +2540,8 @@ where
         };
 
         for (game, failures) in results {
-            if failures.is_empty() {
-                if !only_failures {
-                    mbar.println(format!("OK : {game}")).unwrap();
-                }
-            } else {
-                for failure in failures {
-                    mbar.println(format!("{failure} : {game}")).unwrap();
-                }
+            for failure in failures {
+                mbar.println(format!("{failure} : {game}")).unwrap();
             }
         }
 
@@ -2632,12 +2562,7 @@ where
     Ok(())
 }
 
-fn process_all_dat<I, N, P, E>(
-    dirs: I,
-    read_named_db: N,
-    mut process_dat: P,
-    failures_only: bool,
-) -> Result<(), E>
+fn process_all_dat<I, N, P, E>(dirs: I, read_named_db: N, mut process_dat: P) -> Result<(), E>
 where
     I: Iterator<Item = (String, PathBuf)>,
     N: Fn(&str) -> Result<dat::DatFile, Error>,
@@ -2645,7 +2570,7 @@ where
         &'d dat::DatFile,
         &Path,
         &indicatif::ProgressBar,
-    ) -> Result<BTreeMap<Option<&'d str>, Vec<game::VerifyFailure<'d>>>, E>,
+    ) -> Result<dat::VerifyResults<'d>, E>,
 {
     let mut table = init_dat_table();
     let mut total = game::VerifyResultsSummary::default();
@@ -2655,7 +2580,7 @@ where
             let results = process_dat(&datfile, &dir, &pbar)?;
             pbar.finish_and_clear();
 
-            total += game::display_dat_results(&mut table, &datfile, results, failures_only);
+            total += game::display_dat_results(&mut table, results);
         }
     }
     display_dat_table(table, Some(total));
