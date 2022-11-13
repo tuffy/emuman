@@ -987,21 +987,18 @@ struct OptExtraVerify {
 
 impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
+        use crate::game::Never;
+
         let extra = match self.extra {
-            Some(extra) => extra,
+            Some(name) => name,
             None => dirs::select_extra_name()?,
         };
+        let dir = self.dir;
 
-        let datfile: dat::DatFile = read_named_db(EXTRA, DIR_EXTRA, &extra)?;
-
-        let mut table = init_dat_table();
-
-        let pbar = datfile.progress_bar();
-        let results = datfile.verify(dirs::extra_dir(self.dir, &extra).as_ref(), &pbar);
-        pbar.finish_and_clear();
-        game::display_dat_results(&mut table, results);
-
-        display_dat_table(table, None);
+        process_dat(read_named_db(EXTRA, DIR_EXTRA, &extra)?, |datfile, pbar| {
+            Ok::<_, Never>(datfile.verify(dirs::extra_dir(dir, &extra).as_ref(), &pbar))
+        })
+        .unwrap();
 
         Ok(())
     }
@@ -1045,25 +1042,18 @@ impl OptExtraAdd {
             Some(extra) => extra,
             None => dirs::select_extra_name()?,
         };
-
-        let datfile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &extra)?;
-
+        let dir = self.dir;
         let (input, input_url) = Resource::partition(self.input);
+        let datfile: dat::DatFile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &extra)?;
+        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
-        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
-
-        let mut table = init_dat_table();
-
-        let pbar = datfile.progress_bar();
-        let results =
-            datfile.add_and_verify(&mut roms, dirs::extra_dir(self.dir, &extra).as_ref(), &pbar)?;
-        pbar.finish_and_clear();
-
-        game::display_dat_results(&mut table, results);
-
-        display_dat_table(table, None);
-
-        Ok(())
+        process_dat(datfile, |datfile, pbar| {
+            datfile.add_and_verify(
+                &mut rom_sources,
+                dirs::extra_dir(dir, &extra).as_ref(),
+                &pbar,
+            )
+        })
     }
 }
 
@@ -1226,29 +1216,30 @@ impl OptRedumpList {
 struct OptRedumpVerify {
     /// root directory
     #[clap(short = 'r', long = "roms")]
-    root: Option<PathBuf>,
+    roms: Option<PathBuf>,
 
     /// DAT name to verify disk images for
     #[clap(short = 'D', long = "dat")]
-    software_list: Option<String>,
+    name: Option<String>,
 }
 
 impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
-        let software_list = match self.software_list {
-            Some(software_list) => software_list,
+        use crate::game::Never;
+
+        let name = match self.name {
+            Some(name) => name,
             None => dirs::select_redump_name()?,
         };
+        let roms = self.roms;
 
-        let datfile: dat::DatFile = read_named_db(REDUMP, DIR_REDUMP, &software_list)?;
-
-        let mut table = init_dat_table();
-
-        let pbar = datfile.progress_bar();
-        let results = datfile.verify(dirs::redump_roms(self.root, &software_list).as_ref(), &pbar);
-        pbar.finish_and_clear();
-        game::display_dat_results(&mut table, results);
-        display_dat_table(table, None);
+        process_dat(
+            read_named_db(REDUMP, DIR_REDUMP, &name)?,
+            |datfile, pbar| {
+                Ok::<_, Never>(datfile.verify(dirs::redump_roms(roms, &name).as_ref(), &pbar))
+            },
+        )
+        .unwrap();
 
         Ok(())
     }
@@ -1276,11 +1267,11 @@ impl OptRedumpVerifyAll {
 struct OptRedumpAdd {
     /// output directory
     #[clap(short = 'r', long = "roms")]
-    output: Option<PathBuf>,
+    roms: Option<PathBuf>,
 
     /// DAT name to add disk images for
     #[clap(short = 'D', long = "dat")]
-    software_list: Option<String>,
+    name: Option<String>,
 
     /// input file, directory, or URL
     input: Vec<Resource>,
@@ -1288,30 +1279,22 @@ struct OptRedumpAdd {
 
 impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
-        let software_list = match self.software_list {
-            Some(software_list) => software_list,
+        let name = match self.name {
+            Some(name) => name,
             None => dirs::select_redump_name()?,
         };
-
-        let datfile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &software_list)?;
-
+        let roms = self.roms;
         let (input, input_url) = Resource::partition(self.input);
+        let datfile: dat::DatFile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &name)?;
+        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
-        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
-
-        let mut table = init_dat_table();
-
-        let pbar = datfile.progress_bar();
-        let results = datfile.add_and_verify(
-            &mut roms,
-            dirs::redump_roms(self.output, &software_list).as_ref(),
-            &pbar,
-        )?;
-        pbar.finish_and_clear();
-        game::display_dat_results(&mut table, results);
-        display_dat_table(table, None);
-
-        Ok(())
+        process_dat(datfile, |datfile, pbar| {
+            datfile.add_and_verify(
+                &mut rom_sources,
+                dirs::redump_roms(roms, &name).as_ref(),
+                &pbar,
+            )
+        })
     }
 }
 
@@ -1644,19 +1627,21 @@ struct OptNointroVerify {
 
 impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
+        use crate::game::Never;
+
         let name = match self.name {
             Some(name) => name,
             None => dirs::select_nointro_name()?,
         };
+        let roms = self.roms;
 
-        let datfile: dat::DatFile = read_named_db(NOINTRO, DIR_NOINTRO, &name)?;
-
-        let mut table = init_dat_table();
-        let pbar = datfile.progress_bar();
-        let results = datfile.verify(dirs::nointro_roms(self.roms, &name).as_ref(), &pbar);
-        pbar.finish_and_clear();
-        game::display_dat_results(&mut table, results);
-        display_dat_table(table, None);
+        process_dat(
+            read_named_db(NOINTRO, DIR_NOINTRO, &name)?,
+            |datfile, pbar| {
+                Ok::<_, Never>(datfile.verify(dirs::nointro_roms(roms, &name).as_ref(), &pbar))
+            },
+        )
+        .unwrap();
 
         Ok(())
     }
@@ -1700,25 +1685,18 @@ impl OptNointroAdd {
             Some(name) => name,
             None => dirs::select_nointro_name()?,
         };
-
-        let datfile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
-
+        let roms = self.roms;
         let (input, input_url) = Resource::partition(self.input);
+        let datfile: dat::DatFile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
+        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
 
-        let mut roms = game::get_rom_sources(&input, &input_url, datfile.required_parts());
-
-        let mut table = init_dat_table();
-        let pbar = datfile.progress_bar();
-        let results = datfile.add_and_verify(
-            &mut roms,
-            dirs::nointro_roms(self.roms, &name).as_ref(),
-            &pbar,
-        )?;
-        pbar.finish_and_clear();
-        game::display_dat_results(&mut table, results);
-        display_dat_table(table, None);
-
-        Ok(())
+        process_dat(datfile, |datfile, pbar| {
+            datfile.add_and_verify(
+                &mut rom_sources,
+                dirs::nointro_roms(roms, &name).as_ref(),
+                &pbar,
+            )
+        })
     }
 }
 
@@ -2562,6 +2540,23 @@ where
     Ok(())
 }
 
+fn process_dat<F, E>(datfile: dat::DatFile, process: F) -> Result<(), E>
+where
+    F: for<'d> FnOnce(
+        &'d dat::DatFile,
+        &indicatif::ProgressBar,
+    ) -> Result<dat::VerifyResults<'d>, E>,
+{
+    let mut table = init_dat_table();
+    let pbar = datfile.progress_bar();
+    let results = process(&datfile, &pbar)?;
+    pbar.finish_and_clear();
+    game::display_dat_results(&mut table, results);
+    display_dat_table(table, None);
+
+    Ok(())
+}
+
 fn process_all_dat<I, N, P, E>(dirs: I, read_named_db: N, mut process_dat: P) -> Result<(), E>
 where
     I: Iterator<Item = (String, PathBuf)>,
@@ -2579,7 +2574,6 @@ where
             let pbar = datfile.progress_bar();
             let results = process_dat(&datfile, &dir, &pbar)?;
             pbar.finish_and_clear();
-
             total += game::display_dat_results(&mut table, results);
         }
     }

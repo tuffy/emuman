@@ -781,11 +781,11 @@ impl<'s> VerifyFailure<'s> {
     #[inline]
     pub fn path(&self) -> &Path {
         match self {
-            VerifyFailure::Missing { path, ..} => path.as_path(),
-            VerifyFailure::Extra { path, ..} => path.as_path(),
-            VerifyFailure::ExtraDir { path, ..} => path.as_path(),
-            VerifyFailure::Bad { path, ..} => path.as_path(),
-            VerifyFailure::Error { path, ..} => path.as_path(),
+            VerifyFailure::Missing { path, .. }
+            | VerifyFailure::Extra { path, .. }
+            | VerifyFailure::ExtraDir { path, .. }
+            | VerifyFailure::Bad { path, .. }
+            | VerifyFailure::Error { path, .. } => path.as_path(),
         }
     }
 
