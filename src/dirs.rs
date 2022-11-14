@@ -275,7 +275,7 @@ impl<'e> Drop for ExtraParts<'e> {
 }
 
 #[inline]
-pub fn extra_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
+pub fn extra_dirs() -> Box<dyn ExactSizeIterator<Item = (String, PathBuf)>> {
     match DirectoryConfig::new() {
         Some(DirectoryConfig { extra, .. }) => {
             Box::new(extra.into_iter().map(|(k, v)| (k, PathBuf::from(v))))
@@ -358,7 +358,7 @@ pub fn nointro_roms(roms: Option<PathBuf>, name: &str) -> NointroRoms<'_> {
     NointroRoms::new(roms, name)
 }
 
-pub fn nointro_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
+pub fn nointro_dirs() -> Box<dyn ExactSizeIterator<Item = (String, PathBuf)>> {
     match DirectoryConfig::new() {
         Some(DirectoryConfig { nointro, .. }) => {
             Box::new(nointro.into_iter().map(|(k, v)| (k, PathBuf::from(v))))
@@ -436,7 +436,7 @@ pub fn redump_roms(roms: Option<PathBuf>, name: &str) -> RedumpRoms<'_> {
     RedumpRoms::new(roms, name)
 }
 
-pub fn redump_dirs() -> Box<dyn Iterator<Item = (String, PathBuf)>> {
+pub fn redump_dirs() -> Box<dyn ExactSizeIterator<Item = (String, PathBuf)>> {
     match DirectoryConfig::new() {
         Some(DirectoryConfig { redump, .. }) => {
             Box::new(redump.into_iter().map(|(k, v)| (k, PathBuf::from(v))))

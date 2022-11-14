@@ -1012,6 +1012,7 @@ impl OptExtraVerifyAll {
         use game::Never;
 
         process_all_dat(
+            "verifying all MAME extras",
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
@@ -1069,6 +1070,7 @@ impl OptExtraAddAll {
         let mut parts = game::all_rom_sources(&input, &input_url);
 
         process_all_dat(
+            "adding and verifying all MAME extras",
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
@@ -1253,6 +1255,7 @@ impl OptRedumpVerifyAll {
         use game::Never;
 
         process_all_dat(
+            "verifying all Redump files",
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
@@ -1310,6 +1313,7 @@ impl OptRedumpAddAll {
         let mut parts = game::all_rom_sources(&input, &input_url);
 
         process_all_dat(
+            "adding and verifying all Redump files",
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
@@ -1655,6 +1659,7 @@ impl OptNointroVerifyAll {
         use game::Never;
 
         process_all_dat(
+            "verifying all No-Intro files",
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
@@ -1712,6 +1717,7 @@ impl OptNointroAddAll {
         let mut parts = game::all_rom_sources(&input, &input_url);
 
         process_all_dat(
+            "adding and verifying No-Intro files",
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
@@ -2560,9 +2566,14 @@ where
     Ok(())
 }
 
-fn process_all_dat<I, N, P, E>(dirs: I, read_named_db: N, mut process_dat: P) -> Result<(), E>
+fn process_all_dat<I, N, P, E>(
+    message: &'static str,
+    dirs: I,
+    read_named_db: N,
+    mut process_dat: P,
+) -> Result<(), E>
 where
-    I: Iterator<Item = (String, PathBuf)>,
+    I: ExactSizeIterator<Item = (String, PathBuf)>,
     N: Fn(&str) -> Result<dat::DatFile, Error>,
     P: for<'d> FnMut(
         &'d dat::DatFile,
@@ -2570,18 +2581,28 @@ where
         &indicatif::ProgressBar,
     ) -> Result<dat::VerifyResults<'d>, E>,
 {
+    use game::verify_style;
+    use indicatif::{ProgressBar, ProgressIterator};
+    use std::convert::TryInto;
+
+    let mbar = MultiProgress::new();
+    let pbar1 =
+        mbar.add(ProgressBar::new(dirs.len().try_into().unwrap()).with_style(verify_style()));
+    pbar1.set_message(message);
+
     let mut table = init_dat_table();
     let mut total = game::VerifyResultsSummary::default();
-    for (name, dir) in dirs {
+    for (name, dir) in dirs.progress_with(pbar1.clone()) {
         if let Ok(datfile) = read_named_db(&name) {
-            let pbar = datfile.progress_bar();
-            let dat::VerifyResults { failures, summary } = process_dat(&datfile, &dir, &pbar)?;
-            pbar.finish_and_clear();
+            let pbar2 = mbar.insert_after(&pbar1, datfile.progress_bar());
+            let dat::VerifyResults { failures, summary } = process_dat(&datfile, &dir, &pbar2)?;
+            pbar2.finish_and_clear();
             for failure in failures {
-                println!("{failure}");
+                mbar.println(format!("{}", failure)).unwrap();
             }
             table.add_row(summary.row(datfile.name()));
             total += summary;
+            mbar.remove(&pbar2);
         }
     }
     display_dat_table(table, Some(total));

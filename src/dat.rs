@@ -332,15 +332,15 @@ impl DatFile {
         for (name, parts) in self.tree.iter() {
             let (_, game_failures): (ExtendSink<_>, Vec<_>) = parts.process_parts(
                 &dirs.remove(name).unwrap_or_else(|| root.join(name)),
-                || { /* increment progress on each game, not game's parts*/ },
+                &increment_progress,
                 &handle_failure,
             )?;
+
             if game_failures.is_empty() {
                 successes += 1;
             } else {
                 failures.extend(game_failures);
             }
-            increment_progress();
         }
 
         // mark any leftover directories as extras
@@ -358,9 +358,15 @@ impl DatFile {
     }
 
     pub fn progress_bar(&self) -> indicatif::ProgressBar {
-        indicatif::ProgressBar::new(self.flat.len() as u64 + self.tree.len() as u64)
-            .with_style(crate::game::verify_style())
-            .with_message(format!("{} ({})", self.name, self.version))
+        use std::convert::TryInto;
+
+        indicatif::ProgressBar::new(
+            (self.flat.len() + self.tree.values().map(|g| g.len()).sum::<usize>())
+                .try_into()
+                .unwrap(),
+        )
+        .with_style(crate::game::verify_style())
+        .with_message(format!("{} ({})", self.name, self.version))
     }
 
     pub fn verify(&self, root: &Path, progress_bar: &indicatif::ProgressBar) -> VerifyResults {
