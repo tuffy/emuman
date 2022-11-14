@@ -296,14 +296,7 @@ pub fn extra_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_extra_name() -> Result<String, Error> {
-    extra_dir_names()
-        .ok_or(Error::NoDatFiles)
-        .and_then(|names| {
-            inquire::Select::new("select extras category", names)
-                .with_page_size(PAGE_SIZE)
-                .prompt()
-                .map_err(Error::Inquire)
-        })
+    select_by_name("select extras category", extra_dir_names)
 }
 
 pub struct NointroRoms<'s> {
@@ -376,14 +369,7 @@ pub fn nointro_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_nointro_name() -> Result<String, Error> {
-    nointro_dir_names()
-        .ok_or(Error::NoDatFiles)
-        .and_then(|names| {
-            inquire::Select::new("select DAT", names)
-                .with_page_size(PAGE_SIZE)
-                .prompt()
-                .map_err(Error::Inquire)
-        })
+    select_by_name("select DAT", nointro_dir_names)
 }
 
 pub struct RedumpRoms<'r> {
@@ -454,12 +440,17 @@ pub fn redump_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_redump_name() -> Result<String, Error> {
-    redump_dir_names()
-        .ok_or(Error::NoDatFiles)
-        .and_then(|names| {
-            inquire::Select::new("select DAT", names)
-                .with_page_size(PAGE_SIZE)
-                .prompt()
-                .map_err(Error::Inquire)
-        })
+    select_by_name("select DAT", redump_dir_names)
+}
+
+fn select_by_name<N>(prompt: &'static str, names: N) -> Result<String, Error>
+where
+    N: FnOnce() -> Option<Vec<String>>,
+{
+    names().ok_or(Error::NoDatFiles).and_then(|names| {
+        inquire::Select::new(prompt, names)
+            .with_page_size(PAGE_SIZE)
+            .prompt()
+            .map_err(Error::Inquire)
+    })
 }
