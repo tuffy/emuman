@@ -2495,7 +2495,6 @@ where
 
     for (software_list, db) in dbs.into_iter().progress_with(pbar1.clone()) {
         use crate::game::{Game, VerifyFailure};
-        use comfy_table::{Cell, CellAlignment};
         use rayon::prelude::*;
 
         let pbar2 = mbar.insert_after(
@@ -2506,7 +2505,7 @@ where
 
         let db_root = roms_dir.as_ref().join(&software_list);
 
-        let results = db
+        let mut results = db
             .games_map()
             .par_iter()
             .progress_with(pbar2.clone())
@@ -2518,25 +2517,23 @@ where
             })
             .collect::<Result<BTreeMap<&str, Vec<VerifyFailure>>, E>>()?;
 
+        results
+            .values_mut()
+            .for_each(|v| v.sort_unstable_by(|x, y| x.path().cmp(y.path())));
+
         let db_total = game::VerifyResultsSummary {
             successes: results.values().filter(|v| v.is_empty()).count(),
             total: db.len(),
         };
 
-        for (game, failures) in results {
+        for (_, failures) in results {
             for failure in failures {
-                mbar.println(format!("{failure} : {game}")).unwrap();
+                mbar.println(format!("{failure}")).unwrap();
             }
         }
 
-        table.add_row(vec![
-            Cell::new(db_total.successes).set_alignment(CellAlignment::Right),
-            Cell::new(db_total.total).set_alignment(CellAlignment::Right),
-            Cell::new(software_list),
-        ]);
-
+        table.add_row(db_total.row(&software_list));
         total += db_total;
-
         mbar.remove(&pbar2);
     }
 

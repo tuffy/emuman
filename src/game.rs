@@ -1812,11 +1812,17 @@ pub struct VerifyResultsSummary {
 
 impl VerifyResultsSummary {
     pub fn row(&self, name: &str) -> Vec<comfy_table::Cell> {
-        use comfy_table::{Cell, CellAlignment};
+        use comfy_table::{Cell, CellAlignment, Color};
+
+        let successes = Cell::new(self.successes).set_alignment(CellAlignment::Right);
 
         vec![
             Cell::new(self.total).set_alignment(CellAlignment::Right),
-            Cell::new(self.successes).set_alignment(CellAlignment::Right),
+            if self.successes != self.total {
+                successes.fg(Color::Red)
+            } else {
+                successes
+            },
             Cell::new(name),
         ]
     }
