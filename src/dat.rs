@@ -305,21 +305,21 @@ impl DatFile {
     {
         use crate::game::{ExtendCounter, ExtendSink, GameDir};
         use dashmap::DashMap;
-        use std::collections::HashMap;
+        use rayon::prelude::*;
+        use std::sync::Mutex;
 
         let GameDir {
             files,
-            mut dirs,
+            dirs,
             failures,
-        }: GameDir<DashMap<_, _>, HashMap<_, _>, Vec<_>> = GameDir::open(root);
+        }: GameDir<DashMap<_, _>, DashMap<_, _>, Vec<_>> = GameDir::open(root);
 
         // first, handle loose files not in subdirectories
         let (
             ExtendCounter {
-                value: mut successes,
-                ..
+                value: successes, ..
             },
-            mut failures,
+            failures,
         ): (_, Vec<_>) = self.flat.process(
             files,
             failures,
@@ -328,23 +328,34 @@ impl DatFile {
             &handle_failure,
         )?;
 
+        let successes = Mutex::new(successes);
+        let failures = Mutex::new(failures);
+
         // then handle everything with a subdirectory
-        for (name, parts) in self.tree.iter() {
+        self.tree.par_iter().try_for_each(|(name, parts)| {
             let (_, game_failures): (ExtendSink<_>, Vec<_>) = parts.process_parts(
-                &dirs.remove(name).unwrap_or_else(|| root.join(name)),
+                &dirs
+                    .remove(name)
+                    .map(|(_, v)| v)
+                    .unwrap_or_else(|| root.join(name)),
                 &increment_progress,
                 &handle_failure,
             )?;
 
             if game_failures.is_empty() {
-                successes += 1;
+                *successes.lock().unwrap() += 1;
             } else {
-                failures.extend(game_failures);
+                failures.lock().unwrap().extend(game_failures);
             }
-        }
+
+            Ok(())
+        })?;
+
+        let successes = successes.into_inner().unwrap();
+        let mut failures = failures.into_inner().unwrap();
 
         // mark any leftover directories as extras
-        failures.extend(dirs.into_values().map(VerifyFailure::extra_dir));
+        failures.extend(dirs.into_iter().map(|(_, v)| VerifyFailure::extra_dir(v)));
 
         failures.sort_unstable_by(|x, y| x.path().cmp(y.path()));
 
