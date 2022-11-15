@@ -41,11 +41,6 @@ impl GameDb {
     }
 
     #[inline]
-    pub fn is_game(&self, game: &str) -> bool {
-        self.games.contains_key(game)
-    }
-
-    #[inline]
     pub fn game(&self, game: &str) -> Option<&Game> {
         self.games.get(game)
     }
@@ -56,17 +51,12 @@ impl GameDb {
     }
 
     #[inline]
-    pub fn games_iter(&self) -> impl Iterator<Item = &Game> {
+    pub fn games_iter(&self) -> impl ExactSizeIterator<Item = &Game> {
         self.games.values()
     }
 
     #[inline]
-    pub fn all_games<C: FromIterator<String>>(&self) -> C {
-        self.games.keys().cloned().collect()
-    }
-
-    #[inline]
-    pub fn into_games(self) -> impl Iterator<Item = Game> {
+    pub fn into_games(self) -> impl ExactSizeIterator<Item = Game> {
         self.games.into_values()
     }
 
@@ -75,18 +65,24 @@ impl GameDb {
         &self.games
     }
 
-    pub fn validate_games<I>(&self, games: I) -> Result<(), Error>
+    #[inline]
+    fn valid_game(&self, game: &str) -> Result<&Game, Error> {
+        self.games
+            .get(game)
+            .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))
+    }
+
+    #[inline]
+    pub fn valid_games<'g, I, C>(&'g self, games: I) -> Result<C, Error>
     where
         I: IntoIterator,
         I::Item: AsRef<str>,
+        C: FromIterator<&'g Game>,
     {
-        games.into_iter().try_for_each(|s| {
-            if self.is_game(s.as_ref()) {
-                Ok(())
-            } else {
-                Err(Error::NoSuchSoftware(s.as_ref().to_string()))
-            }
-        })
+        games
+            .into_iter()
+            .map(|name| self.valid_game(name.as_ref()))
+            .collect()
     }
 
     pub fn required_parts<I>(&self, games: I) -> Result<FxHashSet<Part>, Error>
@@ -108,36 +104,15 @@ impl GameDb {
             .map(|()| parts)
     }
 
-    pub fn verify<'a>(
-        &self,
-        root: &Path,
-        games: &'a HashSet<String>,
-    ) -> BTreeMap<&'a str, Vec<VerifyFailure>> {
-        use indicatif::ParallelProgressIterator;
-        use rayon::prelude::*;
-
-        let pbar = ProgressBar::new(games.len() as u64).with_style(verify_style());
-        pbar.set_message("verifying games");
-
-        games
-            .par_iter()
-            .progress_with(pbar)
-            .map(|game| (game.as_str(), self.verify_game(root, game)))
-            .collect()
-    }
-
-    fn verify_game(&self, root: &Path, game_name: &str) -> Vec<VerifyFailure> {
-        if let Some(game) = self.game(game_name) {
-            let mut results = game.parts.verify_failures(&root.join(game_name));
-            results.extend(
-                game.devices
-                    .iter()
-                    .flat_map(|device| self.verify_game(root, device)),
-            );
-            results
-        } else {
-            Vec::new()
-        }
+    pub fn verify<'g>(&'g self, root: &Path, game: &'g Game) -> Vec<VerifyFailure<'g>> {
+        let mut results = game.parts.verify_failures(&root.join(&game.name));
+        results.extend(
+            game.devices
+                .iter()
+                .filter_map(|device| self.game(device))
+                .flat_map(|device| self.verify(root, device)),
+        );
+        results
     }
 
     pub fn list_results(&self, search: Option<&str>, simple: bool) -> Vec<GameRow> {
@@ -1780,28 +1755,6 @@ pub fn get_rom_sources<'u>(
     required: FxHashSet<Part>,
 ) -> RomSources<'u> {
     multi_rom_sources(roots, urls, |part| required.contains(part))
-}
-
-pub fn display_bad_results(game: Option<&str>, failures: &[VerifyFailure]) {
-    if !failures.is_empty() {
-        use std::io::{stdout, Write};
-
-        // ensure results are generated as a unit
-        let stdout = stdout();
-        let mut handle = stdout.lock();
-        match game {
-            Some(game) => {
-                for failure in failures {
-                    writeln!(&mut handle, "{failure} : {game}").unwrap();
-                }
-            }
-            None => {
-                for failure in failures {
-                    writeln!(&mut handle, "{failure}").unwrap();
-                }
-            }
-        }
-    }
 }
 
 #[derive(Default)]

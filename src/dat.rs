@@ -400,7 +400,7 @@ impl DatFile {
         root: &Path,
         progress_bar: &indicatif::ProgressBar,
     ) -> Result<VerifyResults, Error> {
-        let results = self.process(
+        self.process(
             root,
             || progress_bar.inc(1),
             |failure| match failure.try_fix(roms) {
@@ -411,9 +411,7 @@ impl DatFile {
                 Ok(Err(f)) => Ok(Err(f)),
                 Err(e) => Err(e),
             },
-        );
-
-        results
+        )
     }
 
     pub fn required_parts(&self) -> FxHashSet<Part> {

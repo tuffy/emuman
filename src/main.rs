@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use indicatif::MultiProgress;
+use indicatif::{MultiProgress, ProgressBar};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -366,16 +366,14 @@ impl OptMameVerify {
 
         let roms_dir = dirs::mame_roms(self.roms);
 
-        let games: HashSet<String> = if self.machines.is_empty() {
-            db.all_games()
-        } else {
-            // only validate user-specified machines
-            let machines = self.machines.iter().cloned().collect();
-            db.validate_games(&machines)?;
-            machines
-        };
-
-        verify(&db, roms_dir, &games);
+        match self.machines.as_slice() {
+            [] => verify(&db, roms_dir, db.games_iter()),
+            machines => verify(
+                &db,
+                roms_dir,
+                db.valid_games::<_, Vec<_>>(machines)?.into_iter(),
+            ),
+        }
 
         Ok(())
     }
@@ -409,17 +407,14 @@ impl OptMameAdd {
             game::get_rom_sources(&input, &input_url, db.required_parts(&self.machines)?)
         };
 
-        if self.machines.is_empty() {
-            add_and_verify(&mut roms, &roms_dir, db.games_iter())?;
-        } else {
-            add_and_verify(
+        match self.machines.as_slice() {
+            [] => add_and_verify(&mut roms, roms_dir, db.games_iter()),
+            machines => add_and_verify(
                 &mut roms,
-                &roms_dir,
-                self.machines.iter().filter_map(|game| db.game(game)),
-            )?;
+                roms_dir,
+                db.valid_games::<_, Vec<_>>(machines)?.into_iter(),
+            ),
         }
-
-        Ok(())
     }
 }
 
@@ -670,15 +665,14 @@ impl OptMessVerify {
 
         let roms_dir = dirs::mess_roms(self.roms, &software_list);
 
-        let software: HashSet<String> = if self.software.is_empty() {
-            db.all_games()
-        } else {
-            let software = self.software.clone().into_iter().collect();
-            db.validate_games(&software)?;
-            software
-        };
-
-        verify(&db, &roms_dir, &software);
+        match self.software.as_slice() {
+            [] => verify(&db, roms_dir, db.games_iter()),
+            machines => verify(
+                &db,
+                roms_dir,
+                db.valid_games::<_, Vec<_>>(machines)?.into_iter(),
+            ),
+        }
 
         Ok(())
     }
@@ -744,14 +738,13 @@ impl OptMessAdd {
             game::get_rom_sources(&input, &input_url, db.required_parts(&self.software)?)
         };
 
-        if self.software.is_empty() {
-            add_and_verify(&mut roms, &roms_dir, db.games_iter())
-        } else {
-            add_and_verify(
+        match self.software.as_slice() {
+            [] => add_and_verify(&mut roms, &roms_dir, db.games_iter()),
+            software => add_and_verify(
                 &mut roms,
-                &roms_dir,
-                self.software.iter().filter_map(|game| db.game(game)),
-            )
+                roms_dir,
+                db.valid_games::<_, Vec<_>>(software)?.into_iter(),
+            ),
         }
     }
 }
@@ -996,7 +989,7 @@ impl OptExtraVerify {
         let dir = self.dir;
 
         process_dat(read_named_db(EXTRA, DIR_EXTRA, &extra)?, |datfile, pbar| {
-            Ok::<_, Never>(datfile.verify(dirs::extra_dir(dir, &extra).as_ref(), &pbar))
+            Ok::<_, Never>(datfile.verify(dirs::extra_dir(dir, &extra).as_ref(), pbar))
         })
         .unwrap();
 
@@ -1052,7 +1045,7 @@ impl OptExtraAdd {
             datfile.add_and_verify(
                 &mut rom_sources,
                 dirs::extra_dir(dir, &extra).as_ref(),
-                &pbar,
+                pbar,
             )
         })
     }
@@ -1238,7 +1231,7 @@ impl OptRedumpVerify {
         process_dat(
             read_named_db(REDUMP, DIR_REDUMP, &name)?,
             |datfile, pbar| {
-                Ok::<_, Never>(datfile.verify(dirs::redump_roms(roms, &name).as_ref(), &pbar))
+                Ok::<_, Never>(datfile.verify(dirs::redump_roms(roms, &name).as_ref(), pbar))
             },
         )
         .unwrap();
@@ -1642,7 +1635,7 @@ impl OptNointroVerify {
         process_dat(
             read_named_db(NOINTRO, DIR_NOINTRO, &name)?,
             |datfile, pbar| {
-                Ok::<_, Never>(datfile.verify(dirs::nointro_roms(roms, &name).as_ref(), &pbar))
+                Ok::<_, Never>(datfile.verify(dirs::nointro_roms(roms, &name).as_ref(), pbar))
             },
         )
         .unwrap();
@@ -1699,7 +1692,7 @@ impl OptNointroAdd {
             datfile.add_and_verify(
                 &mut rom_sources,
                 dirs::nointro_roms(roms, &name).as_ref(),
-                &pbar,
+                pbar,
             )
         })
     }
@@ -1913,7 +1906,7 @@ struct OptCacheAdd {
 impl OptCacheAdd {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Part;
-        use indicatif::{ParallelProgressIterator, ProgressBar};
+        use indicatif::ParallelProgressIterator;
         use rayon::prelude::*;
 
         let pb = ProgressBar::new_spinner().with_message("locating files");
@@ -1955,7 +1948,6 @@ struct OptCacheDelete {
 impl OptCacheDelete {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Part;
-        use indicatif::ProgressBar;
 
         let pb = ProgressBar::new_spinner().with_message("removing cache entries");
 
@@ -1983,7 +1975,7 @@ struct OptCacheVerify {
 impl OptCacheVerify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Part;
-        use indicatif::{ParallelProgressIterator, ProgressBar};
+        use indicatif::ParallelProgressIterator;
         use rayon::prelude::*;
         use std::collections::HashMap;
 
@@ -2034,7 +2026,6 @@ struct OptCacheLinkDupes {
 impl OptCacheLinkDupes {
     fn execute(self) -> Result<(), Error> {
         use crate::duplicates::{DuplicateFiles, Duplicates};
-        use indicatif::ProgressBar;
 
         let mut db = DuplicateFiles::default();
 
@@ -2396,72 +2387,74 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-fn verify<P: AsRef<Path>>(db: &game::GameDb, root: P, games: &HashSet<String>) {
-    let results = db.verify(root.as_ref(), games);
-
-    let successes = results.iter().filter(|(_, v)| v.is_empty()).count();
-
-    for (game, failures) in results.iter() {
-        game::display_bad_results(Some(game), failures);
-    }
-
-    eprintln!("{} tested, {} OK", games.len(), successes);
-}
-
-fn add_and_verify_games<'g, I, F, P>(
-    mut display: F,
-    roms: &mut game::RomSources,
+fn process_games<'g, I, P, F, E>(
+    message: &'static str,
     root: P,
     games: I,
-) -> Result<(), Error>
+    handle_game: F,
+) -> Result<(), E>
 where
-    P: AsRef<Path>,
-    F: FnMut(&str, &[game::VerifyFailure]),
-    I: Iterator<Item = &'g game::Game>,
+    P: AsRef<Path> + Sync,
+    I: ExactSizeIterator<Item = &'g game::Game> + Send,
+    F: Fn(&'g game::Game, &Path, &ProgressBar) -> Result<Vec<game::VerifyFailure<'g>>, E> + Sync,
+    E: Send,
 {
-    use indicatif::{ProgressBar, ProgressStyle};
+    use indicatif::ParallelProgressIterator;
+    use rayon::prelude::*;
+    use std::convert::TryInto;
 
-    let pb = match games.size_hint() {
-        (_, Some(total)) => ProgressBar::new(total as u64).with_style(
-            ProgressStyle::default_bar()
-                .template("{wide_msg} {pos} / {len}")
-                .unwrap(),
-        ),
-        (_, None) => ProgressBar::new_spinner(),
-    }
-    .with_message("adding and verifying");
+    let total = games.len();
+    let pbar = ProgressBar::new(total.try_into().unwrap())
+        .with_style(game::verify_style())
+        .with_message(message);
 
-    let results = pb
-        .wrap_iter(games.map(|game| {
-            game.add_and_verify(roms, root.as_ref(), |p| pb.println(p.to_string()))
-                .map(|failures| (game.name.as_str(), failures))
-        }))
-        .collect::<Result<BTreeMap<_, _>, Error>>()?;
+    let results = games
+        .par_bridge()
+        .progress_with(pbar.clone())
+        .map(|game| handle_game(game, root.as_ref(), &pbar))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    pb.finish_and_clear();
+    pbar.finish_and_clear();
 
-    let successes = results.values().filter(|v| v.is_empty()).count();
+    let successes = results.iter().filter(|v| v.is_empty()).count();
+    let mut failures = results.into_iter().flatten().collect::<Vec<_>>();
 
-    for (game, failures) in results.iter() {
-        display(game, failures);
+    failures.sort_unstable_by(|x, y| x.path().cmp(y.path()));
+    for failure in failures {
+        println!("{failure}");
     }
 
-    eprintln!("{} added, {} OK", results.len(), successes);
+    eprintln!("{total} tested, {successes} OK");
 
     Ok(())
+}
+
+fn verify<'g, I, P>(db: &'g game::GameDb, root: P, games: I)
+where
+    P: AsRef<Path> + Sync,
+    I: ExactSizeIterator<Item = &'g game::Game>,
+    I: Send,
+{
+    process_games("verifying games", root, games, |game, root, _| {
+        Ok::<_, game::Never>(db.verify(root, game))
+    })
+    .unwrap()
 }
 
 #[inline]
 fn add_and_verify<'g, I, P>(roms: &mut game::RomSources, root: P, games: I) -> Result<(), Error>
 where
-    P: AsRef<Path>,
-    I: Iterator<Item = &'g game::Game>,
+    P: AsRef<Path> + Sync,
+    I: ExactSizeIterator<Item = &'g game::Game>,
+    I: Send,
 {
-    add_and_verify_games(
-        |game, failures| game::display_bad_results(Some(game), failures),
-        roms,
+    process_games(
+        "adding and verifying games",
         root,
         games,
+        |game, root, pbar| {
+            game.add_and_verify(roms, root.as_ref(), |r| pbar.println(format!("{r}")))
+        },
     )
 }
 
@@ -2480,7 +2473,7 @@ where
     E: Send,
 {
     use crate::game::verify_style;
-    use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
+    use indicatif::{ParallelProgressIterator, ProgressIterator};
     use std::convert::TryInto;
 
     let roms_dir = dirs::mess_roms_all(roms);
@@ -2579,7 +2572,7 @@ where
     ) -> Result<dat::VerifyResults<'d>, E>,
 {
     use game::verify_style;
-    use indicatif::{ProgressBar, ProgressIterator};
+    use indicatif::ProgressIterator;
     use std::convert::TryInto;
 
     let mbar = MultiProgress::new();
