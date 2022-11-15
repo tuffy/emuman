@@ -1,7 +1,6 @@
 use super::{Error, FileError};
 use crate::game::{GameParts, Part, RomSources, VerifyFailure};
 use comfy_table::Table;
-use fxhash::FxHashSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -412,14 +411,6 @@ impl DatFile {
                 Err(e) => Err(e),
             },
         )
-    }
-
-    pub fn required_parts(&self) -> FxHashSet<Part> {
-        self.flat
-            .values()
-            .chain(self.tree.values().flat_map(|game| game.values()))
-            .cloned()
-            .collect()
     }
 }
 

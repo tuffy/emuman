@@ -1,14 +1,37 @@
 use crate::Error;
-use indicatif::ProgressBar;
+use indicatif::{MultiProgress, ProgressBar};
 
 const RETRIES: u32 = 10;
 
 pub fn fetch_url_data(source: &str) -> Result<Box<[u8]>, Error> {
     let mut data = Vec::new();
-    retry(|| fetch(source, &mut data), RETRIES).map(|()| data.into_boxed_slice())
+    retry(|| fetch(source, |pb| pb, |_| {}, &mut data), RETRIES).map(|()| data.into_boxed_slice())
 }
 
-fn fetch(source: &str, zip_data: &mut Vec<u8>) -> Result<(), Error> {
+pub fn fetch_url_data_with_progress(
+    source: &str,
+    progress: &MultiProgress,
+) -> Result<Box<[u8]>, Error> {
+    let mut data = Vec::new();
+    retry(
+        || {
+            fetch(
+                source,
+                |pb| progress.add(pb),
+                |pb| progress.remove(pb),
+                &mut data,
+            )
+        },
+        RETRIES,
+    )
+    .map(|()| data.into_boxed_slice())
+}
+
+fn fetch<A, R>(source: &str, add_bar: A, remove_bar: R, zip_data: &mut Vec<u8>) -> Result<(), Error>
+where
+    A: FnOnce(ProgressBar) -> ProgressBar,
+    R: FnOnce(&ProgressBar),
+{
     use attohttpc::header::CONTENT_LENGTH;
     use std::io::Read;
 
@@ -25,11 +48,17 @@ fn fetch(source: &str, zip_data: &mut Vec<u8>) -> Result<(), Error> {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse::<u64>().ok());
 
-            progress_bar(source, length)
+            let pbar = add_bar(progress_bar(source, length));
+
+            let result = pbar
                 .wrap_read(reader)
                 .read_to_end(zip_data)
                 .map(|_| ())
-                .map_err(Error::IO)
+                .map_err(Error::IO);
+
+            remove_bar(&pbar);
+
+            result
         }
         (code, _, _) => Err(Error::HttpCode(code)),
     }

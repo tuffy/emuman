@@ -3,8 +3,7 @@ use comfy_table::Table;
 use core::num::ParseIntError;
 use dashmap::mapref::entry::OccupiedEntry;
 use dashmap::DashMap;
-use fxhash::FxHashSet;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::cmp::Ordering;
@@ -83,25 +82,6 @@ impl GameDb {
             .into_iter()
             .map(|name| self.valid_game(name.as_ref()))
             .collect()
-    }
-
-    pub fn required_parts<I>(&self, games: I) -> Result<FxHashSet<Part>, Error>
-    where
-        I: IntoIterator,
-        I::Item: AsRef<str>,
-    {
-        let mut parts = FxHashSet::default();
-        games
-            .into_iter()
-            .try_for_each(|game| {
-                if let Some(game) = self.game(game.as_ref()) {
-                    parts.extend(game.parts.values().cloned());
-                    Ok(())
-                } else {
-                    Err(Error::NoSuchSoftware(game.as_ref().to_string()))
-                }
-            })
-            .map(|()| parts)
     }
 
     pub fn verify<'g>(&'g self, root: &Path, game: &'g Game) -> Vec<VerifyFailure<'g>> {
@@ -467,11 +447,6 @@ impl GameParts {
     #[inline]
     pub fn keys(&self) -> impl Iterator<Item = &String> {
         self.parts.keys()
-    }
-
-    #[inline]
-    pub fn values(&self) -> impl Iterator<Item = &Part> {
-        self.parts.values()
     }
 
     #[inline]
@@ -1341,12 +1316,15 @@ pub fn verify_style() -> ProgressStyle {
         .unwrap()
 }
 
-fn subdir_files(root: &Path) -> Vec<PathBuf> {
+fn subdir_files(root: &Path, progress: &MultiProgress) -> Vec<PathBuf> {
     use indicatif::ProgressIterator;
     use walkdir::WalkDir;
 
-    let pbar = ProgressBar::new_spinner().with_style(find_files_style());
-    pbar.set_message("locating files");
+    let pbar = progress.add(
+        ProgressBar::new_spinner()
+            .with_style(find_files_style())
+            .with_message("locating files"),
+    );
 
     let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
 
@@ -1373,7 +1351,7 @@ fn subdir_files(root: &Path) -> Vec<PathBuf> {
             .collect()
     };
 
-    pbar.finish_and_clear();
+    progress.remove(&pbar);
 
     results
 }
@@ -1398,7 +1376,7 @@ impl<'u> RomSource<'u> {
     // returns true if this source is more "local" than the other,
     // (that is, local files are more local than remote URLs,
     //  and non-zipped files are more local than zipped files)
-    fn more_local_than(&self, other: &Self) -> bool {
+    pub fn more_local_than(&self, other: &Self) -> bool {
         match (self, other) {
             (
                 RomSource::File {
@@ -1421,7 +1399,7 @@ impl<'u> RomSource<'u> {
         }
     }
 
-    pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
+    pub fn from_path(pb: PathBuf) -> Result<Vec<(Part, Self)>, Error> {
         use std::fs::File;
         use std::io::BufReader;
 
@@ -1469,8 +1447,9 @@ impl<'u> RomSource<'u> {
         Ok(result)
     }
 
-    pub fn from_url(url: &'u str) -> Result<Vec<(Part, RomSource<'u>)>, Error> {
-        let data: Arc<[u8]> = crate::http::fetch_url_data(url).map(Arc::from)?;
+    pub fn from_url(url: &'u str, progress: &MultiProgress) -> Result<Vec<(Part, Self)>, Error> {
+        let data: Arc<[u8]> =
+            crate::http::fetch_url_data_with_progress(url, progress).map(Arc::from)?;
 
         let mut result = vec![(
             Part::from_slice(&data)?,
@@ -1668,17 +1647,17 @@ impl fmt::Display for Rate {
 
 pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
 
-fn file_rom_sources<F>(root: &Path, part_filter: F) -> RomSources
-where
-    F: Fn(&Part) -> bool + Sync + Send,
-{
+pub fn file_rom_sources<'r>(root: &Path, progress: &MultiProgress) -> RomSources<'r> {
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    let files = subdir_files(root);
+    let files = subdir_files(root, progress);
 
-    let pbar = ProgressBar::new(files.len() as u64).with_style(verify_style());
-    pbar.set_message("cataloging files");
+    let pbar = progress.add(
+        ProgressBar::new(files.len() as u64)
+            .with_style(verify_style())
+            .with_message("cataloging files"),
+    );
 
     let results = files
         .into_par_iter()
@@ -1688,73 +1667,18 @@ where
                 .unwrap_or_else(|_| Vec::new())
                 .into_par_iter()
         })
-        .filter(|(part, _)| part_filter(part))
         .collect();
 
-    pbar.finish_and_clear();
+    progress.remove(&pbar);
 
     results
 }
 
 #[inline]
-fn url_rom_sources<F>(url: &str, part_filter: F) -> RomSources
-where
-    F: Fn(&Part) -> bool + Sync + Send,
-{
-    RomSource::from_url(url)
-        .map(|v| {
-            v.into_iter()
-                .filter(|(part, _)| part_filter(part))
-                .collect()
-        })
+pub fn url_rom_sources<'u>(url: &'u str, progress: &MultiProgress) -> RomSources<'u> {
+    RomSource::from_url(url, progress)
+        .map(|v| v.into_iter().collect())
         .unwrap_or_default()
-}
-
-fn multi_rom_sources<'u, F>(
-    roots: &'u [PathBuf],
-    urls: &'u [String],
-    part_filter: F,
-) -> RomSources<'u>
-where
-    F: Fn(&Part) -> bool + Sync + Send + Copy,
-{
-    fn merge_sources<'u>(base: RomSources<'u>, extend: RomSources<'u>) -> RomSources<'u> {
-        use dashmap::mapref::entry::Entry;
-
-        for (part, source) in extend {
-            match base.entry(part) {
-                Entry::Occupied(mut o) if source.more_local_than(o.get()) => {
-                    o.insert(source);
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(v) => {
-                    v.insert(source);
-                }
-            }
-        }
-
-        base
-    }
-
-    urls.iter()
-        .map(|url| url_rom_sources(url, part_filter))
-        .chain(roots.iter().map(|root| file_rom_sources(root, part_filter)))
-        .reduce(merge_sources)
-        .unwrap_or_else(|| file_rom_sources(Path::new("."), part_filter))
-}
-
-#[inline]
-pub fn all_rom_sources<'u>(roots: &'u [PathBuf], urls: &'u [String]) -> RomSources<'u> {
-    multi_rom_sources(roots, urls, |_| true)
-}
-
-#[inline]
-pub fn get_rom_sources<'u>(
-    roots: &'u [PathBuf],
-    urls: &'u [String],
-    required: FxHashSet<Part>,
-) -> RomSources<'u> {
-    multi_rom_sources(roots, urls, |part| required.contains(part))
 }
 
 #[derive(Default)]

@@ -157,19 +157,11 @@ impl Resource {
         }
     }
 
-    // separates resources by files and URLs
-    fn partition(resources: Vec<Resource>) -> (Vec<PathBuf>, Vec<String>) {
-        let mut files = Vec::default();
-        let mut urls = Vec::default();
-
-        for resource in resources {
-            match resource {
-                Resource::File(f) => files.push(f),
-                Resource::Url(u) => urls.push(u),
-            }
+    fn rom_sources(&self, progress: &MultiProgress) -> game::RomSources {
+        match self {
+            Self::File(f) => game::file_rom_sources(&f, progress),
+            Self::Url(url) => game::url_rom_sources(&url, progress),
         }
-
-        (files, urls)
     }
 }
 
@@ -399,13 +391,7 @@ impl OptMameAdd {
 
         let roms_dir = dirs::mame_roms(self.roms);
 
-        let (input, input_url) = Resource::partition(self.input);
-
-        let mut roms = if self.machines.is_empty() {
-            game::all_rom_sources(&input, &input_url)
-        } else {
-            game::get_rom_sources(&input, &input_url, db.required_parts(&self.machines)?)
-        };
+        let mut roms = rom_sources(&self.input);
 
         match self.machines.as_slice() {
             [] => add_and_verify(&mut roms, roms_dir, db.games_iter()),
@@ -730,13 +716,7 @@ impl OptMessAdd {
 
         let roms_dir = dirs::mess_roms(self.roms, &software_list);
 
-        let (input, input_url) = Resource::partition(self.input);
-
-        let mut roms = if self.software.is_empty() {
-            game::all_rom_sources(&input, &input_url)
-        } else {
-            game::get_rom_sources(&input, &input_url, db.required_parts(&self.software)?)
-        };
+        let mut roms = rom_sources(&self.input);
 
         match self.software.as_slice() {
             [] => add_and_verify(&mut roms, &roms_dir, db.games_iter()),
@@ -761,9 +741,7 @@ struct OptMessAddAll {
 
 impl OptMessAddAll {
     fn execute(self) -> Result<(), Error> {
-        let (input, input_url) = Resource::partition(self.input);
-
-        let rom_sources = game::all_rom_sources(&input, &input_url);
+        let rom_sources = rom_sources(&self.input);
 
         process_all_mess(
             "adding and verifying software lists",
@@ -1037,9 +1015,8 @@ impl OptExtraAdd {
             None => dirs::select_extra_name()?,
         };
         let dir = self.dir;
-        let (input, input_url) = Resource::partition(self.input);
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &extra)?;
-        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
+        let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
             datfile.add_and_verify(
@@ -1059,8 +1036,7 @@ struct OptExtraAddAll {
 
 impl OptExtraAddAll {
     fn execute(self) -> Result<(), Error> {
-        let (input, input_url) = Resource::partition(self.input);
-        let mut parts = game::all_rom_sources(&input, &input_url);
+        let mut parts = rom_sources(&self.input);
 
         process_all_dat(
             "adding and verifying all MAME extras",
@@ -1280,9 +1256,8 @@ impl OptRedumpAdd {
             None => dirs::select_redump_name()?,
         };
         let roms = self.roms;
-        let (input, input_url) = Resource::partition(self.input);
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &name)?;
-        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
+        let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
             datfile.add_and_verify(
@@ -1302,8 +1277,7 @@ struct OptRedumpAddAll {
 
 impl OptRedumpAddAll {
     fn execute(self) -> Result<(), Error> {
-        let (input, input_url) = Resource::partition(self.input);
-        let mut parts = game::all_rom_sources(&input, &input_url);
+        let mut parts = rom_sources(&self.input);
 
         process_all_dat(
             "adding and verifying all Redump files",
@@ -1684,9 +1658,8 @@ impl OptNointroAdd {
             None => dirs::select_nointro_name()?,
         };
         let roms = self.roms;
-        let (input, input_url) = Resource::partition(self.input);
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
-        let mut rom_sources = game::get_rom_sources(&input, &input_url, datfile.required_parts());
+        let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
             datfile.add_and_verify(
@@ -1706,8 +1679,7 @@ struct OptNointroAddAll {
 
 impl OptNointroAddAll {
     fn execute(self) -> Result<(), Error> {
-        let (input, input_url) = Resource::partition(self.input);
-        let mut parts = game::all_rom_sources(&input, &input_url);
+        let mut parts = rom_sources(&self.input);
 
         process_all_dat(
             "adding and verifying No-Intro files",
@@ -2659,6 +2631,48 @@ fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::Verify
         table.add_row(summary.row("Total"));
     }
     println!("{table}");
+}
+
+fn rom_sources(sources: &[Resource]) -> game::RomSources {
+    use indicatif::ProgressIterator;
+    use std::convert::TryInto;
+
+    fn merge_sources<'u>(
+        base: game::RomSources<'u>,
+        extend: game::RomSources<'u>,
+    ) -> game::RomSources<'u> {
+        use dashmap::mapref::entry::Entry;
+
+        for (part, source) in extend {
+            match base.entry(part) {
+                Entry::Occupied(mut o) if source.more_local_than(o.get()) => {
+                    o.insert(source);
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(v) => {
+                    v.insert(source);
+                }
+            }
+        }
+
+        base
+    }
+
+    let mbar = MultiProgress::new();
+    let pbar1 = mbar
+        .add(ProgressBar::new(sources.len().try_into().unwrap()).with_style(game::verify_style()));
+    pbar1.set_message("retrieving ROMs");
+
+    let results = sources
+        .iter()
+        .progress_with(pbar1.clone())
+        .fold(game::RomSources::default(), |acc, r| {
+            merge_sources(acc, r.rom_sources(&mbar))
+        });
+
+    mbar.clear().unwrap();
+
+    results
 }
 
 fn sub_files(root: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {
