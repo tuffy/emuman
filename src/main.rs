@@ -35,17 +35,17 @@ pub const PAGE_SIZE: usize = 25;
 
 // used to add context about which file caused a given error
 #[derive(Debug)]
-pub struct FileError<E> {
-    file: PathBuf,
+pub struct ResourceError<E> {
+    file: Resource,
     error: E,
 }
 
-impl<E: std::error::Error> std::error::Error for FileError<E> {}
+impl<E: std::error::Error> std::error::Error for ResourceError<E> {}
 
-impl<E: std::error::Error> std::fmt::Display for FileError<E> {
+impl<E: std::error::Error> std::fmt::Display for ResourceError<E> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}: {}", self.file.display(), self.error)
+        write!(f, "{}: {}", self.file, self.error)
     }
 }
 
@@ -53,7 +53,7 @@ impl<E: std::error::Error> std::fmt::Display for FileError<E> {
 pub enum Error {
     IO(std::io::Error),
     Xml(quick_xml::de::DeError),
-    XmlFile(FileError<quick_xml::de::DeError>),
+    XmlFile(ResourceError<quick_xml::de::DeError>),
     CborWrite(ciborium::ser::Error<std::io::Error>),
     TomlWrite(toml::ser::Error),
     Zip(zip::result::ZipError),
@@ -68,7 +68,7 @@ pub enum Error {
     MissingCache(&'static str),
     InvalidCache(&'static str),
     InvalidPath,
-    InvalidSha1(FileError<hex::FromHexError>),
+    InvalidSha1(ResourceError<hex::FromHexError>),
 }
 
 impl From<std::io::Error> for Error {
@@ -142,8 +142,8 @@ impl fmt::Display for Error {
     }
 }
 
-#[derive(Clone)]
-enum Resource {
+#[derive(Clone, Debug)]
+pub enum Resource {
     File(PathBuf),
     Url(String),
 }
@@ -161,6 +161,15 @@ impl Resource {
         match self {
             Self::File(f) => game::file_rom_sources(f, progress),
             Self::Url(url) => game::url_rom_sources(url, progress),
+        }
+    }
+}
+
+impl std::fmt::Display for Resource {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Resource::File(pb) => write!(f, "{}", pb.display()),
+            Resource::Url(s) => write!(f, "{}", s),
         }
     }
 }
@@ -462,7 +471,12 @@ impl OptMessInit {
         for file in self.xml.into_iter() {
             let sl: mess::Softwarelist =
                 quick_xml::de::from_reader(File::open(&file).map(std::io::BufReader::new)?)
-                    .map_err(|error| Error::XmlFile(FileError { error, file }))?;
+                    .map_err(|error| {
+                        Error::XmlFile(ResourceError {
+                            error,
+                            file: Resource::File(file),
+                        })
+                    })?;
 
             sl.populate_split_db(&mut split_db);
             write_named_db(DIR_SL, &sl.name().to_owned(), sl.into_game_db())?;
@@ -870,7 +884,7 @@ impl OptMess {
 #[derive(Args)]
 struct OptExtraInit {
     /// extras .DAT file files
-    dats: Vec<PathBuf>,
+    dats: Vec<Resource>,
 
     /// completely replace old dat files
     #[clap(long = "replace")]
@@ -1101,7 +1115,7 @@ impl OptExtra {
 #[derive(Args)]
 struct OptRedumpInit {
     /// Redump XML or Zip file
-    xml: Vec<PathBuf>,
+    xml: Vec<Resource>,
 }
 
 impl OptRedumpInit {
@@ -1113,13 +1127,13 @@ impl OptRedumpInit {
                 let datafile: crate::dat::Datafile =
                     match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
                         Ok(dat) => dat,
-                        Err(error) => return Err(Error::XmlFile(FileError { file, error })),
+                        Err(error) => return Err(Error::XmlFile(ResourceError { file, error })),
                     };
 
                 split_db.populate(&datafile);
 
                 let dat = crate::dat::DatFile::new_flattened(datafile)
-                    .map_err(|error| Error::InvalidSha1(FileError { file, error }))?;
+                    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))?;
 
                 write_named_db(DIR_REDUMP, &dat.name().to_owned(), dat)?;
             }
@@ -1493,7 +1507,7 @@ impl OptNointro {
 #[derive(Args)]
 struct OptNointroInit {
     /// No-Intro DAT or Zip file
-    dats: Vec<PathBuf>,
+    dats: Vec<Resource>,
 
     /// completely replace old dat files
     #[clap(long = "replace")]

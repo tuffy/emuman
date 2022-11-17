@@ -1,9 +1,10 @@
-use super::{Error, FileError};
+use super::{Error, ResourceError};
 use crate::game::{GameParts, Part, RomSources, VerifyFailure};
+use crate::Resource;
 use comfy_table::Table;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 pub struct Datafile {
@@ -289,8 +290,6 @@ impl DatFile {
         println!("{table}");
     }
 
-    // returns a game => failures map for each game in this dat
-    // where an empty failures vec indicates the game verifies okay
     fn process<I, H, E>(
         &self,
         root: &Path,
@@ -420,10 +419,10 @@ pub struct VerifyResults<'v> {
 }
 
 #[inline]
-fn parse_dat(file: PathBuf, data: Box<[u8]>, flatten: bool) -> Result<DatFile, Error> {
+fn parse_dat(file: Resource, data: Box<[u8]>, flatten: bool) -> Result<DatFile, Error> {
     let datafile: Datafile = match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
         Ok(dat) => dat,
-        Err(error) => return Err(Error::XmlFile(FileError { file, error })),
+        Err(error) => return Err(Error::XmlFile(ResourceError { file, error })),
     };
 
     (if flatten {
@@ -431,14 +430,14 @@ fn parse_dat(file: PathBuf, data: Box<[u8]>, flatten: bool) -> Result<DatFile, E
     } else {
         DatFile::new_unflattened(datafile)
     })
-    .map_err(|error| Error::InvalidSha1(FileError { file, error }))
+    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
 }
 
-pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, Error> {
+pub fn read_dats_from_file(file: Resource) -> Result<Vec<(Resource, Box<[u8]>)>, Error> {
     use super::is_zip;
     use std::io::Read;
 
-    let mut f = std::fs::File::open(&file)?;
+    let mut f = file.open()?;
 
     match is_zip(&mut f) {
         Ok(true) => {
@@ -454,7 +453,7 @@ pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, E
                 .map(|name| {
                     let mut data = Vec::new();
                     zip.by_name(&name)?.read_to_end(&mut data)?;
-                    Ok((PathBuf::from(name), data.into_boxed_slice()))
+                    Ok((file.clone(), data.into_boxed_slice()))
                 })
                 .collect()
         }
@@ -468,7 +467,7 @@ pub fn read_dats_from_file(file: PathBuf) -> Result<Vec<(PathBuf, Box<[u8]>)>, E
 }
 
 #[inline]
-pub fn read_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
+pub fn read_dats(file: Resource) -> Result<Vec<DatFile>, Error> {
     read_dats_from_file(file).and_then(|v| {
         v.into_iter()
             .map(|(file, data)| parse_dat(file, data, true))
@@ -477,7 +476,7 @@ pub fn read_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
 }
 
 #[inline]
-pub fn read_unflattened_dats(file: PathBuf) -> Result<Vec<DatFile>, Error> {
+pub fn read_unflattened_dats(file: Resource) -> Result<Vec<DatFile>, Error> {
     read_dats_from_file(file).and_then(|v| {
         v.into_iter()
             .map(|(file, data)| parse_dat(file, data, false))
