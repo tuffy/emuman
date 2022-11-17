@@ -1567,6 +1567,20 @@ impl fmt::Display for Rate {
     }
 }
 
+pub fn with_progress<F, T>(
+    multi_progress: &indicatif::MultiProgress,
+    bar: indicatif::ProgressBar,
+    f: F,
+) -> T
+where
+    F: FnOnce(indicatif::ProgressBar) -> T,
+{
+    let pbar = multi_progress.add(bar);
+    let results = f(pbar.clone());
+    multi_progress.remove(&pbar);
+    results
+}
+
 pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
 
 pub fn file_rom_sources<'r>(root: &Path, progress: &MultiProgress) -> RomSources<'r> {
@@ -1578,31 +1592,29 @@ pub fn file_rom_sources<'r>(root: &Path, progress: &MultiProgress) -> RomSources
 
     let mut seen = IntSet::default();
 
-    let pbar = progress.add(
+    with_progress(
+        progress,
         ProgressBar::new_spinner()
             .with_style(find_files_style())
             .with_message("locating files"),
-    );
-
-    let results = walkdir::WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            if cfg!(unix) {
-                seen.insert(e.ino())
-            } else {
-                true
-            }
-        })
-        .map(|e| e.into_path())
-        .par_bridge()
-        .progress_with(pbar.clone())
-        .flat_map(|pb| RomSource::from_path(pb).unwrap_or_default().into_par_iter())
-        .collect();
-
-    progress.remove(&pbar);
-
-    results
+        |pbar| {
+            walkdir::WalkDir::new(root)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    if cfg!(unix) {
+                        seen.insert(e.ino())
+                    } else {
+                        true
+                    }
+                })
+                .map(|e| e.into_path())
+                .par_bridge()
+                .progress_with(pbar)
+                .flat_map(|pb| RomSource::from_path(pb).unwrap_or_default().into_par_iter())
+                .collect()
+        },
+    )
 }
 
 #[inline]

@@ -159,8 +159,8 @@ impl Resource {
 
     fn rom_sources(&self, progress: &MultiProgress) -> game::RomSources {
         match self {
-            Self::File(f) => game::file_rom_sources(&f, progress),
-            Self::Url(url) => game::url_rom_sources(&url, progress),
+            Self::File(f) => game::file_rom_sources(f, progress),
+            Self::Url(url) => game::url_rom_sources(url, progress),
         }
     }
 }
@@ -1263,7 +1263,7 @@ impl OptRedumpAdd {
             datfile.add_and_verify(
                 &mut rom_sources,
                 dirs::redump_roms(roms, &name).as_ref(),
-                &pbar,
+                pbar,
             )
         })
     }
@@ -2665,7 +2665,7 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
 
     let results = sources
         .iter()
-        .progress_with(pbar1.clone())
+        .progress_with(pbar1)
         .fold(game::RomSources::default(), |acc, r| {
             merge_sources(acc, r.rom_sources(&mbar))
         });
