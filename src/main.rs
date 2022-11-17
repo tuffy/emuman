@@ -1794,9 +1794,9 @@ impl OptIdentify {
                 })
                 .chain(mess_db.iter().flat_map(|(system, game_db)| {
                     game_db.games_iter().flat_map(move |game| {
-                        game.parts.iter().map(move |(rom, part)| {
-                            (part, ["mess", system, game.name.as_str(), rom])
-                        })
+                        game.parts
+                            .iter()
+                            .map(move |(rom, part)| (part, ["sl", system, game.name.as_str(), rom]))
                     })
                 }))
                 .chain(dat_parts.iter().flat_map(|(category, datfiles)| {

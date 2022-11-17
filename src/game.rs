@@ -1141,17 +1141,20 @@ impl Part {
     }
 
     fn disk_from_reader<R: Read>(r: R) -> Result<Option<Self>, std::io::Error> {
-        use bitstream_io::{ByteRead, ByteReader, BigEndian};
+        use bitstream_io::{BigEndian, ByteRead, ByteReader};
 
         let mut r = ByteReader::endian(r, BigEndian);
 
-        if r.read_to_bytes().map(|tag| &tag != b"MComprHD").unwrap_or(true) {
+        if r.read_to_bytes()
+            .map(|tag| &tag != b"MComprHD")
+            .unwrap_or(true)
+        {
             return Ok(None);
         }
 
         // at this point we'll treat the file as a CHD
 
-        r.skip(4)?;  // unused length field
+        r.skip(4)?; // unused length field
 
         let bytes_to_skip = match r.read::<u32>()? {
             3 => (32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32) / 8,
@@ -1161,7 +1164,9 @@ impl Part {
         };
         r.skip(bytes_to_skip)?;
 
-        Ok(Some(Part::Disk { sha1: r.read_to_bytes()? }))
+        Ok(Some(Part::Disk {
+            sha1: r.read_to_bytes()?,
+        }))
     }
 
     pub fn verify<'s>(
@@ -1271,46 +1276,6 @@ pub fn verify_style() -> ProgressStyle {
     ProgressStyle::default_bar()
         .template("{spinner} {wide_msg} {pos} / {len}")
         .unwrap()
-}
-
-fn subdir_files(root: &Path, progress: &MultiProgress) -> Vec<PathBuf> {
-    use indicatif::ProgressIterator;
-    use walkdir::WalkDir;
-
-    let pbar = progress.add(
-        ProgressBar::new_spinner()
-            .with_style(find_files_style())
-            .with_message("locating files"),
-    );
-
-    let walkdir = WalkDir::new(root).into_iter().progress_with(pbar.clone());
-
-    let results = if cfg!(unix) {
-        use nohash::IntSet;
-        use walkdir::DirEntryExt;
-
-        let mut files = IntSet::default();
-
-        walkdir
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| e.file_type().is_file() && files.insert(e.ino()))
-                    .map(|e| e.into_path())
-            })
-            .collect()
-    } else {
-        walkdir
-            .filter_map(|e| {
-                e.ok()
-                    .filter(|e| e.file_type().is_file())
-                    .map(|e| e.into_path())
-            })
-            .collect()
-    };
-
-    progress.remove(&pbar);
-
-    results
 }
 
 type ZipParts = Vec<usize>;
@@ -1606,24 +1571,33 @@ pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
 
 pub fn file_rom_sources<'r>(root: &Path, progress: &MultiProgress) -> RomSources<'r> {
     use indicatif::ParallelProgressIterator;
+    use nohash::IntSet;
     use rayon::prelude::*;
+    #[cfg(unix)]
+    use walkdir::DirEntryExt;
 
-    let files = subdir_files(root, progress);
+    let mut seen = IntSet::default();
 
     let pbar = progress.add(
-        ProgressBar::new(files.len() as u64)
-            .with_style(verify_style())
-            .with_message("cataloging files"),
+        ProgressBar::new_spinner()
+            .with_style(find_files_style())
+            .with_message("locating files"),
     );
 
-    let results = files
-        .into_par_iter()
-        .progress_with(pbar.clone())
-        .flat_map(|pb| {
-            RomSource::from_path(pb)
-                .unwrap_or_else(|_| Vec::new())
-                .into_par_iter()
+    let results = walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            if cfg!(unix) {
+                seen.insert(e.ino())
+            } else {
+                true
+            }
         })
+        .map(|e| e.into_path())
+        .par_bridge()
+        .progress_with(pbar.clone())
+        .flat_map(|pb| RomSource::from_path(pb).unwrap_or_default().into_par_iter())
         .collect();
 
     progress.remove(&pbar);
