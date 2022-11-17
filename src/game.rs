@@ -382,7 +382,7 @@ where
                     Ok(pair) => dirs.extend_item(pair),
                     Err(pb) => failures.extend_item(VerifyFailure::extra_dir(pb)),
                 },
-                Ok(_) => { /* neither file or dir, so do nothing*/ }
+                Ok(_) => { /* neither file or dir, so do nothing */ }
                 Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
             }
         }
@@ -922,40 +922,6 @@ impl<I> ExtendOne<I> for ExtendSink<I> {
     #[inline]
     fn extend_item(&mut self, _: I) {
         // do nothing
-    }
-}
-
-pub struct ExtendExists<I> {
-    pub exists: bool,
-    phantom: std::marker::PhantomData<I>,
-}
-
-impl<I> Default for ExtendExists<I> {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            exists: false,
-            phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<I> Extend<I> for ExtendExists<I> {
-    #[inline]
-    fn extend<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = I>,
-    {
-        if !self.exists {
-            self.exists = iter.into_iter().next().is_some()
-        }
-    }
-}
-
-impl<I> ExtendOne<I> for ExtendExists<I> {
-    #[inline]
-    fn extend_item(&mut self, _: I) {
-        self.exists = true;
     }
 }
 
