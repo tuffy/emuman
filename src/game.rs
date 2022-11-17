@@ -1140,37 +1140,28 @@ impl Part {
         }
     }
 
-    fn disk_from_reader<R: Read>(mut r: R) -> Result<Option<Self>, std::io::Error> {
-        fn skip<R: Read>(mut r: R, to_skip: usize) -> Result<(), std::io::Error> {
-            let mut buf = vec![0; to_skip];
-            r.read_exact(buf.as_mut_slice())
-        }
+    fn disk_from_reader<R: Read>(r: R) -> Result<Option<Self>, std::io::Error> {
+        use bitstream_io::{ByteRead, ByteReader, BigEndian};
 
-        let mut tag = [0; 8];
+        let mut r = ByteReader::endian(r, BigEndian);
 
-        if r.read_exact(&mut tag).is_err() || &tag != b"MComprHD" {
-            // non-CHD files might be less than 8 bytes
+        if r.read_to_bytes().map(|tag| &tag != b"MComprHD").unwrap_or(true) {
             return Ok(None);
         }
 
         // at this point we'll treat the file as a CHD
 
-        skip(&mut r, 4)?; // unused length field
+        r.skip(4)?;  // unused length field
 
-        let mut version = [0; 4];
-        r.read_exact(&mut version)?;
-
-        let bytes_to_skip = match u32::from_be_bytes(version) {
+        let bytes_to_skip = match r.read::<u32>()? {
             3 => (32 + 32 + 32 + 64 + 64 + 8 * 16 + 8 * 16 + 32) / 8,
             4 => (32 + 32 + 32 + 64 + 64 + 32) / 8,
             5 => (32 * 4 + 64 + 64 + 64 + 32 + 32 + 8 * 20) / 8,
             _ => return Ok(None),
         };
-        skip(&mut r, bytes_to_skip)?;
+        r.skip(bytes_to_skip)?;
 
-        let mut sha1 = [0; 20];
-        r.read_exact(&mut sha1)?;
-        Ok(Some(Part::Disk { sha1 }))
+        Ok(Some(Part::Disk { sha1: r.read_to_bytes()? }))
     }
 
     pub fn verify<'s>(
