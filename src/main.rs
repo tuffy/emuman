@@ -1010,7 +1010,7 @@ impl OptExtraVerifyAll {
             "verifying all MAME extras",
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
-            |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
+            |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
         )
         .unwrap();
 
@@ -1251,7 +1251,7 @@ impl OptRedumpVerifyAll {
             "verifying all Redump files",
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
-            |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
+            |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
         )
         .unwrap();
 
@@ -1653,7 +1653,7 @@ impl OptNointroVerifyAll {
             "verifying all No-Intro files",
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
-            |datfile, dir, pbar| -> Result<_, Never> { Ok(datfile.verify(dir, pbar)) },
+            |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
         )
         .unwrap();
 

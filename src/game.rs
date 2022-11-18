@@ -566,7 +566,7 @@ impl GameParts {
         self.process_parts(
             game_root,
             increment_progress,
-            |failure| -> Result<_, Never> { Ok(Err(failure)) },
+            |failure| Ok::<_, Never>(Err(failure)),
         )
         .unwrap()
     }

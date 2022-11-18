@@ -381,7 +381,7 @@ impl DatFile {
             .process(
                 root,
                 || progress_bar.inc(1),
-                |failure| -> Result<_, Never> { Ok(Err(failure)) },
+                |failure| Ok::<_, Never>(Err(failure)),
             )
             .unwrap();
 
