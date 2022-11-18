@@ -367,8 +367,6 @@ impl DatFile {
     }
 
     pub fn progress_bar(&self) -> indicatif::ProgressBar {
-        use std::convert::TryInto;
-
         indicatif::ProgressBar::new(
             (self.flat.len() + self.tree.values().map(|g| g.len()).sum::<usize>())
                 .try_into()

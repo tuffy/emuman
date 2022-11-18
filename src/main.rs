@@ -32,7 +32,6 @@ static DIR_NOINTRO: &str = "nointro";
 static DIR_REDUMP: &str = "redump";
 
 pub fn terminal_height() -> usize {
-    use std::convert::TryFrom;
     use terminal_size::{terminal_size, Height};
 
     const PAGE_SIZE: usize = 25;
@@ -2398,7 +2397,6 @@ where
 {
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
-    use std::convert::TryInto;
 
     let total = games.len();
     let pbar = ProgressBar::new(total.try_into().unwrap())
@@ -2471,7 +2469,6 @@ where
 {
     use crate::game::verify_style;
     use indicatif::{ParallelProgressIterator, ProgressIterator};
-    use std::convert::TryInto;
 
     let roms_dir = dirs::mess_roms_all(roms);
     let mut total = game::VerifyResultsSummary::default();
@@ -2570,7 +2567,6 @@ where
 {
     use game::verify_style;
     use indicatif::ProgressIterator;
-    use std::convert::TryInto;
 
     let mbar = MultiProgress::new();
     let pbar1 =
@@ -2660,7 +2656,6 @@ fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::Verify
 
 fn rom_sources(sources: &[Resource]) -> game::RomSources {
     use indicatif::ProgressIterator;
-    use std::convert::TryInto;
 
     fn merge_sources<'u>(
         base: game::RomSources<'u>,
