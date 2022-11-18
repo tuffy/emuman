@@ -2383,16 +2383,16 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-fn process_games<'g, I, P, F, E>(
+fn process_games<'g, I, P, E>(
     message: &'static str,
     root: P,
     games: I,
-    handle_game: F,
+    handle_game: impl Fn(&'g game::Game, &Path, &ProgressBar) -> Result<Vec<game::VerifyFailure<'g>>, E>
+        + Sync,
 ) -> Result<(), E>
 where
     P: AsRef<Path> + Sync,
     I: ExactSizeIterator<Item = &'g game::Game> + Send,
-    F: Fn(&'g game::Game, &Path, &ProgressBar) -> Result<Vec<game::VerifyFailure<'g>>, E> + Sync,
     E: Send,
 {
     use indicatif::ParallelProgressIterator;
@@ -2453,18 +2453,17 @@ where
     )
 }
 
-fn process_all_mess<H, E>(
+fn process_all_mess<E>(
     message: &'static str,
     roms: Option<PathBuf>,
-    handle_parts: H,
-) -> Result<(), E>
-where
-    H: for<'g> Fn(
+    handle_parts: impl for<'g> Fn(
             &'g game::GameParts,
             &Path,
             &MultiProgress,
         ) -> Result<Vec<game::VerifyFailure<'g>>, E>
         + Sync,
+) -> Result<(), E>
+where
     E: Send,
 {
     use crate::game::verify_style;
@@ -2530,13 +2529,13 @@ where
     Ok(())
 }
 
-fn process_dat<F, E>(datfile: dat::DatFile, process: F) -> Result<(), E>
-where
-    F: for<'d> FnOnce(
+fn process_dat<E>(
+    datfile: dat::DatFile,
+    process: impl for<'d> FnOnce(
         &'d dat::DatFile,
         &indicatif::ProgressBar,
     ) -> Result<dat::VerifyResults<'d>, E>,
-{
+) -> Result<(), E> {
     let mut table = init_dat_table();
     let pbar = datfile.progress_bar();
     let dat::VerifyResults { failures, summary } = process(&datfile, &pbar)?;
@@ -2550,20 +2549,18 @@ where
     Ok(())
 }
 
-fn process_all_dat<I, N, P, E>(
+fn process_all_dat<I, E>(
     message: &'static str,
     dirs: I,
-    read_named_db: N,
-    mut process_dat: P,
-) -> Result<(), E>
-where
-    I: ExactSizeIterator<Item = (String, PathBuf)>,
-    N: Fn(&str) -> Result<dat::DatFile, Error>,
-    P: for<'d> FnMut(
+    read_named_db: impl Fn(&str) -> Result<dat::DatFile, Error>,
+    mut process_dat: impl for<'d> FnMut(
         &'d dat::DatFile,
         &Path,
         &indicatif::ProgressBar,
     ) -> Result<dat::VerifyResults<'d>, E>,
+) -> Result<(), E>
+where
+    I: ExactSizeIterator<Item = (String, PathBuf)>,
 {
     use game::verify_style;
     use indicatif::ProgressIterator;

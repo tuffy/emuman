@@ -313,15 +313,12 @@ impl Game {
 
     // appends game's name to root automatically
     #[inline]
-    pub fn add_and_verify<H>(
+    pub fn add_and_verify(
         &self,
         rom_sources: &RomSources,
         target_dir: &Path,
-        handle_failure: H,
-    ) -> Result<Vec<VerifyFailure>, Error>
-    where
-        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
-    {
+        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+    ) -> Result<Vec<VerifyFailure>, Error> {
         self.parts.add_and_verify_failures(
             rom_sources,
             &target_dir.join(&self.name),
@@ -462,17 +459,15 @@ impl GameParts {
     // game_root is the root directory to start looking for files
     // increment_progress is called once per (name, part) pair
     // handle_failure is an attempt to recover from failures
-    pub fn process_parts<'s, S, F, I, H, E>(
+    pub fn process_parts<'s, S, F, E>(
         &'s self,
         game_root: &Path,
-        increment_progress: I,
-        handle_failure: H,
+        increment_progress: impl Fn() + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
     ) -> Result<(S, F), E>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
-        I: Fn() + Send + Sync,
-        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
         let GameDir {
@@ -500,20 +495,17 @@ impl GameParts {
     // missing is how to build failures from missing files (maybe handled later)
     // increment_progress is called once per (name, part) pair
     // handle failure is how to handle failures that might occur
-    pub fn process<'s, S, F, M, I, H, E>(
+    pub fn process<'s, S, F, E>(
         &'s self,
         files: DashMap<String, PathBuf>,
         failures: F,
-        missing: M,
-        increment_progress: I,
-        handle_failure: H,
+        missing: impl Fn(&'s str, &'s Part) -> VerifyFailure<'s> + Send + Sync,
+        increment_progress: impl Fn() + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
     ) -> Result<(S, F), E>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
-        M: Fn(&'s str, &'s Part) -> VerifyFailure<'s> + Send + Sync,
-        I: Fn() + Send + Sync,
-        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
         use rayon::prelude::*;
@@ -562,13 +554,12 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn verify_with_progress<'s, S, F, I>(
+    pub fn verify_with_progress<'s, S, F>(
         &'s self,
         game_root: &Path,
-        increment_progress: I,
+        increment_progress: impl Fn() + Send + Sync,
     ) -> (S, F)
     where
-        I: Fn() + Send + Sync,
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
@@ -596,18 +587,16 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn add_and_verify_with_progress<'s, S, F, I, H>(
+    pub fn add_and_verify_with_progress<'s, S, F>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        increment_progress: I,
-        handle_failure: H,
+        increment_progress: impl Fn() + Send + Sync,
+        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
-        I: Fn() + Send + Sync,
-        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.process_parts(game_root, increment_progress, |failure| {
             failure.try_fix(rom_sources).map(|r| r.map(handle_failure))
@@ -615,30 +604,26 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn add_and_verify<'s, S, F, H>(
+    pub fn add_and_verify<'s, S, F>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: H,
+        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
-        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
     {
         self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
     }
 
     #[inline]
-    pub fn add_and_verify_failures<'s, H>(
+    pub fn add_and_verify_failures<'s>(
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: H,
-    ) -> Result<Vec<VerifyFailure>, Error>
-    where
-        H: Fn(ExtractedPart<'_>) + Send + Sync + Copy,
-    {
+        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+    ) -> Result<Vec<VerifyFailure>, Error> {
         self.add_and_verify(rom_sources, game_root, handle_failure)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
     }
@@ -1536,10 +1521,9 @@ impl Rate {
     }
 
     #[inline]
-    fn from_copy<F>(copy: F) -> Result<Option<Self>, std::io::Error>
-    where
-        F: FnOnce() -> Result<u64, std::io::Error>,
-    {
+    fn from_copy(
+        copy: impl FnOnce() -> Result<u64, std::io::Error>,
+    ) -> Result<Option<Self>, std::io::Error> {
         use std::time::SystemTime;
 
         let start = SystemTime::now();
@@ -1567,14 +1551,11 @@ impl fmt::Display for Rate {
     }
 }
 
-pub fn with_progress<F, T>(
+pub fn with_progress<T>(
     multi_progress: &indicatif::MultiProgress,
     bar: indicatif::ProgressBar,
-    f: F,
-) -> T
-where
-    F: FnOnce(indicatif::ProgressBar) -> T,
-{
+    f: impl FnOnce(indicatif::ProgressBar) -> T,
+) -> T {
     let pbar = multi_progress.add(bar);
     let results = f(pbar.clone());
     multi_progress.remove(&pbar);

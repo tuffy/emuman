@@ -290,15 +290,13 @@ impl DatFile {
         println!("{table}");
     }
 
-    fn process<I, H, E>(
+    fn process<E>(
         &self,
         root: &Path,
-        increment_progress: I,
-        handle_failure: H,
+        increment_progress: impl Fn() + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
     ) -> Result<VerifyResults, E>
     where
-        I: Fn() + Send + Sync,
-        H: Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
         E: Send,
     {
         use crate::game::{ExtendCounter, ExtendSink, GameDir};
