@@ -909,7 +909,7 @@ impl OptExtraInit {
 
         for dats in self.dats.into_iter().map(dat::read_unflattened_dats) {
             for dat in dats? {
-                write_named_db(DIR_EXTRA, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_EXTRA, dat.name(), &dat)?;
             }
         }
 
@@ -1145,7 +1145,7 @@ impl OptRedumpInit {
                 let dat = crate::dat::DatFile::new_flattened(datafile)
                     .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))?;
 
-                write_named_db(DIR_REDUMP, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_REDUMP, dat.name(), &dat)?;
             }
         }
 
@@ -1532,7 +1532,7 @@ impl OptNointroInit {
 
         for dats in self.dats.into_iter().map(dat::read_dats) {
             for dat in dats? {
-                write_named_db(DIR_NOINTRO, &dat.name().to_owned(), dat)?;
+                write_named_db(DIR_NOINTRO, dat.name(), &dat)?;
             }
         }
 
