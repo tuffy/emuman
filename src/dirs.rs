@@ -1,4 +1,4 @@
-use super::{Error, PAGE_SIZE};
+use super::{terminal_height, Error};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -449,7 +449,7 @@ where
 {
     names().ok_or(Error::NoDatFiles).and_then(|names| {
         inquire::Select::new(prompt, names)
-            .with_page_size(PAGE_SIZE)
+            .with_page_size(terminal_height())
             .prompt()
             .map_err(Error::Inquire)
     })

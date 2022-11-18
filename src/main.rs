@@ -31,7 +31,18 @@ static DIR_EXTRA: &str = "extra";
 static DIR_NOINTRO: &str = "nointro";
 static DIR_REDUMP: &str = "redump";
 
-pub const PAGE_SIZE: usize = 25;
+pub fn terminal_height() -> usize {
+    use std::convert::TryFrom;
+    use terminal_size::{terminal_size, Height};
+
+    const PAGE_SIZE: usize = 25;
+
+    terminal_size()
+        .and_then(|(_, Height(h))| usize::try_from(h).ok())
+        .and_then(|size| size.checked_sub(3))
+        .map(|size| size.clamp(2, PAGE_SIZE))
+        .unwrap_or(PAGE_SIZE)
+}
 
 // used to add context about which file caused a given error
 #[derive(Debug)]
@@ -1329,7 +1340,7 @@ impl OptRedumpParts {
 
                 dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
                 inquire::Select::new("select DAT", dats)
-                    .with_page_size(PAGE_SIZE)
+                    .with_page_size(terminal_height())
                     .prompt()
                     .map_err(Error::Inquire)
             }
@@ -1548,7 +1559,7 @@ impl OptNointroDestroy {
                     .filter(|db| dbs.contains_key(db))
                     .collect::<Vec<_>>(),
             )
-            .with_page_size(PAGE_SIZE)
+            .with_page_size(terminal_height())
             .prompt()?
             {
                 destroy_named_db(DIR_NOINTRO, &dat)?;
@@ -1731,7 +1742,7 @@ impl OptNointroParts {
 
                 dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
                 inquire::Select::new("select DAT", dats)
-                    .with_page_size(PAGE_SIZE)
+                    .with_page_size(terminal_height())
                     .prompt()
                     .map_err(Error::Inquire)
             }
@@ -2270,7 +2281,7 @@ fn select_software_list_and_name() -> Result<(game::GameDb, String), Error> {
                 .map(|(shortname, db)| DbEntry { shortname, db })
                 .collect(),
         )
-        .with_page_size(PAGE_SIZE)
+        .with_page_size(terminal_height())
         .prompt()
         .map(|DbEntry { db, shortname }| (db, shortname))
         .map_err(Error::Inquire)
@@ -2301,7 +2312,7 @@ fn select_software_list_game(db: game::GameDb) -> Result<game::Game, Error> {
     games.sort_unstable_by(|x, y| x.game.description.cmp(&y.game.description));
 
     inquire::Select::new("select game", games)
-        .with_page_size(PAGE_SIZE)
+        .with_page_size(terminal_height())
         .prompt()
         .map(|GameEntry { game }| game)
         .map_err(Error::Inquire)
@@ -2327,7 +2338,7 @@ fn select_datfile_game(dat: dat::DatFile) -> Result<game::GameParts, Error> {
     games.sort_unstable_by(|x, y| x.name.cmp(&y.name));
 
     inquire::Select::new("select game", games)
-        .with_page_size(PAGE_SIZE)
+        .with_page_size(terminal_height())
         .prompt()
         .map(|GameEntry { game, .. }| game)
         .map_err(Error::Inquire)
