@@ -563,11 +563,9 @@ impl GameParts {
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
-        self.process_parts(
-            game_root,
-            increment_progress,
-            |failure| Ok::<_, Never>(Err(failure)),
-        )
+        self.process_parts(game_root, increment_progress, |failure| {
+            Ok::<_, Never>(Err(failure))
+        })
         .unwrap()
     }
 
@@ -1263,7 +1261,20 @@ pub fn verify_style() -> ProgressStyle {
         .unwrap()
 }
 
-type ZipParts = Vec<usize>;
+#[derive(Clone, Debug)]
+pub enum Compression {
+    Zip { index: usize },
+}
+
+impl std::fmt::Display for Compression {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Compression::Zip { index } => write!(f, "{}", index),
+        }
+    }
+}
+
+type ZipParts = Vec<Compression>;
 
 #[derive(Clone, Debug)]
 pub enum RomSource<'u> {
@@ -1406,7 +1417,7 @@ impl<'u> RomSource<'u> {
                             .map_err(Error::IO)
                     }),
 
-                Some((index, rest)) => extract_from_zip_file(
+                Some((Compression::Zip { index }, rest)) => extract_from_zip_file(
                     rest,
                     zip::ZipArchive::new(File::open(source.as_ref())?)?.by_index(*index)?,
                     target,
@@ -1437,7 +1448,7 @@ impl fmt::Display for RomSource<'_> {
 }
 
 fn extract_from_zip_file<R: Read>(
-    indexes: &[usize],
+    indexes: &[Compression],
     mut r: R,
     target: &Path,
 ) -> Result<Extracted, Error> {
@@ -1447,7 +1458,7 @@ fn extract_from_zip_file<R: Read>(
             .map(|rate| Extracted::Copied { rate })
             .map_err(Error::IO),
 
-        Some((index, rest)) => {
+        Some((Compression::Zip { index }, rest)) => {
             let mut zip_data = Vec::new();
             r.read_to_end(&mut zip_data)?;
             extract_from_zip_file(
@@ -1486,12 +1497,15 @@ fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
                     unpack_zip_parts(std::io::Cursor::new(zip_data))
                         .into_iter()
                         .map(|(part, mut zip_parts)| {
-                            zip_parts.insert(0, index);
+                            zip_parts.insert(0, Compression::Zip { index });
                             (part, zip_parts)
                         }),
                 )
             } else {
-                results.push((Part::from_reader(zip.by_index(index)?)?, vec![index]))
+                results.push((
+                    Part::from_reader(zip.by_index(index)?)?,
+                    vec![Compression::Zip { index }],
+                ))
             }
         }
 
