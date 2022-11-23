@@ -72,6 +72,7 @@ pub enum Error {
     Inquire(inquire::error::InquireError),
     NoSuchDatFile(String),
     NoDatFiles,
+    EmptyDatFile,
     NoSuchSoftwareList(String),
     NoSoftwareLists,
     NoSuchSoftware(String),
@@ -133,6 +134,7 @@ impl fmt::Display for Error {
             Error::Inquire(err) => err.fmt(f),
             Error::NoSuchDatFile(s) => write!(f, "no such dat file \"{}\"", s),
             Error::NoDatFiles => write!(f, "no dat files have been initialized"),
+            Error::EmptyDatFile => write!(f, "dat file contains no games"),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::NoSoftwareLists => write!(f, "no software lists initialized"),
@@ -939,9 +941,15 @@ impl OptExtraDestroy {
                     .with_page_size(terminal_height())
                     .prompt()
                     .map_err(Error::Inquire)
-                    .and_then(|extras| extras.into_iter().try_for_each(|e| destroy_named_db(DIR_EXTRA, e.name())))
+                    .and_then(|extras| {
+                        extras
+                            .into_iter()
+                            .try_for_each(|e| destroy_named_db(DIR_EXTRA, e.name()))
+                    })
             }
-            extras => extras.into_iter().try_for_each(|e| destroy_named_db(DIR_EXTRA, e))
+            extras => extras
+                .into_iter()
+                .try_for_each(|e| destroy_named_db(DIR_EXTRA, e)),
         }
     }
 }
@@ -1084,6 +1092,62 @@ impl OptExtraAddAll {
     }
 }
 
+#[derive(Args)]
+struct OptExtraParts {
+    /// DAT name to find parts for
+    #[clap(short = 'D', long = "dat")]
+    name: Option<String>,
+
+    /// game's parts to search for
+    game: Option<String>,
+}
+
+impl OptExtraParts {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let mut datfile = match self.name {
+            Some(name) => read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &name),
+            None => {
+                let mut dats = read_named_dbs(DIR_EXTRA)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
+
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+
+                inquire::Select::new("select DAT", dats)
+                    .with_page_size(terminal_height())
+                    .prompt()
+                    .map_err(Error::Inquire)
+            }
+        }?;
+
+        let game = match self.game {
+            Some(game) => datfile
+                .remove_game(&game)
+                .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))?,
+            None => select_datfile_game(datfile)?,
+        };
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Part", "SHA1 Hash"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
+            table.add_row(vec![name, part.digest().to_string()]);
+        }
+        println!("{table}");
+
+        Ok(())
+    }
+}
+
 #[derive(Subcommand)]
 #[clap(name = "extra")]
 enum OptExtra {
@@ -1118,6 +1182,10 @@ enum OptExtra {
     /// verify all files in directory
     #[clap(name = "verify-all")]
     VerifyAll(OptExtraVerifyAll),
+
+    /// display extra's parts
+    #[clap(name = "parts")]
+    Parts(OptExtraParts),
 }
 
 impl OptExtra {
@@ -1131,6 +1199,7 @@ impl OptExtra {
             OptExtra::Add(o) => o.execute(),
             OptExtra::AddAll(o) => o.execute(),
             OptExtra::VerifyAll(o) => o.execute(),
+            OptExtra::Parts(o) => o.execute(),
         }
     }
 }
@@ -1190,9 +1259,14 @@ impl OptRedumpDestroy {
                     .with_page_size(terminal_height())
                     .prompt()
                     .map_err(Error::Inquire)
-                    .and_then(|dats| dats.into_iter().try_for_each(|d| destroy_named_db(DIR_REDUMP, d.name())))
+                    .and_then(|dats| {
+                        dats.into_iter()
+                            .try_for_each(|d| destroy_named_db(DIR_REDUMP, d.name()))
+                    })
             }
-            dats => dats.into_iter().try_for_each(|d| destroy_named_db(DIR_REDUMP, d))
+            dats => dats
+                .into_iter()
+                .try_for_each(|d| destroy_named_db(DIR_REDUMP, d)),
         }
     }
 }
@@ -1588,9 +1662,14 @@ impl OptNointroDestroy {
                     .with_page_size(terminal_height())
                     .prompt()
                     .map_err(Error::Inquire)
-                    .and_then(|dats| dats.into_iter().try_for_each(|d| destroy_named_db(DIR_NOINTRO, d.name())))
+                    .and_then(|dats| {
+                        dats.into_iter()
+                            .try_for_each(|d| destroy_named_db(DIR_NOINTRO, d.name()))
+                    })
             }
-            dats => dats.into_iter().try_for_each(|d| destroy_named_db(DIR_NOINTRO, d))
+            dats => dats
+                .into_iter()
+                .try_for_each(|d| destroy_named_db(DIR_NOINTRO, d)),
         }
     }
 }
@@ -2357,13 +2436,20 @@ fn select_datfile_game(dat: dat::DatFile) -> Result<game::GameParts, Error> {
         .into_game_parts()
         .map(|(name, game)| GameEntry { name, game })
         .collect::<Vec<_>>();
-    games.sort_unstable_by(|x, y| x.name.cmp(&y.name));
 
-    inquire::Select::new("select game", games)
-        .with_page_size(terminal_height())
-        .prompt()
-        .map(|GameEntry { game, .. }| game)
-        .map_err(Error::Inquire)
+    match games.len() {
+        0 => Err(Error::EmptyDatFile),
+        1 => Ok(games.pop().unwrap().game),
+        _ => {
+            games.sort_unstable_by(|x, y| x.name.cmp(&y.name));
+
+            inquire::Select::new("select game", games)
+                .with_page_size(terminal_height())
+                .prompt()
+                .map(|GameEntry { game, .. }| game)
+                .map_err(Error::Inquire)
+        }
+    }
 }
 
 // takes older config formats and converts them to the new style
