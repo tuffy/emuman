@@ -925,11 +925,24 @@ struct OptExtraDestroy {
 
 impl OptExtraDestroy {
     fn execute(self) -> Result<(), Error> {
-        for extra in self.extras {
-            destroy_named_db(DIR_EXTRA, &extra)?;
-        }
+        match self.extras.as_slice() {
+            [] => {
+                let mut dats = read_named_dbs(DIR_EXTRA)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
 
-        Ok(())
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+
+                inquire::MultiSelect::new("select extras DAT(s) to destroy", dats)
+                    .with_page_size(terminal_height())
+                    .prompt()
+                    .map_err(Error::Inquire)
+                    .and_then(|extras| extras.into_iter().try_for_each(|e| destroy_named_db(DIR_EXTRA, e.name())))
+            }
+            extras => extras.into_iter().try_for_each(|e| destroy_named_db(DIR_EXTRA, e))
+        }
     }
 }
 
@@ -1163,11 +1176,24 @@ struct OptRedumpDestroy {
 
 impl OptRedumpDestroy {
     fn execute(self) -> Result<(), Error> {
-        for dat in self.dats {
-            destroy_named_db(DIR_REDUMP, &dat)?;
-        }
+        match self.dats.as_slice() {
+            [] => {
+                let mut dats = read_named_dbs(DIR_REDUMP)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
 
-        Ok(())
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+
+                inquire::MultiSelect::new("select Redump DAT(s) to destroy", dats)
+                    .with_page_size(terminal_height())
+                    .prompt()
+                    .map_err(Error::Inquire)
+                    .and_then(|dats| dats.into_iter().try_for_each(|d| destroy_named_db(DIR_REDUMP, d.name())))
+            }
+            dats => dats.into_iter().try_for_each(|d| destroy_named_db(DIR_REDUMP, d))
+        }
     }
 }
 
@@ -1548,28 +1574,24 @@ struct OptNointroDestroy {
 
 impl OptNointroDestroy {
     fn execute(self) -> Result<(), Error> {
-        if self.dats.is_empty() {
-            let dbs: BTreeMap<String, dat::DatFile> = read_collected_dbs(DIR_NOINTRO);
+        match self.dats.as_slice() {
+            [] => {
+                let mut dats = read_named_dbs(DIR_NOINTRO)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d)
+                    .collect::<Vec<dat::DatFile>>();
 
-            for dat in inquire::MultiSelect::new(
-                "destroy which DAT files?",
-                dirs::nointro_dirs()
-                    .map(|(db, _)| db)
-                    .filter(|db| dbs.contains_key(db))
-                    .collect::<Vec<_>>(),
-            )
-            .with_page_size(terminal_height())
-            .prompt()?
-            {
-                destroy_named_db(DIR_NOINTRO, &dat)?;
+                dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+
+                inquire::MultiSelect::new("select No-Intro DAT(s) to destroy", dats)
+                    .with_page_size(terminal_height())
+                    .prompt()
+                    .map_err(Error::Inquire)
+                    .and_then(|dats| dats.into_iter().try_for_each(|d| destroy_named_db(DIR_NOINTRO, d.name())))
             }
-        } else {
-            for dat in self.dats {
-                destroy_named_db(DIR_NOINTRO, &dat)?;
-            }
+            dats => dats.into_iter().try_for_each(|d| destroy_named_db(DIR_NOINTRO, d))
         }
-
-        Ok(())
     }
 }
 
@@ -1740,6 +1762,7 @@ impl OptNointroParts {
                     .collect::<Vec<dat::DatFile>>();
 
                 dats.sort_unstable_by(|x, y| x.name().cmp(y.name()));
+
                 inquire::Select::new("select DAT", dats)
                     .with_page_size(terminal_height())
                     .prompt()
