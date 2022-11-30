@@ -1005,11 +1005,18 @@ impl OptExtraVerify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Never;
 
+        let dir = self.dir;
+
         let extra = match self.extra {
             Some(name) => name,
-            None => dirs::select_extra_name()?,
+            None => {
+                if dir.is_none() {
+                    dirs::select_extra_name()?
+                } else {
+                    dirs::select_any_extra_name()?
+                }
+            }
         };
-        let dir = self.dir;
 
         process_dat(read_named_db(EXTRA, DIR_EXTRA, &extra)?, |datfile, pbar| {
             Ok::<_, Never>(datfile.verify(dirs::extra_dir(dir, &extra).as_ref(), pbar))
@@ -1322,11 +1329,18 @@ impl OptRedumpVerify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Never;
 
+        let roms = self.roms;
+
         let name = match self.name {
             Some(name) => name,
-            None => dirs::select_redump_name()?,
+            None => {
+                if roms.is_none() {
+                    dirs::select_redump_name()?
+                } else {
+                    dirs::select_any_redump_name()?
+                }
+            }
         };
-        let roms = self.roms;
 
         process_dat(
             read_named_db(REDUMP, DIR_REDUMP, &name)?,
@@ -1725,11 +1739,18 @@ impl OptNointroVerify {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Never;
 
+        let roms = self.roms;
+
         let name = match self.name {
             Some(name) => name,
-            None => dirs::select_nointro_name()?,
+            None => {
+                if roms.is_none() {
+                    dirs::select_nointro_name()?
+                } else {
+                    dirs::select_any_nointro_name()?
+                }
+            }
         };
-        let roms = self.roms;
 
         process_dat(
             read_named_db(NOINTRO, DIR_NOINTRO, &name)?,
@@ -2344,6 +2365,18 @@ where
                 .ok()
                 .map(|entry| entry.path())
                 .and_then(|path| read_game_db(&path))
+        })),
+        Err(_) => None,
+    }
+}
+
+fn read_db_names(db_dir: &'static str) -> Option<impl Iterator<Item = String>> {
+    match std::fs::read_dir(named_db_dir(db_dir)) {
+        Ok(dir) => Some(dir.filter_map(|entry| {
+            entry
+                .ok()
+                .map(|entry| entry.path())
+                .and_then(|path| path_db_name(&path))
         })),
         Err(_) => None,
     }

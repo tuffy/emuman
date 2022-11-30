@@ -299,6 +299,18 @@ pub fn select_extra_name() -> Result<String, Error> {
     select_by_name("select extras category", extra_dir_names)
 }
 
+pub fn select_any_extra_name() -> Result<String, Error> {
+    use crate::{read_db_names, DIR_EXTRA};
+
+    select_by_name("select extras category", || {
+        read_db_names(DIR_EXTRA).map(|i| {
+            let mut v = i.collect::<Vec<_>>();
+            v.sort_unstable();
+            v
+        })
+    })
+}
+
 pub struct NointroRoms<'s> {
     roms: RomSource,
     name: &'s str,
@@ -372,6 +384,18 @@ pub fn select_nointro_name() -> Result<String, Error> {
     select_by_name("select DAT", nointro_dir_names)
 }
 
+pub fn select_any_nointro_name() -> Result<String, Error> {
+    use crate::{read_db_names, DIR_NOINTRO};
+
+    select_by_name("select DAT", || {
+        read_db_names(DIR_NOINTRO).map(|i| {
+            let mut v = i.collect::<Vec<_>>();
+            v.sort_unstable();
+            v
+        })
+    })
+}
+
 pub struct RedumpRoms<'r> {
     roms: RomSource,
     name: &'r str,
@@ -441,6 +465,18 @@ pub fn redump_dir_names() -> Option<Vec<String>> {
 
 pub fn select_redump_name() -> Result<String, Error> {
     select_by_name("select DAT", redump_dir_names)
+}
+
+pub fn select_any_redump_name() -> Result<String, Error> {
+    use crate::{read_db_names, DIR_REDUMP};
+
+    select_by_name("select DAT", || {
+        read_db_names(DIR_REDUMP).map(|i| {
+            let mut v = i.collect::<Vec<_>>();
+            v.sort_unstable();
+            v
+        })
+    })
 }
 
 fn select_by_name<N>(prompt: &'static str, names: N) -> Result<String, Error>
