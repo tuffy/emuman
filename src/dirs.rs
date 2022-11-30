@@ -296,19 +296,20 @@ pub fn extra_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_extra_name() -> Result<String, Error> {
-    select_by_name("select extras category", extra_dir_names)
+    select_by_name("select extras category", extra_dir_names())
 }
 
 pub fn select_any_extra_name() -> Result<String, Error> {
     use crate::{read_db_names, DIR_EXTRA};
 
-    select_by_name("select extras category", || {
+    select_by_name(
+        "select extras category",
         read_db_names(DIR_EXTRA).map(|i| {
             let mut v = i.collect::<Vec<_>>();
             v.sort_unstable();
             v
-        })
-    })
+        }),
+    )
 }
 
 pub struct NointroRoms<'s> {
@@ -381,19 +382,20 @@ pub fn nointro_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_nointro_name() -> Result<String, Error> {
-    select_by_name("select DAT", nointro_dir_names)
+    select_by_name("select DAT", nointro_dir_names())
 }
 
 pub fn select_any_nointro_name() -> Result<String, Error> {
     use crate::{read_db_names, DIR_NOINTRO};
 
-    select_by_name("select DAT", || {
+    select_by_name(
+        "select DAT",
         read_db_names(DIR_NOINTRO).map(|i| {
             let mut v = i.collect::<Vec<_>>();
             v.sort_unstable();
             v
-        })
-    })
+        }),
+    )
 }
 
 pub struct RedumpRoms<'r> {
@@ -464,26 +466,24 @@ pub fn redump_dir_names() -> Option<Vec<String>> {
 }
 
 pub fn select_redump_name() -> Result<String, Error> {
-    select_by_name("select DAT", redump_dir_names)
+    select_by_name("select DAT", redump_dir_names())
 }
 
 pub fn select_any_redump_name() -> Result<String, Error> {
     use crate::{read_db_names, DIR_REDUMP};
 
-    select_by_name("select DAT", || {
+    select_by_name(
+        "select DAT",
         read_db_names(DIR_REDUMP).map(|i| {
             let mut v = i.collect::<Vec<_>>();
             v.sort_unstable();
             v
-        })
-    })
+        }),
+    )
 }
 
-fn select_by_name<N>(prompt: &'static str, names: N) -> Result<String, Error>
-where
-    N: FnOnce() -> Option<Vec<String>>,
-{
-    names().ok_or(Error::NoDatFiles).and_then(|names| {
+fn select_by_name(prompt: &'static str, names: Option<Vec<String>>) -> Result<String, Error> {
+    names.ok_or(Error::NoDatFiles).and_then(|names| {
         inquire::Select::new(prompt, names)
             .with_page_size(terminal_height())
             .prompt()
