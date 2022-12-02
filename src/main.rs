@@ -1009,13 +1009,8 @@ impl OptExtraVerify {
 
         let extra = match self.extra {
             Some(name) => name,
-            None => {
-                if dir.is_none() {
-                    dirs::select_extra_name()?
-                } else {
-                    dirs::select_any_extra_name()?
-                }
-            }
+            None if dir.is_none() => dirs::select_extra_name()?,
+            None => dirs::select_any_extra_name()?,
         };
 
         process_dat(read_named_db(EXTRA, DIR_EXTRA, &extra)?, |datfile, pbar| {
@@ -1062,11 +1057,12 @@ struct OptExtraAdd {
 
 impl OptExtraAdd {
     fn execute(self) -> Result<(), Error> {
+        let dir = self.dir;
         let extra = match self.extra {
             Some(extra) => extra,
-            None => dirs::select_extra_name()?,
+            None if dir.is_none() => dirs::select_extra_name()?,
+            None => dirs::select_any_extra_name()?,
         };
-        let dir = self.dir;
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, &extra)?;
         let mut rom_sources = rom_sources(&self.input);
 
@@ -1333,13 +1329,8 @@ impl OptRedumpVerify {
 
         let name = match self.name {
             Some(name) => name,
-            None => {
-                if roms.is_none() {
-                    dirs::select_redump_name()?
-                } else {
-                    dirs::select_any_redump_name()?
-                }
-            }
+            None if roms.is_none() => dirs::select_redump_name()?,
+            None => dirs::select_any_redump_name()?,
         };
 
         process_dat(
@@ -1389,11 +1380,12 @@ struct OptRedumpAdd {
 
 impl OptRedumpAdd {
     fn execute(self) -> Result<(), Error> {
+        let roms = self.roms;
         let name = match self.name {
             Some(name) => name,
-            None => dirs::select_redump_name()?,
+            None if roms.is_none() => dirs::select_redump_name()?,
+            None => dirs::select_any_redump_name()?,
         };
-        let roms = self.roms;
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, &name)?;
         let mut rom_sources = rom_sources(&self.input);
 
@@ -1743,13 +1735,8 @@ impl OptNointroVerify {
 
         let name = match self.name {
             Some(name) => name,
-            None => {
-                if roms.is_none() {
-                    dirs::select_nointro_name()?
-                } else {
-                    dirs::select_any_nointro_name()?
-                }
-            }
+            None if roms.is_none() => dirs::select_nointro_name()?,
+            None => dirs::select_any_nointro_name()?,
         };
 
         process_dat(
@@ -1799,11 +1786,12 @@ struct OptNointroAdd {
 
 impl OptNointroAdd {
     fn execute(self) -> Result<(), Error> {
+        let roms = self.roms;
         let name = match self.name {
             Some(name) => name,
-            None => dirs::select_nointro_name()?,
+            None if roms.is_none() => dirs::select_nointro_name()?,
+            None => dirs::select_any_nointro_name()?,
         };
-        let roms = self.roms;
         let datfile: dat::DatFile = read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, &name)?;
         let mut rom_sources = rom_sources(&self.input);
 
