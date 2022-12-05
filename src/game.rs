@@ -546,48 +546,62 @@ impl GameParts {
         // Note that we need to find all the missing and extra files
         // before we can map missing files to either missing
         // renamed or extra.
-        let mut successes = successes.into_inner().unwrap();
-        let mut failures = failures.into_inner().unwrap();
-        let mut extras = HashMap::new();
+        let extras = DashMap::new();
 
-        for (_, path) in files.into_iter() {
-            match Part::from_path(&path) {
+        files
+            .into_par_iter()
+            .for_each(|(_, path)| match Part::from_path(&path) {
                 Ok(part) => {
                     extras.insert(part, path);
                 }
-                part @ Err(_) => failures.extend_item(VerifyFailure::Extra { path, part }),
-            }
-        }
+                part @ Err(_) => failures
+                    .lock()
+                    .unwrap()
+                    .extend_item(VerifyFailure::Extra { path, part }),
+            });
 
-        for (name, part) in missing.into_inner().unwrap() {
-            let destination = missing_path(name);
+        missing
+            .into_inner()
+            .unwrap()
+            .into_par_iter()
+            .try_for_each(|(name, part)| {
+                let destination = missing_path(name);
 
-            match handle_failure(match extras.remove(part) {
-                Some(source) => VerifyFailure::Rename {
-                    source,
-                    destination,
-                    name,
-                    part,
-                },
-                None => VerifyFailure::Missing {
-                    path: destination,
-                    name,
-                    part,
-                },
-            })? {
-                Ok(()) => successes.extend_item(VerifySuccess { name, part }),
-                Err(failure) => failures.extend_item(failure),
-            }
+                match handle_failure(match extras.remove(part) {
+                    Some((_, source)) => VerifyFailure::Rename {
+                        source,
+                        destination,
+                        name,
+                        part,
+                    },
 
-            increment_progress();
-        }
+                    None => VerifyFailure::Missing {
+                        path: destination,
+                        name,
+                        part,
+                    },
+                })? {
+                    Ok(()) => successes
+                        .lock()
+                        .unwrap()
+                        .extend_item(VerifySuccess { name, part }),
+
+                    Err(failure) => failures.lock().unwrap().extend_item(failure),
+                }
+
+                increment_progress();
+
+                Ok(())
+            })?;
+
+        let mut failures = failures.into_inner().unwrap();
 
         failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
             part: Ok(part),
             path,
         }));
 
-        Ok((successes, failures))
+        Ok((successes.into_inner().unwrap(), failures))
     }
 
     #[inline]
