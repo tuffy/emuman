@@ -393,7 +393,7 @@ impl OptMameVerify {
 }
 
 #[derive(Args)]
-struct OptMameAdd {
+struct OptMameRepair {
     /// output directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
@@ -406,7 +406,7 @@ struct OptMameAdd {
     input: Vec<Resource>,
 }
 
-impl OptMameAdd {
+impl OptMameRepair {
     fn execute(self) -> Result<(), Error> {
         let db: game::GameDb = read_game_db(MAME, DB_MAME)?;
 
@@ -428,32 +428,26 @@ impl OptMameAdd {
 #[derive(Subcommand)]
 enum OptMame {
     /// initialize internal database
-    #[clap(name = "init")]
     Init(OptMameInit),
 
     /// list all games
-    #[clap(name = "list")]
     List(OptMameList),
 
     /// list a games's ROMs
-    #[clap(name = "parts")]
     Parts(OptMameParts),
 
     /// list given games, in order
-    #[clap(name = "games")]
     Games(OptMameGames),
 
     /// generate report of games in collection
-    #[clap(name = "report")]
     Report(OptMameReport),
 
     /// verify ROMs in directory
-    #[clap(name = "verify")]
     Verify(OptMameVerify),
 
-    /// add ROMs to directory
-    #[clap(name = "add")]
-    Add(OptMameAdd),
+    /// add and repair ROMs in directory
+    #[clap(alias = "add")]
+    Repair(OptMameRepair),
 }
 
 impl OptMame {
@@ -465,7 +459,7 @@ impl OptMame {
             OptMame::Games(o) => o.execute(),
             OptMame::Report(o) => o.execute(),
             OptMame::Verify(o) => o.execute(),
-            OptMame::Add(o) => o.execute(),
+            OptMame::Repair(o) => o.execute(),
         }
     }
 }
@@ -713,7 +707,7 @@ impl OptMessVerifyAll {
 }
 
 #[derive(Args)]
-struct OptMessAdd {
+struct OptMessRepair {
     /// output directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
@@ -730,7 +724,7 @@ struct OptMessAdd {
     input: Vec<Resource>,
 }
 
-impl OptMessAdd {
+impl OptMessRepair {
     fn execute(self) -> Result<(), Error> {
         let (db, software_list) = match self.software_list {
             Some(software_list) => (
@@ -756,7 +750,7 @@ impl OptMessAdd {
 }
 
 #[derive(Args)]
-struct OptMessAddAll {
+struct OptMessRepairAll {
     /// output directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
@@ -765,7 +759,7 @@ struct OptMessAddAll {
     input: Vec<Resource>,
 }
 
-impl OptMessAddAll {
+impl OptMessRepairAll {
     fn execute(self) -> Result<(), Error> {
         let rom_sources = rom_sources(&self.input);
 
@@ -840,39 +834,32 @@ enum OptMess {
     Init(OptMessInit),
 
     /// list all software in software list
-    #[clap(name = "list")]
     List(OptMessList),
 
     /// list given games, in order
-    #[clap(name = "games")]
     Games(OptMessGames),
 
     /// list a machine's ROMs
-    #[clap(name = "parts")]
     Parts(OptMessParts),
 
     /// generate report of sets in collection
-    #[clap(name = "report")]
     Report(OptMessReport),
 
     /// verify ROMs in directory
-    #[clap(name = "verify")]
     Verify(OptMessVerify),
 
     /// verify all ROMs in all software lists in directory
-    #[clap(name = "verify-all")]
     VerifyAll(OptMessVerifyAll),
 
-    /// add ROMs to directory
-    #[clap(name = "add")]
-    Add(OptMessAdd),
+    /// add and repair ROMs in directory
+    #[clap(alias = "add")]
+    Repair(OptMessRepair),
 
-    /// add all ROMs from all software lists to directory
-    #[clap(name = "add-all")]
-    AddAll(OptMessAddAll),
+    /// add and repair all software list ROMs in all directories
+    #[clap(alias = "add-all")]
+    RepairAll(OptMessRepairAll),
 
     /// split ROM into software list-compatible parts, if necessary
-    #[clap(name = "split")]
     Split(OptMessSplit),
 }
 
@@ -886,8 +873,8 @@ impl OptMess {
             OptMess::Report(o) => o.execute(),
             OptMess::Verify(o) => o.execute(),
             OptMess::VerifyAll(o) => o.execute(),
-            OptMess::Add(o) => o.execute(),
-            OptMess::AddAll(o) => o.execute(),
+            OptMess::Repair(o) => o.execute(),
+            OptMess::RepairAll(o) => o.execute(),
             OptMess::Split(o) => o.execute(),
         }
     }
@@ -1042,7 +1029,7 @@ impl OptExtraVerifyAll {
 }
 
 #[derive(Args)]
-struct OptExtraAdd {
+struct OptExtraRepair {
     /// output directory
     #[clap(short = 'd', long = "dir")]
     dir: Option<PathBuf>,
@@ -1055,7 +1042,7 @@ struct OptExtraAdd {
     input: Vec<Resource>,
 }
 
-impl OptExtraAdd {
+impl OptExtraRepair {
     fn execute(self) -> Result<(), Error> {
         let dir = self.dir;
         let extra = match self.extra {
@@ -1077,12 +1064,12 @@ impl OptExtraAdd {
 }
 
 #[derive(Args)]
-struct OptExtraAddAll {
+struct OptExtraRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
 
-impl OptExtraAddAll {
+impl OptExtraRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
@@ -1155,39 +1142,32 @@ impl OptExtraParts {
 #[clap(name = "extra")]
 enum OptExtra {
     /// initialize internal database
-    #[clap(name = "init")]
     Init(OptExtraInit),
 
     /// remove extras from internal database
-    #[clap(name = "destroy")]
     Destroy(OptExtraDestroy),
 
     /// list defined directories
-    #[clap(name = "dirs")]
     Dirs(OptExtraDirs),
 
     /// list all extras categories
-    #[clap(name = "list")]
     List(OptExtraList),
 
     /// verify parts in directory
-    #[clap(name = "verify")]
     Verify(OptExtraVerify),
 
-    /// add files to directory
-    #[clap(name = "add")]
-    Add(OptExtraAdd),
+    /// add and repair files to directory
+    #[clap(alias = "add")]
+    Repair(OptExtraRepair),
 
-    /// add files to all directories
-    #[clap(name = "add-all")]
-    AddAll(OptExtraAddAll),
+    /// add and repair files in all directories
+    #[clap(alias = "add-all")]
+    RepairAll(OptExtraRepairAll),
 
     /// verify all files in directory
-    #[clap(name = "verify-all")]
     VerifyAll(OptExtraVerifyAll),
 
     /// display extra's parts
-    #[clap(name = "parts")]
     Parts(OptExtraParts),
 }
 
@@ -1199,8 +1179,8 @@ impl OptExtra {
             OptExtra::Dirs(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
-            OptExtra::Add(o) => o.execute(),
-            OptExtra::AddAll(o) => o.execute(),
+            OptExtra::Repair(o) => o.execute(),
+            OptExtra::RepairAll(o) => o.execute(),
             OptExtra::VerifyAll(o) => o.execute(),
             OptExtra::Parts(o) => o.execute(),
         }
@@ -1365,7 +1345,7 @@ impl OptRedumpVerifyAll {
 }
 
 #[derive(Args)]
-struct OptRedumpAdd {
+struct OptRedumpRepair {
     /// output directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
@@ -1378,7 +1358,7 @@ struct OptRedumpAdd {
     input: Vec<Resource>,
 }
 
-impl OptRedumpAdd {
+impl OptRedumpRepair {
     fn execute(self) -> Result<(), Error> {
         let roms = self.roms;
         let name = match self.name {
@@ -1400,12 +1380,12 @@ impl OptRedumpAdd {
 }
 
 #[derive(Args)]
-struct OptRedumpAddAll {
+struct OptRedumpRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
 
-impl OptRedumpAddAll {
+impl OptRedumpRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
@@ -1507,43 +1487,35 @@ impl OptRedumpSplit {
 #[clap(name = "redump")]
 enum OptRedump {
     /// initialize internal database
-    #[clap(name = "init")]
     Init(OptRedumpInit),
 
     /// remove dat file from internal database
-    #[clap(name = "destroy")]
     Destroy(OptRedumpDestroy),
 
     /// list defined directories
-    #[clap(name = "dirs")]
     Dirs(OptRedumpDirs),
 
     /// list all software in software list
-    #[clap(name = "list")]
     List(OptRedumpList),
 
     /// verify files against Redump database
-    #[clap(name = "verify")]
     Verify(OptRedumpVerify),
 
     /// verify all ROMs in all categories
-    #[clap(name = "verify-all")]
     VerifyAll(OptRedumpVerifyAll),
 
-    /// add tracks to directory
-    #[clap(name = "add")]
-    Add(OptRedumpAdd),
+    /// add and repair tracks in directory
+    #[clap(alias = "add")]
+    Repair(OptRedumpRepair),
 
-    /// attempt to add tracks to all games in all categories
-    #[clap(name = "add-all")]
-    AddAll(OptRedumpAddAll),
+    /// and and repair tracks in all categories
+    #[clap(alias = "add-all")]
+    RepairAll(OptRedumpRepairAll),
 
     /// split .bin file into multiple tracks
-    #[clap(name = "split")]
     Split(OptRedumpSplit),
 
     /// display game's parts
-    #[clap(name = "parts")]
     Parts(OptRedumpParts),
 }
 
@@ -1556,8 +1528,8 @@ impl OptRedump {
             OptRedump::List(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
             OptRedump::VerifyAll(o) => o.execute(),
-            OptRedump::Add(o) => o.execute(),
-            OptRedump::AddAll(o) => o.execute(),
+            OptRedump::Repair(o) => o.execute(),
+            OptRedump::RepairAll(o) => o.execute(),
             OptRedump::Split(o) => o.execute(),
             OptRedump::Parts(o) => o.execute(),
         }
@@ -1568,39 +1540,32 @@ impl OptRedump {
 #[clap(name = "nointro")]
 enum OptNointro {
     /// initialize internal database
-    #[clap(name = "init")]
     Init(OptNointroInit),
 
     /// remove dat file from internal database
-    #[clap(name = "destroy")]
     Destroy(OptNointroDestroy),
 
     /// list defined directories
-    #[clap(name = "dirs")]
     Dirs(OptNointroDirs),
 
     /// list categories or ROMs
-    #[clap(name = "list")]
     List(OptNointroList),
 
     /// verify category's ROMs
-    #[clap(name = "verify")]
     Verify(OptNointroVerify),
 
     /// verify all ROMs in all categories
-    #[clap(name = "verify-all")]
     VerifyAll(OptNointroVerifyAll),
 
     /// add and verify category's ROMs
-    #[clap(name = "add")]
-    Add(OptNointroAdd),
+    #[clap(alias = "add")]
+    Repair(OptNointroRepair),
 
     /// add ROMs to all categories
-    #[clap(name = "add-all")]
-    AddAll(OptNointroAddAll),
+    #[clap(alias = "add-all")]
+    RepairAll(OptNointroRepairAll),
 
     /// display game's parts
-    #[clap(name = "parts")]
     Parts(OptNointroParts),
 }
 
@@ -1613,8 +1578,8 @@ impl OptNointro {
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
             OptNointro::VerifyAll(o) => o.execute(),
-            OptNointro::Add(o) => o.execute(),
-            OptNointro::AddAll(o) => o.execute(),
+            OptNointro::Repair(o) => o.execute(),
+            OptNointro::RepairAll(o) => o.execute(),
             OptNointro::Parts(o) => o.execute(),
         }
     }
@@ -1771,7 +1736,7 @@ impl OptNointroVerifyAll {
 }
 
 #[derive(Args)]
-struct OptNointroAdd {
+struct OptNointroRepair {
     /// output directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
@@ -1784,7 +1749,7 @@ struct OptNointroAdd {
     input: Vec<Resource>,
 }
 
-impl OptNointroAdd {
+impl OptNointroRepair {
     fn execute(self) -> Result<(), Error> {
         let roms = self.roms;
         let name = match self.name {
@@ -1806,12 +1771,12 @@ impl OptNointroAdd {
 }
 
 #[derive(Args)]
-struct OptNointroAddAll {
+struct OptNointroRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
 }
 
-impl OptNointroAddAll {
+impl OptNointroRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
