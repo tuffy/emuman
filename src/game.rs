@@ -317,12 +317,12 @@ impl Game {
         &self,
         rom_sources: &RomSources,
         target_dir: &Path,
-        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.parts.add_and_verify_failures(
             rom_sources,
             &target_dir.join(&self.name),
-            handle_failure,
+            handle_repair,
         )
     }
 
@@ -641,14 +641,14 @@ impl GameParts {
         rom_sources: &RomSources,
         game_root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.process_parts(game_root, increment_progress, |failure| {
-            failure.try_fix(rom_sources).map(|r| r.map(handle_failure))
+            failure.try_fix(rom_sources).map(|r| r.map(handle_repair))
         })
     }
 
@@ -657,13 +657,13 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
-        self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_failure)
+        self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_repair)
     }
 
     #[inline]
@@ -671,9 +671,9 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_failure: impl Fn(ExtractedPart<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
-        self.add_and_verify(rom_sources, game_root, handle_failure)
+        self.add_and_verify(rom_sources, game_root, handle_repair)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
     }
 }
@@ -775,7 +775,7 @@ impl<'s> VerifyFailure<'s> {
     pub fn try_fix<'u>(
         self,
         rom_sources: &RomSources<'u>,
-    ) -> Result<Result<ExtractedPart<'u>, Self>, Error> {
+    ) -> Result<Result<Repaired<'u>, Self>, Error> {
         use dashmap::mapref::entry::Entry;
 
         match self {
@@ -813,7 +813,7 @@ impl<'s> VerifyFailure<'s> {
                 ..
             } => {
                 std::fs::rename(&source, &destination)?;
-                Ok(Ok(ExtractedPart::Moved {
+                Ok(Ok(Repaired::Moved {
                     source,
                     destination,
                 }))
@@ -831,14 +831,14 @@ impl<'s> VerifyFailure<'s> {
         mut entry: OccupiedEntry<'_, Part, RomSource<'u>, S>,
         target: PathBuf,
         part: &Part,
-    ) -> Result<ExtractedPart<'u>, Error> {
+    ) -> Result<Repaired<'u>, Error> {
         let source = entry.get();
 
         match source.extract(target.as_ref())? {
             extracted @ Extracted::Copied { .. } => {
                 part.set_xattr(&target);
 
-                Ok(ExtractedPart::Extracted {
+                Ok(Repaired::Extracted {
                     extracted,
                     source: entry.insert(RomSource::File {
                         file: Arc::from(target.clone()),
@@ -854,7 +854,7 @@ impl<'s> VerifyFailure<'s> {
                     part.set_xattr(&target);
                 }
 
-                Ok(ExtractedPart::Extracted {
+                Ok(Repaired::Extracted {
                     extracted,
                     source: source.clone(),
                     target,
@@ -884,7 +884,7 @@ impl fmt::Display for VerifyFailure<'_> {
     }
 }
 
-pub enum ExtractedPart<'u> {
+pub enum Repaired<'u> {
     Extracted {
         extracted: Extracted,
         source: RomSource<'u>,
@@ -896,7 +896,7 @@ pub enum ExtractedPart<'u> {
     },
 }
 
-impl<'u> fmt::Display for ExtractedPart<'u> {
+impl<'u> fmt::Display for Repaired<'u> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Extracted {
