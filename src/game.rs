@@ -516,30 +516,34 @@ impl GameParts {
         let failures = Mutex::new(failures);
 
         // verify all game parts
-        self.parts.par_iter().try_for_each(|(name, part)| {
-            match files.remove(name) {
-                Some((_, pathbuf)) => {
-                    match part.verify(name, pathbuf) {
-                        Ok(success) => successes.lock().unwrap().extend_item(success),
+        if files.is_empty() {
+            missing.lock().unwrap().extend(self.parts.iter());
+        } else {
+            self.parts.par_iter().try_for_each(|(name, part)| {
+                match files.remove(name) {
+                    Some((_, pathbuf)) => {
+                        match part.verify(name, pathbuf) {
+                            Ok(success) => successes.lock().unwrap().extend_item(success),
 
-                        Err(failure) => match handle_failure(failure)? {
-                            Ok(()) => successes
-                                .lock()
-                                .unwrap()
-                                .extend_item(VerifySuccess { name, part }),
+                            Err(failure) => match handle_failure(failure)? {
+                                Ok(()) => successes
+                                    .lock()
+                                    .unwrap()
+                                    .extend_item(VerifySuccess { name, part }),
 
-                            Err(failure) => failures.lock().unwrap().extend_item(failure),
-                        },
+                                Err(failure) => failures.lock().unwrap().extend_item(failure),
+                            },
+                        }
+
+                        increment_progress();
                     }
 
-                    increment_progress();
+                    None => missing.lock().unwrap().push((name, part)),
                 }
 
-                None => missing.lock().unwrap().push((name, part)),
-            }
-
-            Ok(())
-        })?;
+                Ok(())
+            })?;
+        }
 
         // determine renamed, missing and extra files
         //
