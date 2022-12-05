@@ -319,7 +319,7 @@ impl DatFile {
         ): (_, Vec<_>) = self.flat.process(
             files,
             failures,
-            |name, part| VerifyFailure::missing(root, name, part),
+            |name| root.join(name),
             &increment_progress,
             &handle_failure,
         )?;

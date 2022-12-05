@@ -484,7 +484,7 @@ impl GameParts {
         self.process(
             files,
             failures,
-            |name, part| VerifyFailure::missing(game_root, name, part),
+            |name| game_root.join(name),
             increment_progress,
             handle_failure,
         )
@@ -492,14 +492,14 @@ impl GameParts {
 
     // files is a map of files to be processed
     // failures is a running total of existing validation failures
-    // missing is how to build failures from missing files (maybe handled later)
+    // missing_path takes a ROM name and returns its desired path
     // increment_progress is called once per (name, part) pair
     // handle failure is how to handle failures that might occur
     pub fn process<'s, S, F, E>(
         &'s self,
         files: DashMap<String, PathBuf>,
         failures: F,
-        missing: impl Fn(&'s str, &'s Part) -> VerifyFailure<'s> + Send + Sync,
+        missing_path: impl Fn(&str) -> PathBuf + Send + Sync,
         increment_progress: impl Fn() + Send + Sync,
         handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
     ) -> Result<(S, F), E>
@@ -512,6 +512,7 @@ impl GameParts {
         use std::sync::Mutex;
 
         let successes = Mutex::new(S::default());
+        let missing = Mutex::new(Vec::new());
         let failures = Mutex::new(failures);
 
         // verify all game parts
@@ -530,14 +531,10 @@ impl GameParts {
                     },
                 },
 
-                None => match handle_failure(missing(name, part))? {
-                    Ok(()) => successes
-                        .lock()
-                        .unwrap()
-                        .extend_item(VerifySuccess { name, part }),
-
-                    Err(failure) => failures.lock().unwrap().extend_item(failure),
-                },
+                None => missing
+                    .lock()
+                    .unwrap()
+                    .push((missing_path(name), name, part)),
             }
 
             increment_progress();
@@ -545,12 +542,45 @@ impl GameParts {
             Ok(())
         })?;
 
+        // determine renamed, missing and extra files
+        let mut successes = successes.into_inner().unwrap();
         let mut failures = failures.into_inner().unwrap();
+        let mut extras = HashMap::new();
 
-        // mark any leftover files on disk as extras
-        failures.extend_many(files.into_iter().map(|(_, pb)| VerifyFailure::extra(pb)));
+        for (_, path) in files.into_iter() {
+            match Part::from_path(&path) {
+                Ok(part) => {
+                    extras.insert(part, path);
+                }
+                part @ Err(_) => failures.extend_item(VerifyFailure::Extra { path, part }),
+            }
+        }
 
-        Ok((successes.into_inner().unwrap(), failures))
+        for (destination, name, part) in missing.into_inner().unwrap() {
+            match handle_failure(match extras.remove(part) {
+                Some(source) => VerifyFailure::Rename {
+                    source,
+                    destination,
+                    name,
+                    part,
+                },
+                None => VerifyFailure::Missing {
+                    path: destination,
+                    name,
+                    part,
+                },
+            })? {
+                Ok(()) => successes.extend_item(VerifySuccess { name, part }),
+                Err(failure) => failures.extend_item(failure),
+            }
+        }
+
+        failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
+            part: Ok(part),
+            path,
+        }));
+
+        Ok((successes, failures))
     }
 
     #[inline]
@@ -673,6 +703,12 @@ pub enum VerifyFailure<'s> {
         path: PathBuf,
         part: Result<Part, std::io::Error>,
     },
+    Rename {
+        source: PathBuf,
+        destination: PathBuf,
+        name: &'s str,
+        part: &'s Part,
+    },
     ExtraDir {
         path: PathBuf,
     },
@@ -689,15 +725,6 @@ pub enum VerifyFailure<'s> {
 }
 
 impl<'s> VerifyFailure<'s> {
-    #[inline]
-    pub fn missing(root: &Path, name: &'s str, part: &'s Part) -> Self {
-        Self::Missing {
-            path: root.join(name),
-            name,
-            part,
-        }
-    }
-
     #[inline]
     fn extra(path: PathBuf) -> Self {
         Self::Extra {
@@ -716,6 +743,9 @@ impl<'s> VerifyFailure<'s> {
         match self {
             VerifyFailure::Missing { path, .. }
             | VerifyFailure::Extra { path, .. }
+            | VerifyFailure::Rename {
+                destination: path, ..
+            }
             | VerifyFailure::ExtraDir { path, .. }
             | VerifyFailure::Bad { path, .. }
             | VerifyFailure::Error { path, .. } => path.as_path(),
@@ -758,6 +788,18 @@ impl<'s> VerifyFailure<'s> {
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part, name })),
             },
 
+            VerifyFailure::Rename {
+                source,
+                destination,
+                ..
+            } => {
+                std::fs::rename(&source, &destination)?;
+                Ok(Ok(ExtractedPart::Moved {
+                    source,
+                    destination,
+                }))
+            }
+
             extra @ VerifyFailure::Extra { .. } => Ok(Err(extra)),
 
             extra @ VerifyFailure::ExtraDir { .. } => Ok(Err(extra)),
@@ -777,7 +819,7 @@ impl<'s> VerifyFailure<'s> {
             extracted @ Extracted::Copied { .. } => {
                 part.set_xattr(&target);
 
-                Ok(ExtractedPart {
+                Ok(ExtractedPart::Extracted {
                     extracted,
                     source: entry.insert(RomSource::File {
                         file: Arc::from(target.clone()),
@@ -793,7 +835,7 @@ impl<'s> VerifyFailure<'s> {
                     part.set_xattr(&target);
                 }
 
-                Ok(ExtractedPart {
+                Ok(ExtractedPart::Extracted {
                     extracted,
                     source: source.clone(),
                     target,
@@ -812,6 +854,9 @@ impl fmt::Display for VerifyFailure<'_> {
             VerifyFailure::Extra { path, .. } | VerifyFailure::ExtraDir { path } => {
                 write!(f, "EXTRA : {}", path.display())
             }
+            VerifyFailure::Rename { source, .. } => {
+                write!(f, "MISNAMED : {}", source.display(),)
+            }
             VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
                 write!(f, "ERROR : {} : {}", path.display(), err)
@@ -820,29 +865,47 @@ impl fmt::Display for VerifyFailure<'_> {
     }
 }
 
-pub struct ExtractedPart<'u> {
-    extracted: Extracted,
-    source: RomSource<'u>,
-    target: PathBuf,
+pub enum ExtractedPart<'u> {
+    Extracted {
+        extracted: Extracted,
+        source: RomSource<'u>,
+        target: PathBuf,
+    },
+    Moved {
+        source: PathBuf,
+        destination: PathBuf,
+    },
 }
 
 impl<'u> fmt::Display for ExtractedPart<'u> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.extracted {
-            Extracted::Copied { rate: None } => {
-                write!(f, "{} \u{21D2} {}", self.source, self.target.display())
+        match self {
+            Self::Extracted {
+                extracted: Extracted::Copied { rate: None },
+                source,
+                target,
+            } => {
+                write!(f, "{} \u{21D2} {}", source, target.display())
             }
-            Extracted::Copied { rate: Some(rate) } => {
-                write!(
-                    f,
-                    "{} \u{21D2} {} ({})",
-                    self.source,
-                    self.target.display(),
-                    rate
-                )
+            Self::Extracted {
+                extracted: Extracted::Copied { rate: Some(rate) },
+                source,
+                target,
+            } => {
+                write!(f, "{} \u{21D2} {} ({})", source, target.display(), rate)
             }
-            Extracted::Linked { .. } => {
-                write!(f, "{} \u{2192} {}", self.source, self.target.display())
+            Self::Extracted {
+                extracted: Extracted::Linked { .. },
+                source,
+                target,
+            } => {
+                write!(f, "{} \u{2192} {}", source, target.display())
+            }
+            Self::Moved {
+                source,
+                destination,
+            } => {
+                write!(f, "{} \u{2192} {}", source.display(), destination.display())
             }
         }
     }
@@ -1516,7 +1579,7 @@ fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
 }
 
 #[derive(Copy, Clone)]
-enum Extracted {
+pub enum Extracted {
     Copied { rate: Option<Rate> },
     Linked { has_xattr: bool },
 }
