@@ -518,31 +518,34 @@ impl GameParts {
         // verify all game parts
         self.parts.par_iter().try_for_each(|(name, part)| {
             match files.remove(name) {
-                Some((_, pathbuf)) => match part.verify(name, pathbuf) {
-                    Ok(success) => successes.lock().unwrap().extend_item(success),
+                Some((_, pathbuf)) => {
+                    match part.verify(name, pathbuf) {
+                        Ok(success) => successes.lock().unwrap().extend_item(success),
 
-                    Err(failure) => match handle_failure(failure)? {
-                        Ok(()) => successes
-                            .lock()
-                            .unwrap()
-                            .extend_item(VerifySuccess { name, part }),
+                        Err(failure) => match handle_failure(failure)? {
+                            Ok(()) => successes
+                                .lock()
+                                .unwrap()
+                                .extend_item(VerifySuccess { name, part }),
 
-                        Err(failure) => failures.lock().unwrap().extend_item(failure),
-                    },
-                },
+                            Err(failure) => failures.lock().unwrap().extend_item(failure),
+                        },
+                    }
 
-                None => missing
-                    .lock()
-                    .unwrap()
-                    .push((missing_path(name), name, part)),
+                    increment_progress();
+                }
+
+                None => missing.lock().unwrap().push((name, part)),
             }
-
-            increment_progress();
 
             Ok(())
         })?;
 
         // determine renamed, missing and extra files
+        //
+        // Note that we need to find all the missing and extra files
+        // before we can map missing files to either missing
+        // renamed or extra.
         let mut successes = successes.into_inner().unwrap();
         let mut failures = failures.into_inner().unwrap();
         let mut extras = HashMap::new();
@@ -556,7 +559,9 @@ impl GameParts {
             }
         }
 
-        for (destination, name, part) in missing.into_inner().unwrap() {
+        for (name, part) in missing.into_inner().unwrap() {
+            let destination = missing_path(name);
+
             match handle_failure(match extras.remove(part) {
                 Some(source) => VerifyFailure::Rename {
                     source,
@@ -573,6 +578,8 @@ impl GameParts {
                 Ok(()) => successes.extend_item(VerifySuccess { name, part }),
                 Err(failure) => failures.extend_item(failure),
             }
+
+            increment_progress();
         }
 
         failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
@@ -743,9 +750,7 @@ impl<'s> VerifyFailure<'s> {
         match self {
             VerifyFailure::Missing { path, .. }
             | VerifyFailure::Extra { path, .. }
-            | VerifyFailure::Rename {
-                destination: path, ..
-            }
+            | VerifyFailure::Rename { source: path, .. }
             | VerifyFailure::ExtraDir { path, .. }
             | VerifyFailure::Bad { path, .. }
             | VerifyFailure::Error { path, .. } => path.as_path(),
