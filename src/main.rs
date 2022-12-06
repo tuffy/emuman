@@ -532,7 +532,9 @@ impl OptMessInit {
 }
 
 #[derive(Args)]
-struct OptMessDirs;
+struct OptMessDirs {
+    search: Option<String>,
+}
 
 impl OptMessDirs {
     fn execute(self) -> Result<(), Error> {
@@ -549,6 +551,10 @@ impl OptMessDirs {
         table.add_rows(
             read_collected_dbs::<BTreeMap<String, game::GameDb>, _>(DIR_SL)
                 .into_iter()
+                .filter(|(_, db)| match &self.search {
+                    Some(search) => db.description().contains(search),
+                    None => true,
+                })
                 .map(|(name, db)| {
                     vec![
                         db.description().to_owned(),
@@ -1021,6 +1027,8 @@ struct OptExtraDirs {
     // sort output by version
     #[clap(short = 'V')]
     sort_by_version: bool,
+
+    search: Option<String>,
 }
 
 impl OptExtraDirs {
@@ -1028,6 +1036,7 @@ impl OptExtraDirs {
         display_dirs(
             dirs::extra_dirs(),
             read_collected_dbs(DIR_EXTRA),
+            self.search,
             self.sort_by_version,
         );
 
@@ -1334,6 +1343,8 @@ struct OptRedumpDirs {
     // sort output by version
     #[clap(short = 'V')]
     sort_by_version: bool,
+
+    search: Option<String>,
 }
 
 impl OptRedumpDirs {
@@ -1341,6 +1352,7 @@ impl OptRedumpDirs {
         display_dirs(
             dirs::redump_dirs(),
             read_collected_dbs(DIR_REDUMP),
+            self.search,
             self.sort_by_version,
         );
 
@@ -1725,6 +1737,8 @@ struct OptNointroDirs {
     /// sort output by version
     #[clap(short = 'V')]
     sort_by_version: bool,
+
+    search: Option<String>,
 }
 
 impl OptNointroDirs {
@@ -1732,6 +1746,7 @@ impl OptNointroDirs {
         display_dirs(
             dirs::nointro_dirs(),
             read_collected_dbs(DIR_NOINTRO),
+            self.search,
             self.sort_by_version,
         );
 
@@ -2823,8 +2838,12 @@ where
     Ok(())
 }
 
-fn display_dirs<D>(dirs: D, db: BTreeMap<String, dat::DatFile>, sort_by_version: bool)
-where
+fn display_dirs<D>(
+    dirs: D,
+    db: BTreeMap<String, dat::DatFile>,
+    search: Option<String>,
+    sort_by_version: bool,
+) where
     D: Iterator<Item = (String, PathBuf)>,
 {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
@@ -2833,13 +2852,18 @@ where
 
     let mut results: Vec<[String; 3]> = dirs
         .filter_map(|(name, dir)| {
-            db.get(&name).map(|dat| {
-                [
-                    dat.version().to_owned(),
-                    dat.name().to_owned(),
-                    dir.to_string_lossy().to_string(),
-                ]
-            })
+            db.get(&name)
+                .filter(|dat| match &search {
+                    Some(search) => dat.version().contains(search) || dat.name().contains(search),
+                    None => true,
+                })
+                .map(|dat| {
+                    [
+                        dat.version().to_owned(),
+                        dat.name().to_owned(),
+                        dir.to_string_lossy().to_string(),
+                    ]
+                })
         })
         .collect();
 
