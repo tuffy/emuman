@@ -129,15 +129,6 @@ impl GameDb {
         )
     }
 
-    pub fn display_all_games(self, simple: bool) {
-        GameDb::display_report(
-            &self
-                .games_iter()
-                .map(|g| g.report(simple))
-                .collect::<Vec<GameRow>>(),
-        )
-    }
-
     pub fn report_results(
         &self,
         games: &HashSet<String>,

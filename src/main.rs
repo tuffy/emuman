@@ -337,7 +337,10 @@ struct OptMameGames {
 impl OptMameGames {
     fn execute(self) -> Result<(), Error> {
         let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
-        db.games(&self.games, self.simple);
+        match self.games.as_slice() {
+            [] => db.games(&select_game_names(&db)?, self.simple),
+            games => db.games(games, self.simple),
+        }
         Ok(())
     }
 }
@@ -345,13 +348,17 @@ impl OptMameGames {
 #[derive(Args)]
 struct OptMameParts {
     /// game's parts to search for
-    game: String,
+    game: Option<String>,
 }
 
 impl OptMameParts {
     fn execute(self) -> Result<(), Error> {
         let db = read_game_db::<game::GameDb>(MAME, DB_MAME)?;
-        db.display_parts(&self.game)
+
+        match self.game {
+            Some(game) => db.display_parts(&game),
+            None => db.display_parts(select_game_name(&db)?),
+        }
     }
 }
 
@@ -616,11 +623,11 @@ impl OptMessGames {
             None => select_software_list()?,
         };
 
-        if self.games.is_empty() {
-            software_list.display_all_games(self.simple);
-        } else {
-            software_list.games(&self.games, self.simple);
+        match self.games.as_slice() {
+            [] => software_list.games(&select_game_names(&software_list)?, self.simple),
+            games => software_list.games(games, self.simple),
         }
+
         Ok(())
     }
 }
@@ -2409,6 +2416,69 @@ where
     D: DeserializeOwned,
 {
     read_named_dbs(db_dir).into_iter().flatten().collect()
+}
+
+fn select_game_name(db: &game::GameDb) -> Result<&str, Error> {
+    struct DbEntry<'s> {
+        name: &'s str,
+        description: &'s str,
+    }
+
+    impl<'s> fmt::Display for DbEntry<'s> {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            self.description.fmt(f)
+        }
+    }
+
+    let mut games = db
+        .games_iter()
+        .map(|g| DbEntry {
+            name: &g.name,
+            description: &g.description,
+        })
+        .collect::<Vec<_>>();
+    games.sort_unstable_by_key(|g| g.description);
+
+    inquire::Select::new("select game", games)
+        .with_page_size(terminal_height())
+        .prompt()
+        .map(|DbEntry { name, .. }| name)
+        .map_err(Error::Inquire)
+}
+
+fn select_game_names(db: &game::GameDb) -> Result<Vec<&str>, Error> {
+    struct DbEntry<'s> {
+        name: &'s str,
+        description: &'s str,
+    }
+
+    impl<'s> fmt::Display for DbEntry<'s> {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            self.description.fmt(f)
+        }
+    }
+
+    let mut games = db
+        .games_iter()
+        .map(|g| DbEntry {
+            name: &g.name,
+            description: &g.description,
+        })
+        .collect::<Vec<_>>();
+    games.sort_unstable_by_key(|g| g.description);
+
+    inquire::MultiSelect::new("select game", games)
+        .with_page_size(terminal_height())
+        .prompt()
+        .map(|entries| {
+            entries
+                .into_iter()
+                .map(|DbEntry { name, .. }| name)
+                .collect()
+        })
+        .map_err(Error::Inquire)
 }
 
 fn select_software_list_and_name() -> Result<(game::GameDb, String), Error> {
