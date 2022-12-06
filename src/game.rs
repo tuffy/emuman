@@ -869,17 +869,17 @@ impl fmt::Display for VerifyFailure<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             VerifyFailure::Missing { path, .. } => {
-                write!(f, "MISSING : {}", path.display())
+                write!(f, " MISSING : {}", path.display())
             }
             VerifyFailure::Extra { path, .. } | VerifyFailure::ExtraDir { path } => {
-                write!(f, "EXTRA : {}", path.display())
+                write!(f, "   EXTRA : {}", path.display())
             }
             VerifyFailure::Rename { source, .. } => {
                 write!(f, "MISNAMED : {}", source.display(),)
             }
             VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
-                write!(f, "ERROR : {} : {}", path.display(), err)
+                write!(f, "   ERROR : {} : {}", path.display(), err)
             }
         }
     }

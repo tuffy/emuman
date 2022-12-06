@@ -187,7 +187,7 @@ Now that the manager knows what the ROMs are supposed to be,
 we simply need to tell it where to find the ROMs we have
 and where to put them.  Like:
 
-    emuman mame add -r MAMEXXXX/roms/ input_dir1/ input_dir2/ ...
+    emuman mame repair -r MAMEXXXX/roms/ input_dir1/ input_dir2/ ...
 
 Where the `-r` flag indicates our ROM destination and
 the `input_dir` paths are where our existing ROMs are now.
@@ -196,9 +196,21 @@ The inputs can be individual files, Zip files
 (which are scanned recursively) or even URLs to remote files
 (which may also be Zip files, and are downloaded and scanned).
 
+This option was formerly labeled `add` (which is an alias
+and may still be used).
+
 Once the target ROM destination has been specified,
 the manager will reuse that destination next time
 so we don't have to specify it again.
+
+If the destination directory doesn't exist, it will be created
+and populated.
+If it does exist, existing game subdirectories will be scanned
+and repaired as needed - such as missing files being pulled
+from our input ROMs, or simple renames being performed.
+
+Once complete, this will generate a full report of any games
+that have missing or extra files along with a summary.
 
 ### Adding ROMs for the Software List
 
@@ -206,7 +218,7 @@ This is similar to MAME, but we'll also need to specify
 what software list to use for the ROMs.  Like if we're
 interested in the Vectrex catalog, try:
 
-    emuman sl add -L vectrex -r MAMEXXXX/software/vectrex/ input_dir/
+    emuman sl repair -L vectrex -r MAMEXXXX/software/vectrex/ input_dir/
 
 Where the `-L` option indicates which software list we're interested in.
 If unspecified, `emuman` will provide an interactive list to choose from.
@@ -214,11 +226,15 @@ As with MAME, this will keep track of the software list
 root directory (`MAMEXXXX/software`) so we only need to specify the
 target once.
 
-But unlike MAME, the software list has an add-all option
+But unlike MAME, the software list has a `repair-all` option
 which only requires the software list root directory
 and will attempt to add titles to every single software list, like:
 
-    emuman sl add-all -r MAMEXXXX/software/ input_dir/
+    emuman sl repair-all -r MAMEXXXX/software/ input_dir/
+
+The process of adding and repairing ROMs in the output directory
+from the input files works the same as with MAME and also generates
+a report when completed.
 
 ### Adding extras/ROMs for Snapshots, No-Intro and Redump
 
@@ -226,13 +242,24 @@ These are similar to MAME's Software List in that ROMs
 are organized on a per-system basis and the system should be
 specified, like:
 
-    emuman nointro add -D "GCE - Vectrex" -r Vectrex/ input_dir/
+    emuman nointro repair -D "GCE - Vectrex" -r Vectrex/ input_dir/
 
 The `-D` option indicates which DAT file name to use.
 Again, if unspecified, `emuman` will let the user pick one.
 The difference is that these don't expect a single "root"
-directory like the Software List; the target directories
-can be placed wherever.
+directory like MAME's Software List; the target directory
+for each individual DAT file may be different.
+
+Again, as with MAME, the output directory will be repaired
+using the input files and a final report will be generated
+once complete.
+
+Also like the software list, there is a `repair-all` option, like:
+
+    emuman nointro repair-all input_dir/
+
+Which will attempt to repair all No-Intro DAT files with
+defined directories.
 
 ## Verifying ROM files
 
@@ -246,17 +273,22 @@ The other modes have similar `verify` and `verify-all`
 features which verify the ROMs present provide a listing
 of files that are bad/missing.
 
+Both repairing and verifying work very similarly,
+the only difference being that verifying only displays reports
+and doesn't take any input files are make changes to files on disk.
+
 ### Upgrading from one version to the next
 
-If the only difference is newly added files,
-it's simple to run `add` again to populate the missing files
-from an external source.  But when ROM files or entire
-games are renamed from one version to the next,
-that's when things get complicated.  Therefore,
-the easiest way to upgrade is to `add` both the old
-files and changed files into a whole new version, like:
+If the only difference is newly added files or simple renames,
+one can run `repair` to populate the missing files
+from external sources and to bring it to the latest version.
+But when entire games are renamed from one version to the next
+(for instance, a game gets promoted to the new "parent" set)
+that's when things get complicated.  To fix that problem,
+the easiest way to upgrade is to use the old set as yet
+another ROM source, like:
 
-    emuman mame add -r MAMEYYYY/roms/ MAMEXXXX/roms/ changed_roms_dir/
+    emuman mame repair -r MAMEYYYY/roms/ MAMEXXXX/roms/ changed_roms_dir/
 
 Where `XXXX` is the previous version and `YYYY` is the current version.
 Then just remove the old `XXXX` version when finished.
