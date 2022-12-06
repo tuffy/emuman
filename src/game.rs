@@ -319,11 +319,8 @@ impl Game {
         target_dir: &Path,
         handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
-        self.parts.add_and_verify_failures(
-            rom_sources,
-            &target_dir.join(&self.name),
-            handle_repair,
-        )
+        self.parts
+            .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), handle_repair)
     }
 
     pub fn display_parts(&self, table: &mut Table) {

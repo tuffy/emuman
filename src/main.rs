@@ -277,6 +277,32 @@ impl OptMameInit {
 }
 
 #[derive(Args)]
+struct OptMameDir;
+
+impl OptMameDir {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Version", "Directory"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        table.add_row(vec![
+            read_game_db::<game::GameDb>(MAME, DB_MAME)?.description(),
+            &dirs::mame_roms(None).as_ref().to_string_lossy(),
+        ]);
+
+        println!("{table}");
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptMameList {
     /// sorting order, use "description", "year" or "creator"
     #[clap(short = 's', long = "sort", default_value = "description")]
@@ -430,6 +456,9 @@ enum OptMame {
     /// initialize internal database
     Init(OptMameInit),
 
+    /// list defined directory
+    Dir(OptMameDir),
+
     /// list all games
     List(OptMameList),
 
@@ -454,6 +483,7 @@ impl OptMame {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptMame::Init(o) => o.execute(),
+            OptMame::Dir(o) => o.execute(),
             OptMame::List(o) => o.execute(),
             OptMame::Parts(o) => o.execute(),
             OptMame::Games(o) => o.execute(),
@@ -489,6 +519,41 @@ impl OptMessInit {
         }
 
         write_game_db(DB_MESS_SPLIT, &split_db)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptMessDirs;
+
+impl OptMessDirs {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Software", "Directory"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        table.add_rows(
+            read_collected_dbs::<BTreeMap<String, game::GameDb>, _>(DIR_SL)
+                .into_iter()
+                .map(|(name, db)| {
+                    vec![
+                        db.description().to_owned(),
+                        dirs::mess_roms(None, &name)
+                            .as_ref()
+                            .to_string_lossy()
+                            .to_string(),
+                    ]
+                }),
+        );
+
+        println!("{table}");
 
         Ok(())
     }
@@ -830,8 +895,10 @@ impl OptMessSplit {
 #[clap(name = "sl")]
 enum OptMess {
     /// initialize internal database
-    #[clap(name = "init")]
     Init(OptMessInit),
+
+    /// list defined directories
+    Dirs(OptMessDirs),
 
     /// list all software in software list
     List(OptMessList),
@@ -867,6 +934,7 @@ impl OptMess {
     fn execute(self) -> Result<(), Error> {
         match self {
             OptMess::Init(o) => o.execute(),
+            OptMess::Dirs(o) => o.execute(),
             OptMess::List(o) => o.execute(),
             OptMess::Games(o) => o.execute(),
             OptMess::Parts(o) => o.execute(),
