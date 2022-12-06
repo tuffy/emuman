@@ -3,16 +3,14 @@ use nohash::IntMap;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+type OwnedItem<I> = <I as ToOwned>::Owned;
+
+type MaybeFound<'i, I> = Result<Option<(OwnedItem<I>, &'i I)>, (OwnedItem<I>, std::io::Error)>;
+
 pub trait Duplicates {
     type Item: ToOwned + ?Sized;
 
-    fn get_or_add(
-        &mut self,
-        source: <Self::Item as ToOwned>::Owned,
-    ) -> Result<
-        Option<(<Self::Item as ToOwned>::Owned, &Self::Item)>,
-        (<Self::Item as ToOwned>::Owned, std::io::Error),
-    >;
+    fn get_or_add(&mut self, source: OwnedItem<Self::Item>) -> MaybeFound<Self::Item>;
 }
 
 #[derive(Default)]

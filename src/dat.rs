@@ -26,6 +26,8 @@ pub struct Header {
     version: String,
 }
 
+type Flattened = Result<(String, Part), (String, GameParts)>;
+
 #[derive(Debug, Deserialize)]
 pub struct Game {
     name: String,
@@ -67,7 +69,7 @@ impl Game {
     // flatten it into a single (rom_name, part) tuple,
     // otherwise return a (game_name, GameParts) tuple
     // of all the game parts it contains
-    fn try_flatten(self) -> Result<Result<(String, Part), (String, GameParts)>, hex::FromHexError> {
+    fn try_flatten(self) -> Result<Flattened, hex::FromHexError> {
         match &self {
             Game {
                 rom: Some(roms),
@@ -429,7 +431,9 @@ fn parse_dat(file: Resource, data: Box<[u8]>, flatten: bool) -> Result<DatFile, 
     .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
 }
 
-pub fn read_dats_from_file(file: Resource) -> Result<Vec<(Resource, Box<[u8]>)>, Error> {
+type Dats = Vec<(Resource, Box<[u8]>)>;
+
+pub fn read_dats_from_file(file: Resource) -> Result<Dats, Error> {
     use super::is_zip;
     use std::io::Read;
 

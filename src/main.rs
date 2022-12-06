@@ -1003,7 +1003,7 @@ impl OptExtraDestroy {
                     })
             }
             extras => extras
-                .into_iter()
+                .iter()
                 .try_for_each(|e| destroy_named_db(DIR_EXTRA, e)),
         }
     }
@@ -1316,7 +1316,7 @@ impl OptRedumpDestroy {
                     })
             }
             dats => dats
-                .into_iter()
+                .iter()
                 .try_for_each(|d| destroy_named_db(DIR_REDUMP, d)),
         }
     }
@@ -1707,7 +1707,7 @@ impl OptNointroDestroy {
                     })
             }
             dats => dats
-                .into_iter()
+                .iter()
                 .try_for_each(|d| destroy_named_db(DIR_NOINTRO, d)),
         }
     }
