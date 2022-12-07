@@ -811,11 +811,7 @@ impl<'s> VerifyFailure<'s> {
                 }))
             }
 
-            extra @ VerifyFailure::Extra { .. } => Ok(Err(extra)),
-
-            extra @ VerifyFailure::ExtraDir { .. } => Ok(Err(extra)),
-
-            err @ VerifyFailure::Error { .. } => Ok(Err(err)),
+            failure => Ok(Err(failure)),
         }
     }
 
@@ -868,7 +864,7 @@ impl fmt::Display for VerifyFailure<'_> {
             VerifyFailure::Rename { source, .. } => {
                 write!(f, "MISNAMED : {}", source.display(),)
             }
-            VerifyFailure::Bad { path, .. } => write!(f, "BAD : {}", path.display()),
+            VerifyFailure::Bad { path, .. } => write!(f, "     BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
                 write!(f, "   ERROR : {} : {}", path.display(), err)
             }
