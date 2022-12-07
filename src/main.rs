@@ -2647,6 +2647,7 @@ where
     use rayon::prelude::*;
 
     let total = games.len();
+
     let pbar = ProgressBar::new(total.try_into().unwrap())
         .with_style(game::verify_style())
         .with_message(message);
@@ -2660,9 +2661,11 @@ where
     pbar.finish_and_clear();
 
     let successes = results.iter().filter(|v| v.is_empty()).count();
-    let mut failures = results.into_iter().flatten().collect::<Vec<_>>();
 
+    let mut failures = results.into_iter().flatten().collect::<Vec<_>>();
     failures.sort_unstable_by(|x, y| x.path().cmp(y.path()));
+    failures.dedup_by(|x, y| x.path() == y.path());
+
     for failure in failures {
         println!("{failure}");
     }
