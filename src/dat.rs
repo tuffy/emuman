@@ -4,7 +4,7 @@ use crate::Resource;
 use comfy_table::Table;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Datafile {
@@ -296,7 +296,9 @@ impl DatFile {
         &self,
         root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+            + Send
+            + Sync,
     ) -> Result<VerifyResults, E>
     where
         E: Send,
@@ -402,7 +404,7 @@ impl DatFile {
             |failure| match failure.try_fix(roms) {
                 Ok(Ok(fix)) => {
                     progress_bar.println(fix.to_string());
-                    Ok(Ok(()))
+                    Ok(Ok(fix.into_fixed_pathbuf()))
                 }
                 Ok(Err(f)) => Ok(Err(f)),
                 Err(e) => Err(e),

@@ -845,8 +845,9 @@ impl OptMessRepairAll {
             "adding and verifying software lists",
             self.roms,
             |parts, path, mbar| {
-                parts.add_and_verify_failures(&rom_sources, path, |extracted| {
-                    mbar.println(extracted.to_string()).unwrap()
+                parts.add_and_verify_failures(&rom_sources, path, |repaired| {
+                    mbar.println(repaired.to_string()).unwrap();
+                    repaired.into_fixed_pathbuf()
                 })
             },
         )
@@ -2699,7 +2700,10 @@ where
         root,
         games,
         |game, root, pbar| {
-            game.add_and_verify(roms, root.as_ref(), |r| pbar.println(format!("{r}")))
+            game.add_and_verify(roms, root.as_ref(), |r| {
+                pbar.println(format!("{r}"));
+                r.into_fixed_pathbuf()
+            })
         },
     )
 }

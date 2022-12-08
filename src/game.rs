@@ -308,7 +308,7 @@ impl Game {
         &self,
         rom_sources: &RomSources,
         target_dir: &Path,
-        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.parts
             .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), handle_repair)
@@ -368,7 +368,7 @@ where
                     Err(pb) => failures.extend_item(VerifyFailure::extra_dir(pb)),
                 },
                 Ok(_) => { /* neither file or dir, so do nothing */ }
-                Err(_) => failures.extend_item(VerifyFailure::extra(entry.path())),
+                Err(err) => failures.extend_item(VerifyFailure::error(entry.path(), err)),
             }
         }
 
@@ -451,7 +451,9 @@ impl GameParts {
         &'s self,
         game_root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+            + Send
+            + Sync,
     ) -> Result<(S, F), E>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -489,7 +491,9 @@ impl GameParts {
         failures: F,
         missing_path: impl Fn(&str) -> PathBuf + Send + Sync,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<(), VerifyFailure>, E> + Send + Sync,
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+            + Send
+            + Sync,
     ) -> Result<(S, F), E>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -509,15 +513,16 @@ impl GameParts {
         } else {
             self.parts.par_iter().try_for_each(|(name, part)| {
                 match files.remove(name) {
-                    Some((_, pathbuf)) => {
-                        match part.verify(name, pathbuf) {
+                    Some((_, path)) => {
+                        match part.verify(name, path) {
                             Ok(success) => successes.lock().unwrap().extend_item(success),
 
                             Err(failure) => match handle_failure(failure)? {
-                                Ok(()) => successes
-                                    .lock()
-                                    .unwrap()
-                                    .extend_item(VerifySuccess { name, part }),
+                                Ok(path) => successes.lock().unwrap().extend_item(VerifySuccess {
+                                    name,
+                                    part,
+                                    path,
+                                }),
 
                                 Err(failure) => failures.lock().unwrap().extend_item(failure),
                             },
@@ -573,10 +578,12 @@ impl GameParts {
                         part,
                     },
                 })? {
-                    Ok(()) => successes
-                        .lock()
-                        .unwrap()
-                        .extend_item(VerifySuccess { name, part }),
+                    Ok(path) => {
+                        successes
+                            .lock()
+                            .unwrap()
+                            .extend_item(VerifySuccess { name, part, path })
+                    }
 
                     Err(failure) => failures.lock().unwrap().extend_item(failure),
                 }
@@ -633,7 +640,7 @@ impl GameParts {
         rom_sources: &RomSources,
         game_root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -649,7 +656,7 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -663,7 +670,7 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_repair: impl Fn(Repaired<'_>) + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.add_and_verify(rom_sources, game_root, handle_repair)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
@@ -703,6 +710,7 @@ impl<'a> GameRow<'a> {
 pub struct VerifySuccess<'s> {
     pub name: &'s str,
     pub part: &'s Part,
+    pub path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -749,6 +757,11 @@ impl<'s> VerifyFailure<'s> {
     #[inline]
     pub fn extra_dir(path: PathBuf) -> Self {
         Self::ExtraDir { path }
+    }
+
+    #[inline]
+    pub fn error(path: PathBuf, err: std::io::Error) -> Self {
+        Self::Error { path, err }
     }
 
     #[inline]
@@ -882,6 +895,15 @@ pub enum Repaired<'u> {
         source: PathBuf,
         destination: PathBuf,
     },
+}
+
+impl<'u> Repaired<'u> {
+    pub fn into_fixed_pathbuf(self) -> PathBuf {
+        match self {
+            Self::Extracted { target, .. } => target,
+            Self::Moved { destination, .. } => destination,
+        }
+    }
 }
 
 impl<'u> fmt::Display for Repaired<'u> {
@@ -1228,7 +1250,11 @@ impl Part {
         path: PathBuf,
     ) -> Result<VerifySuccess<'s>, VerifyFailure<'s>> {
         match Part::from_cached_path(path.as_ref()) {
-            Ok(ref disk_part) if self == disk_part => Ok(VerifySuccess { name, part: self }),
+            Ok(ref disk_part) if self == disk_part => Ok(VerifySuccess {
+                name,
+                part: self,
+                path,
+            }),
             Ok(disk_part) => Err(VerifyFailure::Bad {
                 path,
                 name,
