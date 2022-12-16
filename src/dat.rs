@@ -276,11 +276,14 @@ impl DatFile {
         println!("{table}");
     }
 
-    pub fn list(&self) {
+    pub fn list(&self, search: Option<&str>) {
         use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
 
-        let mut games = self.games().collect::<Vec<_>>();
+        let mut games: Vec<_> = match search {
+            Some(search) => self.games().filter(|game| game.contains(search)).collect(),
+            None => self.games().collect(),
+        };
         games.sort_unstable();
 
         let mut table = Table::new();

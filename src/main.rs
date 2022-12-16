@@ -1071,12 +1071,16 @@ impl OptExtraSizes {
 struct OptExtraList {
     /// extras name
     name: Option<String>,
+
+    search: Option<String>,
 }
 
 impl OptExtraList {
     fn execute(self) -> Result<(), Error> {
         match self.name.as_deref() {
-            Some(name) => read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, name)?.list(),
+            Some(name) => {
+                read_named_db::<dat::DatFile>(EXTRA, DIR_EXTRA, name)?.list(self.search.as_deref())
+            }
             None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_EXTRA)),
         }
 
@@ -1413,12 +1417,15 @@ impl OptRedumpSizes {
 struct OptRedumpList {
     /// software list to use
     software_list: Option<String>,
+
+    search: Option<String>,
 }
 
 impl OptRedumpList {
     fn execute(self) -> Result<(), Error> {
         match self.software_list.as_deref() {
-            Some(name) => read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, name)?.list(),
+            Some(name) => read_named_db::<dat::DatFile>(REDUMP, DIR_REDUMP, name)?
+                .list(self.search.as_deref()),
             None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_REDUMP)),
         }
 
@@ -1837,12 +1844,15 @@ impl OptNointroSizes {
 struct OptNointroList {
     /// category name
     name: Option<String>,
+
+    search: Option<String>,
 }
 
 impl OptNointroList {
     fn execute(self) -> Result<(), Error> {
         match self.name.as_deref() {
-            Some(name) => read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, name)?.list(),
+            Some(name) => read_named_db::<dat::DatFile>(NOINTRO, DIR_NOINTRO, name)?
+                .list(self.search.as_deref()),
             None => dat::DatFile::list_all(read_collected_dbs::<BTreeMap<_, _>, _>(DIR_NOINTRO)),
         }
 
