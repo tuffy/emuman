@@ -1,5 +1,5 @@
 use super::{Error, ResourceError};
-use crate::game::{GameParts, Part, RomSources, VerifyFailure};
+use crate::game::{FileSize, GameParts, Part, RomSources, VerifyFailure};
 use crate::Resource;
 use comfy_table::Table;
 use serde::{Deserialize, Serialize};
@@ -130,7 +130,11 @@ impl Rom {
                 Ok(part) => Some(Ok((self.name, part))),
                 Err(err) => Some(Err(err)),
             },
-            None => None,
+
+            None => match self.size {
+                Some(0) => Some(Ok((self.name, Part::new_empty()))),
+                _ => None,
+            },
         }
     }
 }
@@ -317,7 +321,7 @@ impl DatFile {
         // first, handle loose files not in subdirectories
         let (
             ExtendCounter {
-                value: successes, ..
+                total: successes, ..
             },
             failures,
         ): (_, Vec<_>) = self.flat.process(
@@ -410,6 +414,15 @@ impl DatFile {
                 Err(e) => Err(e),
             },
         )
+    }
+
+    pub fn size(&self, root: &Path) -> FileSize {
+        self.flat.size(root)
+            + self
+                .tree
+                .iter()
+                .map(|(name, parts)| parts.size(&root.join(name)))
+                .sum::<FileSize>()
     }
 }
 

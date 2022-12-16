@@ -435,6 +435,18 @@ impl GameParts {
     }
 
     #[inline]
+    pub fn paths<'r>(&'r self, root: &'r Path) -> impl Iterator<Item = PathBuf> + 'r {
+        self.keys().map(|name| root.join(name))
+    }
+
+    #[inline]
+    pub fn size(&self, root: &Path) -> FileSize {
+        self.paths(root)
+            .map(|pb| FileSize::new(&pb).unwrap_or_default())
+            .sum()
+    }
+
+    #[inline]
     pub fn insert(&mut self, k: String, v: Part) -> Option<Part> {
         self.parts.insert(k, v)
     }
@@ -674,6 +686,42 @@ impl GameParts {
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.add_and_verify(rom_sources, game_root, handle_repair)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
+    }
+}
+
+#[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
+pub struct FileSize {
+    pub real: u64,
+    pub len: u64,
+}
+
+impl FileSize {
+    fn new(path: &Path) -> Result<Self, std::io::Error> {
+        let metadata = path.metadata()?;
+        Ok(Self {
+            len: metadata.len(),
+            real: filesize::file_real_size_fast(path, &metadata)?,
+        })
+    }
+}
+
+impl std::ops::Add for FileSize {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            len: self.len + other.len,
+            real: self.real + other.real,
+        }
+    }
+}
+
+impl std::iter::Sum<FileSize> for FileSize {
+    fn sum<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = FileSize>,
+    {
+        iter.into_iter().fold(Self::default(), |acc, x| acc + x)
     }
 }
 
@@ -1001,7 +1049,7 @@ impl<I> ExtendOne<I> for ExtendSink<I> {
 }
 
 pub struct ExtendCounter<I> {
-    pub value: usize,
+    pub total: usize,
     phantom: std::marker::PhantomData<I>,
 }
 
@@ -1011,14 +1059,14 @@ impl<I> Extend<I> for ExtendCounter<I> {
     where
         T: IntoIterator<Item = I>,
     {
-        self.value += iter.into_iter().count();
+        self.total += iter.into_iter().count();
     }
 }
 
 impl<I> ExtendOne<I> for ExtendCounter<I> {
     #[inline]
     fn extend_item(&mut self, _: I) {
-        self.value += 1;
+        self.total += 1;
     }
 }
 
@@ -1026,7 +1074,7 @@ impl<I> Default for ExtendCounter<I> {
     #[inline]
     fn default() -> Self {
         Self {
-            value: 0,
+            total: 0,
             phantom: std::marker::PhantomData,
         }
     }
@@ -1095,6 +1143,11 @@ impl Part {
     #[inline]
     pub fn new_disk(sha1: &str) -> Result<Self, hex::FromHexError> {
         parse_sha1(sha1).map(|sha1| Part::Disk { sha1 })
+    }
+
+    #[inline]
+    pub fn new_empty() -> Self {
+        Self::from_slice(b"").unwrap()
     }
 
     #[inline]
@@ -1379,11 +1432,14 @@ pub enum RomSource<'u> {
         has_xattr: bool,
         zip_parts: ZipParts,
     },
+
     Url {
         url: &'u str,
         data: Arc<[u8]>,
         zip_parts: ZipParts,
     },
+
+    Empty,
 }
 
 impl<'u> RomSource<'u> {
@@ -1408,8 +1464,11 @@ impl<'u> RomSource<'u> {
                     zip_parts: parts_b, ..
                 },
             ) => parts_a.len() < parts_b.len(),
-            (RomSource::File { .. }, RomSource::Url { .. }) => true,
-            (RomSource::Url { .. }, RomSource::File { .. }) => false,
+            (RomSource::File { .. }, _) => true,
+            (RomSource::Url { .. }, _) => false,
+            (RomSource::Empty, RomSource::Empty) => false,
+            (RomSource::Empty, RomSource::File { .. }) => false,
+            (RomSource::Empty, RomSource::Url { .. }) => true,
         }
     }
 
@@ -1538,6 +1597,10 @@ impl<'u> RomSource<'u> {
             RomSource::Url {
                 data, zip_parts, ..
             } => extract_from_zip_file(zip_parts, std::io::Cursor::new(data), target),
+
+            RomSource::Empty => File::create(target)
+                .map(|_| Extracted::Copied { rate: None })
+                .map_err(Error::IO),
         }
     }
 }
@@ -1551,9 +1614,12 @@ impl fmt::Display for RomSource<'_> {
                 .display()
                 .fmt(f)
                 .and_then(|()| zip_parts.iter().try_for_each(|part| write!(f, ":{}", part))),
+
             RomSource::Url { url, zip_parts, .. } => url
                 .fmt(f)
                 .and_then(|()| zip_parts.iter().try_for_each(|part| write!(f, ":{}", part))),
+
+            RomSource::Empty => write!(f, "\u{2039}EMPTY\u{203A}"),
         }
     }
 }
@@ -1678,7 +1744,7 @@ impl fmt::Display for Rate {
             b if b < K => write!(f, "{:.2} B/s", b),
             b if b < M => write!(f, "{:.2} KiB/s", b / K),
             b if b < G => write!(f, "{:.2} MiB/s", b / M),
-            b => write!(f, "{:2} GiB/s", b / G),
+            b => write!(f, "{:.2} GiB/s", b / G),
         }
     }
 }
@@ -1695,6 +1761,12 @@ pub fn with_progress<T>(
 }
 
 pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
+
+pub fn empty_rom_sources<'r>() -> RomSources<'r> {
+    let map = RomSources::default();
+    map.insert(Part::new_empty(), RomSource::Empty);
+    map
+}
 
 pub fn file_rom_sources<'r>(root: &Path, progress: &MultiProgress) -> RomSources<'r> {
     use indicatif::ParallelProgressIterator;

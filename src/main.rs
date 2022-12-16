@@ -1046,6 +1046,28 @@ impl OptExtraDirs {
 }
 
 #[derive(Args)]
+struct OptExtraSizes {
+    /// sort output by total size
+    #[clap(short = 'S')]
+    sort_by_size: bool,
+
+    search: Option<String>,
+}
+
+impl OptExtraSizes {
+    fn execute(self) -> Result<(), Error> {
+        display_dir_sizes(
+            dirs::extra_dirs(),
+            read_collected_dbs(DIR_EXTRA),
+            self.search,
+            self.sort_by_size,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
 struct OptExtraList {
     /// extras name
     name: Option<String>,
@@ -1235,6 +1257,9 @@ enum OptExtra {
     /// list defined directories
     Dirs(OptExtraDirs),
 
+    /// display total sizes of defined directories
+    Sizes(OptExtraSizes),
+
     /// list all extras categories
     List(OptExtraList),
 
@@ -1262,6 +1287,7 @@ impl OptExtra {
             OptExtra::Init(o) => o.execute(),
             OptExtra::Destroy(o) => o.execute(),
             OptExtra::Dirs(o) => o.execute(),
+            OptExtra::Sizes(o) => o.execute(),
             OptExtra::List(o) => o.execute(),
             OptExtra::Verify(o) => o.execute(),
             OptExtra::Repair(o) => o.execute(),
@@ -1355,6 +1381,28 @@ impl OptRedumpDirs {
             read_collected_dbs(DIR_REDUMP),
             self.search,
             self.sort_by_version,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptRedumpSizes {
+    /// sort output by total size
+    #[clap(short = 'S')]
+    sort_by_size: bool,
+
+    search: Option<String>,
+}
+
+impl OptRedumpSizes {
+    fn execute(self) -> Result<(), Error> {
+        display_dir_sizes(
+            dirs::redump_dirs(),
+            read_collected_dbs(DIR_REDUMP),
+            self.search,
+            self.sort_by_size,
         );
 
         Ok(())
@@ -1583,6 +1631,9 @@ enum OptRedump {
     /// list defined directories
     Dirs(OptRedumpDirs),
 
+    /// display total sizes of defined directories
+    Sizes(OptRedumpSizes),
+
     /// list all software in software list
     List(OptRedumpList),
 
@@ -1613,6 +1664,7 @@ impl OptRedump {
             OptRedump::Init(o) => o.execute(),
             OptRedump::Destroy(o) => o.execute(),
             OptRedump::Dirs(o) => o.execute(),
+            OptRedump::Sizes(o) => o.execute(),
             OptRedump::List(o) => o.execute(),
             OptRedump::Verify(o) => o.execute(),
             OptRedump::VerifyAll(o) => o.execute(),
@@ -1635,6 +1687,9 @@ enum OptNointro {
 
     /// list defined directories
     Dirs(OptNointroDirs),
+
+    /// display total sizes of defined directories
+    Sizes(OptNointroSizes),
 
     /// list categories or ROMs
     List(OptNointroList),
@@ -1663,6 +1718,7 @@ impl OptNointro {
             OptNointro::Init(o) => o.execute(),
             OptNointro::Destroy(o) => o.execute(),
             OptNointro::Dirs(o) => o.execute(),
+            OptNointro::Sizes(o) => o.execute(),
             OptNointro::List(o) => o.execute(),
             OptNointro::Verify(o) => o.execute(),
             OptNointro::VerifyAll(o) => o.execute(),
@@ -1749,6 +1805,28 @@ impl OptNointroDirs {
             read_collected_dbs(DIR_NOINTRO),
             self.search,
             self.sort_by_version,
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptNointroSizes {
+    /// sort output by total size
+    #[clap(short = 'S')]
+    sort_by_size: bool,
+
+    search: Option<String>,
+}
+
+impl OptNointroSizes {
+    fn execute(self) -> Result<(), Error> {
+        display_dir_sizes(
+            dirs::nointro_dirs(),
+            read_collected_dbs(DIR_NOINTRO),
+            self.search,
+            self.sort_by_size,
         );
 
         Ok(())
@@ -2300,7 +2378,7 @@ where
     let dir = dirs.data_local_dir();
     create_dir_all(dir)?;
     let path = dir.join(db_file);
-    let f = BufWriter::new(File::create(&path)?);
+    let f = BufWriter::new(File::create(path)?);
     ciborium::ser::into_writer(&db, f).map_err(Error::CborWrite)?;
     Ok(())
 }
@@ -2890,6 +2968,75 @@ fn display_dirs<D>(
     println!("{table}");
 }
 
+fn display_dir_sizes<D>(
+    dirs: D,
+    db: BTreeMap<String, dat::DatFile>,
+    search: Option<String>,
+    sort_by_size: bool,
+) where
+    D: Iterator<Item = (String, PathBuf)>,
+{
+    use crate::game::FileSize;
+    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+    use comfy_table::presets::UTF8_FULL_CONDENSED;
+    use comfy_table::{Cell, CellAlignment, Table};
+
+    struct Size(u64);
+
+    impl fmt::Display for Size {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            const K: f64 = (1 << 10) as f64;
+            const M: f64 = (1 << 20) as f64;
+            const G: f64 = (1 << 30) as f64;
+            const T: f64 = (1u64 << 40) as f64;
+
+            match self.0 {
+                b if b < (1 << 10) => write!(f, "{:.2} B", b),
+                b if b < (1 << 20) => write!(f, "{:.2} KiB", b as f64 / K),
+                b if b < (1 << 30) => write!(f, "{:.2} MiB", b as f64 / M),
+                b if b < (1 << 40) => write!(f, "{:.2} GiB", b as f64 / G),
+                b => write!(f, "{:.2} TiB", b as f64 / T),
+            }
+        }
+    }
+
+    let mut results: Vec<(FileSize, String, PathBuf)> = dirs
+        .filter_map(|(name, dir)| {
+            db.get(&name)
+                .filter(|dat| match &search {
+                    Some(search) => dat.version().contains(search) || dat.name().contains(search),
+                    None => true,
+                })
+                .map(|dat| (dat.size(&dir), dat.name().to_owned(), dir))
+        })
+        .collect();
+
+    if sort_by_size {
+        results.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+    }
+
+    if !results.is_empty() {
+        let total = results.iter().map(|(size, _, _)| *size).sum();
+        results.push((total, "Total".to_owned(), PathBuf::default()));
+    }
+
+    let mut table = Table::new();
+    table
+        .set_header(vec!["Size", "Real Size", "DAT Name", "Directory"])
+        .load_preset(UTF8_FULL_CONDENSED)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
+    for (FileSize { len, real }, name, dir) in results {
+        table.add_row(vec![
+            Cell::new(Size(len)).set_alignment(CellAlignment::Right),
+            Cell::new(Size(real)).set_alignment(CellAlignment::Right),
+            Cell::new(name),
+            Cell::new(dir.to_string_lossy()),
+        ]);
+    }
+    println!("{table}");
+}
+
 fn init_dat_table() -> comfy_table::Table {
     use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL_CONDENSED;
@@ -2947,7 +3094,7 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
     let results = sources
         .iter()
         .progress_with(pbar1)
-        .fold(game::RomSources::default(), |acc, r| {
+        .fold(game::empty_rom_sources(), |acc, r| {
             merge_sources(acc, r.rom_sources(&mbar))
         });
 
