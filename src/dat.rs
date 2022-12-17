@@ -129,16 +129,23 @@ impl Rom {
 
     #[inline]
     fn into_part(self) -> Option<Result<(String, Part), hex::FromHexError>> {
-        match self.sha1 {
-            Some(sha1) => match Part::new_rom(&sha1) {
-                Ok(part) => Some(Ok((self.name, part))),
-                Err(err) => Some(Err(err)),
-            },
+        match self {
+            Self {
+                sha1: Some(sha1),
+                name,
+                ..
+            } => Some(match Part::new_rom(&sha1) {
+                Ok(part) => Ok((name, part)),
+                Err(err) => Err(err),
+            }),
 
-            None => match self.size {
-                Some(0) => Some(Ok((self.name, Part::new_empty()))),
-                _ => None,
-            },
+            Self {
+                sha1: None,
+                size: Some(0),
+                name,
+            } => Some(Ok((name, Part::new_empty()))),
+
+            _ => None,
         }
     }
 }
