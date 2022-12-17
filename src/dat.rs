@@ -72,27 +72,31 @@ impl Game {
     fn try_flatten(self) -> Result<Flattened, hex::FromHexError> {
         match &self {
             Game {
+                name: game_name,
                 rom: Some(roms),
                 disk: None,
-                ..
             } => match &roms[..] {
                 [Rom {
-                    name,
+                    name: rom_name,
                     sha1: Some(sha1),
                     ..
-                }] => Part::new_rom(sha1).map(|part| Ok((name.clone(), part))),
+                }] if rom_name.starts_with(game_name) => {
+                    Part::new_rom(sha1).map(|part| Ok((rom_name.clone(), part)))
+                }
                 _ => self.into_parts().map(Err),
             },
             Game {
+                name: game_name,
                 rom: None,
                 disk: Some(disks),
-                ..
             } => match &disks[..] {
                 [Disk {
-                    name,
+                    name: disk_name,
                     sha1: Some(sha1),
                     ..
-                }] => Part::new_disk(sha1).map(|part| Ok((name.clone() + ".chd", part))),
+                }] if disk_name.starts_with(game_name) => {
+                    Part::new_disk(sha1).map(|part| Ok((disk_name.clone() + ".chd", part)))
+                }
                 _ => self.into_parts().map(Err),
             },
             _ => self.into_parts().map(Err),
