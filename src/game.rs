@@ -483,13 +483,15 @@ impl GameParts {
                 .map(|(_, dir)| VerifyFailure::extra_dir(dir)),
         );
 
-        self.process(
+        let successes = self.process(
             files,
-            failures,
+            &mut failures,
             |name| game_root.join(name),
             increment_progress,
             handle_failure,
-        )
+        )?;
+
+        Ok((successes, failures))
     }
 
     // files is a map of files to be processed
@@ -500,16 +502,16 @@ impl GameParts {
     pub fn process<'s, S, F, E>(
         &'s self,
         files: DashMap<String, PathBuf>,
-        failures: F,
+        failures: &mut F,
         missing_path: impl Fn(&str) -> PathBuf + Send + Sync,
         increment_progress: impl Fn() + Send + Sync,
         handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
             + Send
             + Sync,
-    ) -> Result<(S, F), E>
+    ) -> Result<S, E>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
-        F: Default + ExtendOne<VerifyFailure<'s>> + Send,
+        F: ExtendOne<VerifyFailure<'s>> + Send,
         E: Send,
     {
         use rayon::prelude::*;
@@ -605,14 +607,14 @@ impl GameParts {
                 Ok(())
             })?;
 
-        let mut failures = failures.into_inner().unwrap();
+        let failures = failures.into_inner().unwrap();
 
         failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
             part: Ok(part),
             path,
         }));
 
-        Ok((successes.into_inner().unwrap(), failures))
+        Ok(successes.into_inner().unwrap())
     }
 
     #[inline]

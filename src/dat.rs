@@ -329,18 +329,15 @@ impl DatFile {
         let GameDir {
             files,
             dirs,
-            failures,
+            mut failures,
         }: GameDir<DashMap<_, _>, DashMap<_, _>, Vec<_>> = GameDir::open(root);
 
         // first, handle loose files not in subdirectories
-        let (
-            ExtendCounter {
-                total: successes, ..
-            },
-            failures,
-        ): (_, Vec<_>) = self.flat.process(
+        let ExtendCounter {
+            total: successes, ..
+        } = self.flat.process(
             files,
-            failures,
+            &mut failures,
             |name| root.join(name),
             &increment_progress,
             &handle_failure,
