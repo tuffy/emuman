@@ -1328,7 +1328,7 @@ impl OptRedumpInit {
                 datfile
             })
             .and_then(|datfile| {
-                dat::DatFile::new_unflattened(datfile)
+                dat::DatFile::new_flattened(datfile)
                     .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
             })
         })? {
