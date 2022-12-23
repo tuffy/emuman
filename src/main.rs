@@ -978,10 +978,11 @@ impl OptExtraInit {
             clear_named_dbs(DIR_EXTRA)?;
         }
 
-        for dats in self.dats.into_iter().map(dat::read_unflattened_dats) {
-            for dat in dats? {
-                write_named_db(DIR_EXTRA, dat.name(), &dat)?;
-            }
+        for datfile in dat::fetch_and_parse(self.dats, |file, datfile| {
+            dat::DatFile::new_unflattened(datfile)
+                .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+        })? {
+            write_named_db(DIR_EXTRA, datfile.name(), &datfile)?;
         }
 
         Ok(())
@@ -1306,27 +1307,32 @@ impl OptExtra {
 struct OptRedumpInit {
     /// Redump XML or Zip file
     xml: Vec<Resource>,
+
+    /// interactively edit DAT contents before importing
+    #[clap(long = "edit")]
+    edit: bool,
 }
 
 impl OptRedumpInit {
     fn execute(self) -> Result<(), Error> {
         let mut split_db = split::SplitDb::new();
 
-        for file in self.xml.into_iter() {
-            for (file, data) in dat::read_dats_from_file(file)? {
-                let datafile: crate::dat::Datafile =
-                    match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
-                        Ok(dat) => dat,
-                        Err(error) => return Err(Error::XmlFile(ResourceError { file, error })),
-                    };
-
-                split_db.populate(&datafile);
-
-                let dat = crate::dat::DatFile::new_flattened(datafile)
-                    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))?;
-
-                write_named_db(DIR_REDUMP, dat.name(), &dat)?;
-            }
+        for datfile in dat::fetch_and_parse(self.xml, |file, datfile| {
+            (if self.edit {
+                dat::edit_file(datfile)
+            } else {
+                Ok(datfile)
+            })
+            .map(|datfile| {
+                split_db.populate(&datfile);
+                datfile
+            })
+            .and_then(|datfile| {
+                dat::DatFile::new_unflattened(datfile)
+                    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+            })
+        })? {
+            write_named_db(DIR_REDUMP, datfile.name(), &datfile)?;
         }
 
         write_game_db(DB_REDUMP_SPLIT, &split_db)?;
@@ -1741,9 +1747,13 @@ struct OptNointroInit {
     /// No-Intro DAT or Zip file
     dats: Vec<Resource>,
 
-    /// completely replace old dat files
+    /// completely replace old DAT files
     #[clap(long = "replace")]
     replace: bool,
+
+    /// interactively edit DAT contents before importing
+    #[clap(long = "edit")]
+    edit: bool,
 }
 
 impl OptNointroInit {
@@ -1752,10 +1762,18 @@ impl OptNointroInit {
             clear_named_dbs(DIR_NOINTRO)?;
         }
 
-        for dats in self.dats.into_iter().map(dat::read_dats) {
-            for dat in dats? {
-                write_named_db(DIR_NOINTRO, dat.name(), &dat)?;
-            }
+        for datfile in dat::fetch_and_parse(self.dats, |file, datfile| {
+            (if self.edit {
+                dat::edit_file(datfile)
+            } else {
+                Ok(datfile)
+            })
+            .and_then(|datfile| {
+                dat::DatFile::new_flattened(datfile)
+                    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+            })
+        })? {
+            write_named_db(DIR_NOINTRO, datfile.name(), &datfile)?;
         }
 
         Ok(())

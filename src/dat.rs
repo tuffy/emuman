@@ -35,6 +35,12 @@ pub struct Game {
     disk: Option<Vec<Disk>>,
 }
 
+impl std::fmt::Display for Game {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.name().fmt(f)
+    }
+}
+
 impl Game {
     #[inline]
     pub fn name(&self) -> &str {
@@ -442,70 +448,87 @@ pub struct VerifyResults<'v> {
     pub summary: crate::game::VerifyResultsSummary,
 }
 
-#[inline]
-fn parse_dat(file: Resource, data: Box<[u8]>, flatten: bool) -> Result<DatFile, Error> {
-    let datafile: Datafile = match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
-        Ok(dat) => dat,
-        Err(error) => return Err(Error::XmlFile(ResourceError { file, error })),
-    };
+pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
+    use crate::terminal_height;
 
-    (if flatten {
-        DatFile::new_flattened(datafile)
-    } else {
-        DatFile::new_unflattened(datafile)
-    })
-    .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
-}
+    match dat {
+        Datafile {
+            header,
+            game: Some(mut game),
+            machine,
+        } if !game.is_empty() => {
+            game.sort_unstable_by(|x, y| x.name().cmp(y.name()));
 
-type Dats = Vec<(Resource, Box<[u8]>)>;
-
-pub fn read_dats_from_file(file: Resource) -> Result<Dats, Error> {
-    use super::is_zip;
-    use std::io::Read;
-
-    let mut f = file.open()?;
-
-    match is_zip(&mut f) {
-        Ok(true) => {
-            let mut zip = zip::ZipArchive::new(f)?;
-
-            let dats = zip
-                .file_names()
-                .filter(|s| s.ends_with(".dat"))
-                .map(|s| s.to_owned())
-                .collect::<Vec<String>>();
-
-            dats.into_iter()
-                .map(|name| {
-                    let mut data = Vec::new();
-                    zip.by_name(&name)?.read_to_end(&mut data)?;
-                    Ok((file.clone(), data.into_boxed_slice()))
-                })
-                .collect()
+            Ok(Datafile {
+                game: Some(
+                    inquire::MultiSelect::new(&header.name, game)
+                        .with_page_size(terminal_height())
+                        .prompt()?,
+                ),
+                header,
+                machine,
+            })
         }
-        Ok(false) => {
-            let mut data = Vec::new();
-            f.read_to_end(&mut data)?;
-            Ok(vec![(file, data.into_boxed_slice())])
-        }
-        Err(err) => Err(Error::IO(err)),
+        other => Ok(other),
     }
 }
 
-#[inline]
-pub fn read_dats(file: Resource) -> Result<Vec<DatFile>, Error> {
-    read_dats_from_file(file).and_then(|v| {
-        v.into_iter()
-            .map(|(file, data)| parse_dat(file, data, true))
-            .collect()
-    })
-}
+pub fn fetch_and_parse(
+    dats: Vec<Resource>,
+    mut convert: impl FnMut(Resource, Datafile) -> Result<DatFile, Error>,
+) -> Result<Vec<DatFile>, Error> {
+    type Dats = Vec<(Resource, Box<[u8]>)>;
 
-#[inline]
-pub fn read_unflattened_dats(file: Resource) -> Result<Vec<DatFile>, Error> {
-    read_dats_from_file(file).and_then(|v| {
-        v.into_iter()
-            .map(|(file, data)| parse_dat(file, data, false))
-            .collect()
-    })
+    fn read_dats(resource: Resource) -> Result<Dats, Error> {
+        use super::is_zip;
+        use std::io::Read;
+
+        let mut f = resource.open()?;
+
+        match is_zip(&mut f) {
+            Ok(true) => {
+                let mut zip = zip::ZipArchive::new(f)?;
+
+                let dats = zip
+                    .file_names()
+                    .filter(|s| s.ends_with(".dat"))
+                    .map(|s| s.to_owned())
+                    .collect::<Vec<String>>();
+
+                dats.into_iter()
+                    .map(|name| {
+                        let mut data = Vec::new();
+                        zip.by_name(&name)?.read_to_end(&mut data)?;
+                        Ok((resource.clone(), data.into_boxed_slice()))
+                    })
+                    .collect()
+            }
+            Ok(false) => {
+                let mut data = Vec::new();
+                f.read_to_end(&mut data)?;
+                Ok(vec![(resource, data.into_boxed_slice())])
+            }
+            Err(err) => Err(Error::IO(err)),
+        }
+    }
+
+    let mut datfiles = Vec::new();
+
+    for resource in dats {
+        for (resource, data) in read_dats(resource)? {
+            let datafile = match quick_xml::de::from_reader(std::io::Cursor::new(data)) {
+                Ok(dat) => dat,
+                Err(error) => {
+                    return Err(Error::XmlFile(ResourceError {
+                        file: resource,
+                        error,
+                    }))
+                }
+            };
+
+            datfiles.push(convert(resource, datafile)?);
+        }
+    }
+
+    Ok(datfiles)
 }
