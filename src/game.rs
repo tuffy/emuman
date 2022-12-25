@@ -563,7 +563,12 @@ impl GameParts {
             .into_par_iter()
             .for_each(|(_, path)| match Part::from_path(&path) {
                 Ok(part) => {
-                    extras.insert(part, path);
+                    if let Some(path) = extras.insert(part.clone(), path) {
+                        failures.lock().unwrap().extend_item(VerifyFailure::Extra {
+                            path,
+                            part: Ok(part),
+                        })
+                    }
                 }
                 part @ Err(_) => failures
                     .lock()
