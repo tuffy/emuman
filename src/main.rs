@@ -72,6 +72,7 @@ pub enum Error {
     Inquire(inquire::error::InquireError),
     NoSuchDatFile(String),
     NoDatFiles,
+    NoDatFilesFound,
     EmptyDatFile,
     NoSuchSoftwareList(String),
     NoSoftwareLists,
@@ -132,9 +133,10 @@ impl fmt::Display for Error {
                 None => write!(f, "HTTP error {}", code.as_str()),
             },
             Error::Inquire(err) => err.fmt(f),
-            Error::NoSuchDatFile(s) => write!(f, "no such dat file \"{}\"", s),
-            Error::NoDatFiles => write!(f, "no dat files have been initialized"),
-            Error::EmptyDatFile => write!(f, "dat file contains no games"),
+            Error::NoSuchDatFile(s) => write!(f, "no such DAT file \"{}\"", s),
+            Error::NoDatFiles => write!(f, "no DAT files have been initialized"),
+            Error::NoDatFilesFound => write!(f, "no DAT files found in resource"),
+            Error::EmptyDatFile => write!(f, "DAT file contains no games"),
             Error::NoSuchSoftwareList(s) => write!(f, "no such software list \"{}\"", s),
             Error::NoSuchSoftware(s) => write!(f, "no such software \"{}\"", s),
             Error::NoSoftwareLists => write!(f, "no software lists initialized"),
@@ -978,7 +980,7 @@ impl OptExtraInit {
             clear_named_dbs(DIR_EXTRA)?;
         }
 
-        for datfile in dat::fetch_and_parse(self.dats, |file, datfile| {
+        for datfile in dat::fetch_and_parse::<_, Vec<_>>(self.dats, |file, datfile| {
             dat::DatFile::new_unflattened(datfile)
                 .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
         })? {
@@ -1317,7 +1319,7 @@ impl OptRedumpInit {
     fn execute(self) -> Result<(), Error> {
         let mut split_db = split::SplitDb::new();
 
-        for datfile in dat::fetch_and_parse(self.xml, |file, datfile| {
+        for datfile in dat::fetch_and_parse::<_, Vec<_>>(self.xml, |file, datfile| {
             (if self.edit {
                 dat::edit_file(datfile)
             } else {
@@ -1762,7 +1764,7 @@ impl OptNointroInit {
             clear_named_dbs(DIR_NOINTRO)?;
         }
 
-        for datfile in dat::fetch_and_parse(self.dats, |file, datfile| {
+        for datfile in dat::fetch_and_parse::<_, Vec<_>>(self.dats, |file, datfile| {
             (if self.edit {
                 dat::edit_file(datfile)
             } else {
@@ -2019,6 +2021,164 @@ impl OptNointroParts {
                     .map_err(Error::Inquire)
             }
         }?;
+
+        let game = match self.game {
+            Some(game) => datfile
+                .remove_game(&game)
+                .ok_or_else(|| Error::NoSuchSoftware(game.to_string()))?,
+            None => select_datfile_game(datfile)?,
+        };
+
+        let mut table = Table::new();
+        table
+            .set_header(vec!["Part", "SHA1 Hash"])
+            .load_preset(UTF8_FULL_CONDENSED)
+            .apply_modifier(UTF8_ROUND_CORNERS);
+
+        for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
+            table.add_row(vec![name, part.digest().to_string()]);
+        }
+        println!("{table}");
+
+        Ok(())
+    }
+}
+
+#[derive(Subcommand)]
+#[clap(name = "nointro")]
+enum OptDat {
+    /// list ROMs defined in DAT
+    List(OptDatList),
+
+    /// verify ROMs defined in DAT
+    Verify(OptDatVerify),
+
+    /// add and verify ROMs defined in DAT
+    #[clap(alias = "add")]
+    Repair(OptDatRepair),
+
+    /// display game's parts in DAT
+    Parts(OptDatParts),
+}
+
+impl OptDat {
+    fn execute(self) -> Result<(), Error> {
+        match self {
+            OptDat::List(o) => o.execute(),
+            OptDat::Verify(o) => o.execute(),
+            OptDat::Repair(o) => o.execute(),
+            OptDat::Parts(o) => o.execute(),
+        }
+    }
+}
+
+#[derive(Args)]
+struct OptDatList {
+    dat: Resource,
+
+    search: Option<String>,
+}
+
+impl OptDatList {
+    fn execute(self) -> Result<(), Error> {
+        dat::fetch_and_parse_single(self.dat, |file, datfile| {
+            dat::DatFile::new_flattened(datfile)
+                .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+        })?
+        .list(self.search.as_deref());
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptDatVerify {
+    dat: Resource,
+
+    roms: PathBuf,
+
+    /// interactively edit DAT contents before verifying
+    #[clap(long = "edit")]
+    edit: bool,
+}
+
+impl OptDatVerify {
+    fn execute(self) -> Result<(), Error> {
+        use crate::game::Never;
+
+        process_dat(
+            dat::fetch_and_parse_single(self.dat, |file, datfile| {
+                (if self.edit {
+                    dat::edit_file(datfile)
+                } else {
+                    Ok(datfile)
+                })
+                .and_then(|datfile| {
+                    dat::DatFile::new_flattened(datfile)
+                        .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+                })
+            })?,
+            |datfile, pbar| Ok::<_, Never>(datfile.verify(&self.roms, pbar)),
+        )
+        .unwrap();
+
+        Ok(())
+    }
+}
+
+#[derive(Args)]
+struct OptDatRepair {
+    dat: Resource,
+
+    roms: PathBuf,
+
+    /// input file, directory, or URL
+    input: Vec<Resource>,
+
+    /// interactively edit DAT contents before verifying
+    #[clap(long = "edit")]
+    edit: bool,
+}
+
+impl OptDatRepair {
+    fn execute(self) -> Result<(), Error> {
+        let mut rom_sources = rom_sources(&self.input);
+
+        process_dat(
+            dat::fetch_and_parse_single(self.dat, |file, datfile| {
+                (if self.edit {
+                    dat::edit_file(datfile)
+                } else {
+                    Ok(datfile)
+                })
+                .and_then(|datfile| {
+                    dat::DatFile::new_flattened(datfile)
+                        .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+                })
+            })?,
+            |datfile, pbar| datfile.add_and_verify(&mut rom_sources, &self.roms, pbar),
+        )
+    }
+}
+
+#[derive(Args)]
+struct OptDatParts {
+    dat: Resource,
+
+    /// game's parts to search for
+    game: Option<String>,
+}
+
+impl OptDatParts {
+    fn execute(self) -> Result<(), Error> {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL_CONDENSED;
+        use comfy_table::Table;
+
+        let mut datfile = dat::fetch_and_parse_single(self.dat, |file, datfile| {
+            dat::DatFile::new_flattened(datfile)
+                .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
+        })?;
 
         let game = match self.game {
             Some(game) => datfile
@@ -2352,6 +2512,10 @@ enum Opt {
     #[clap(subcommand)]
     Nointro(OptNointro),
 
+    /// raw DAT management
+    #[clap(subcommand)]
+    Dat(OptDat),
+
     /// identify ROM or CHD by hash
     Identify(OptIdentify),
 
@@ -2370,6 +2534,7 @@ impl Opt {
             Opt::Extra(o) => o.execute(),
             Opt::Redump(o) => o.execute(),
             Opt::Nointro(o) => o.execute(),
+            Opt::Dat(o) => o.execute(),
             Opt::Identify(o) => o.execute(),
             Opt::Cache(o) => o.execute(),
         }

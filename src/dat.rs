@@ -1,5 +1,5 @@
 use super::{Error, ResourceError};
-use crate::game::{FileSize, GameParts, Part, RomSources, VerifyFailure};
+use crate::game::{ExtendOne, FileSize, GameParts, Part, RomSources, VerifyFailure};
 use crate::Resource;
 use comfy_table::Table;
 use serde::{Deserialize, Serialize};
@@ -484,10 +484,14 @@ pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
     }
 }
 
-pub fn fetch_and_parse(
-    dats: Vec<Resource>,
+pub fn fetch_and_parse<R, D>(
+    dats: R,
     mut convert: impl FnMut(Resource, Datafile) -> Result<DatFile, Error>,
-) -> Result<Vec<DatFile>, Error> {
+) -> Result<D, Error>
+where
+    R: IntoIterator<Item = Resource>,
+    D: Default + ExtendOne<DatFile>,
+{
     type Dats = Vec<(Resource, Box<[u8]>)>;
 
     fn read_dats(resource: Resource) -> Result<Dats, Error> {
@@ -523,7 +527,7 @@ pub fn fetch_and_parse(
         }
     }
 
-    let mut datfiles = Vec::new();
+    let mut datfiles = D::default();
 
     for resource in dats {
         for (resource, data) in read_dats(resource)? {
@@ -537,9 +541,21 @@ pub fn fetch_and_parse(
                 }
             };
 
-            datfiles.push(convert(resource, datafile)?);
+            datfiles.extend_item(convert(resource, datafile)?);
         }
     }
 
     Ok(datfiles)
+}
+
+pub fn fetch_and_parse_single(
+    dat: Resource,
+    convert: impl FnMut(Resource, Datafile) -> Result<DatFile, Error>,
+) -> Result<DatFile, Error> {
+    use crate::game::First;
+
+    match fetch_and_parse(std::iter::once(dat), convert)? {
+        First(Some(datfile)) => Ok(datfile),
+        First(None) => Err(Error::NoDatFilesFound),
+    }
 }

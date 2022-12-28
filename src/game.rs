@@ -1087,6 +1087,46 @@ impl<I> Default for ExtendCounter<I> {
     }
 }
 
+pub struct First<T>(pub Option<T>);
+
+impl<T> Default for First<T> {
+    #[inline]
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<T> First<T> {
+    #[inline]
+    fn insert(&mut self, item: T) {
+        match &mut self.0 {
+            Some(_) => { /* do nothing */ }
+            first @ None => {
+                *first = Some(item);
+            }
+        }
+    }
+}
+
+impl<T> Extend<T> for First<T> {
+    #[inline]
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        for i in iter {
+            self.insert(i);
+        }
+    }
+}
+
+impl<T> ExtendOne<T> for First<T> {
+    #[inline]
+    fn extend_item(&mut self, item: T) {
+        self.insert(item);
+    }
+}
+
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct FileId {
     pub dev: u64,
