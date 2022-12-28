@@ -2828,14 +2828,14 @@ where
     E: Send,
 {
     use crate::game::verify_style;
-    use indicatif::{ParallelProgressIterator, ProgressIterator};
+    use indicatif::{ParallelProgressIterator, ProgressDrawTarget, ProgressIterator};
 
     let roms_dir = dirs::mess_roms_all(roms);
     let mut total = game::VerifyResultsSummary::default();
     let mut table = init_dat_table();
     let dbs = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
 
-    let mbar = MultiProgress::new();
+    let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 =
         mbar.add(ProgressBar::new(dbs.len().try_into().unwrap()).with_style(verify_style()));
     pbar1.set_message(message);
@@ -2924,9 +2924,9 @@ where
     I: ExactSizeIterator<Item = (String, PathBuf)>,
 {
     use game::verify_style;
-    use indicatif::ProgressIterator;
+    use indicatif::{ProgressDrawTarget, ProgressIterator};
 
-    let mbar = MultiProgress::new();
+    let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 =
         mbar.add(ProgressBar::new(dirs.len().try_into().unwrap()).with_style(verify_style()));
     pbar1.set_message(message);
@@ -3091,7 +3091,7 @@ fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::Verify
 }
 
 fn rom_sources(sources: &[Resource]) -> game::RomSources {
-    use indicatif::ProgressIterator;
+    use indicatif::{ProgressDrawTarget, ProgressIterator};
 
     fn merge_sources<'u>(
         base: game::RomSources<'u>,
@@ -3114,7 +3114,7 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
         base
     }
 
-    let mbar = MultiProgress::new();
+    let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 = mbar
         .add(ProgressBar::new(sources.len().try_into().unwrap()).with_style(game::verify_style()));
     pbar1.set_message("retrieving ROMs");
