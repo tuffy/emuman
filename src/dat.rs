@@ -450,6 +450,7 @@ pub struct VerifyResults<'v> {
 
 pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
     use crate::terminal_height;
+    use inquire::list_option::ListOption;
 
     match dat {
         Datafile {
@@ -463,6 +464,16 @@ pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
                 game: Some(
                     inquire::MultiSelect::new(&header.name, game)
                         .with_page_size(terminal_height())
+                        .with_formatter(&|opts: &[ListOption<&Game>]| {
+                            format!(
+                                "{} {} added",
+                                opts.len(),
+                                match opts.len() {
+                                    1 => "title",
+                                    _ => "titles",
+                                }
+                            )
+                        })
                         .prompt()?,
                 ),
                 header,

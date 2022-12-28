@@ -1204,14 +1204,14 @@ impl Part {
         xattr::get(path, CACHE_XATTR)
             .ok()
             .flatten()
-            .and_then(|v| match v.split_first() {
-                Some((b'r', sha1_hex)) => {
+            .and_then(|v| match v.as_slice() {
+                [b'r', sha1_hex @ ..] => {
                     let mut sha1 = [0; 20];
                     hex::decode_to_slice(sha1_hex, &mut sha1)
                         .map(|()| Self::Rom { sha1 })
                         .ok()
                 }
-                Some((b'd', sha1_hex)) => {
+                [b'd', sha1_hex @ ..] => {
                     let mut sha1 = [0; 20];
                     hex::decode_to_slice(sha1_hex, &mut sha1)
                         .map(|()| Self::Disk { sha1 })
@@ -1568,8 +1568,8 @@ impl<'u> RomSource<'u> {
                 file: source,
                 has_xattr,
                 zip_parts,
-            } => match zip_parts.split_first() {
-                None => hard_link(source, target)
+            } => match zip_parts.as_slice() {
+                [] => hard_link(source, target)
                     .map(|()| Extracted::Linked {
                         has_xattr: *has_xattr,
                     })
@@ -1579,7 +1579,7 @@ impl<'u> RomSource<'u> {
                             .map_err(Error::IO)
                     }),
 
-                Some((Compression::Zip { index }, [])) => std::fs::File::create(target)
+                [Compression::Zip { index }] => std::fs::File::create(target)
                     .and_then(|mut w| {
                         Rate::from_copy(|| {
                             std::io::copy(
@@ -1592,7 +1592,7 @@ impl<'u> RomSource<'u> {
                     .map(|rate| Extracted::Copied { rate })
                     .map_err(Error::IO),
 
-                Some((Compression::Zip { index }, rest)) => {
+                [Compression::Zip { index }, rest @ ..] => {
                     let mut index_file = Vec::new();
                     zip::ZipArchive::new(File::open(source.as_ref())?)?
                         .by_index(*index)?
@@ -1636,13 +1636,13 @@ fn extract_from_zip_file<R: Read + Seek>(
     mut r: R,
     target: &Path,
 ) -> Result<Extracted, Error> {
-    match indexes.split_first() {
-        None => std::fs::File::create(target)
+    match indexes {
+        [] => std::fs::File::create(target)
             .and_then(|mut w| Rate::from_copy(|| std::io::copy(&mut r, &mut w)))
             .map(|rate| Extracted::Copied { rate })
             .map_err(Error::IO),
 
-        Some((Compression::Zip { index }, [])) => std::fs::File::create(target)
+        [Compression::Zip { index }] => std::fs::File::create(target)
             .and_then(|mut w| {
                 Rate::from_copy(|| {
                     std::io::copy(&mut zip::ZipArchive::new(r)?.by_index(*index)?, &mut w)
@@ -1651,7 +1651,7 @@ fn extract_from_zip_file<R: Read + Seek>(
             .map(|rate| Extracted::Copied { rate })
             .map_err(Error::IO),
 
-        Some((Compression::Zip { index }, rest)) => {
+        [Compression::Zip { index }, rest @ ..] => {
             let mut index_file = Vec::new();
             zip::ZipArchive::new(r)?
                 .by_index(*index)?

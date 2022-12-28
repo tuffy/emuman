@@ -291,7 +291,7 @@ pub fn extra_dir(dir: Option<PathBuf>, extra: &str) -> ExtraParts<'_> {
 
 pub fn extra_dir_names() -> Option<Vec<String>> {
     DirectoryConfig::new()
-        .map(|DirectoryConfig { extra, .. }| extra.into_iter().map(|(k, _)| k).collect::<Vec<_>>())
+        .map(|DirectoryConfig { extra, .. }| extra.into_keys().collect::<Vec<_>>())
         .filter(|v| !v.is_empty())
 }
 
@@ -375,9 +375,7 @@ pub fn nointro_dirs() -> Box<dyn ExactSizeIterator<Item = (String, PathBuf)>> {
 
 pub fn nointro_dir_names() -> Option<Vec<String>> {
     DirectoryConfig::new()
-        .map(|DirectoryConfig { nointro, .. }| {
-            nointro.into_iter().map(|(k, _)| k).collect::<Vec<_>>()
-        })
+        .map(|DirectoryConfig { nointro, .. }| nointro.into_keys().collect::<Vec<_>>())
         .filter(|v| !v.is_empty())
 }
 
@@ -459,9 +457,7 @@ pub fn redump_dirs() -> Box<dyn ExactSizeIterator<Item = (String, PathBuf)>> {
 
 pub fn redump_dir_names() -> Option<Vec<String>> {
     DirectoryConfig::new()
-        .map(|DirectoryConfig { redump, .. }| {
-            redump.into_iter().map(|(k, _)| k).collect::<Vec<_>>()
-        })
+        .map(|DirectoryConfig { redump, .. }| redump.into_keys().collect::<Vec<_>>())
         .filter(|v| !v.is_empty())
 }
 
