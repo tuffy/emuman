@@ -769,6 +769,10 @@ struct OptMessVerifyAll {
     /// ROMs directory
     #[clap(short = 'r', long = "roms")]
     roms: Option<PathBuf>,
+
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
 }
 
 impl OptMessVerifyAll {
@@ -779,6 +783,7 @@ impl OptMessVerifyAll {
             "verifying software lists",
             self.roms,
             |parts, path, _| -> Result<_, Never> { Ok(parts.verify_failures(path)) },
+            self.show_all,
         )
         .unwrap();
 
@@ -837,6 +842,10 @@ struct OptMessRepairAll {
 
     /// input file, directory, or URL
     input: Vec<Resource>,
+
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
 }
 
 impl OptMessRepairAll {
@@ -852,6 +861,7 @@ impl OptMessRepairAll {
                     repaired.into_fixed_pathbuf()
                 })
             },
+            self.show_all,
         )
     }
 }
@@ -1124,7 +1134,11 @@ impl OptExtraVerify {
 }
 
 #[derive(Args)]
-struct OptExtraVerifyAll;
+struct OptExtraVerifyAll {
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
+}
 
 impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1135,6 +1149,7 @@ impl OptExtraVerifyAll {
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
+            self.show_all,
         )
         .unwrap();
 
@@ -1181,6 +1196,10 @@ impl OptExtraRepair {
 struct OptExtraRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
+
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
 }
 
 impl OptExtraRepairAll {
@@ -1192,6 +1211,7 @@ impl OptExtraRepairAll {
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            self.show_all,
         )
     }
 }
@@ -1477,7 +1497,11 @@ impl OptRedumpVerify {
 }
 
 #[derive(Args)]
-struct OptRedumpVerifyAll;
+struct OptRedumpVerifyAll {
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
+}
 
 impl OptRedumpVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1488,6 +1512,7 @@ impl OptRedumpVerifyAll {
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
+            self.show_all,
         )
         .unwrap();
 
@@ -1534,6 +1559,10 @@ impl OptRedumpRepair {
 struct OptRedumpRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
+
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
 }
 
 impl OptRedumpRepairAll {
@@ -1545,6 +1574,7 @@ impl OptRedumpRepairAll {
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            self.show_all,
         )
     }
 }
@@ -1916,7 +1946,11 @@ impl OptNointroVerify {
 }
 
 #[derive(Args)]
-struct OptNointroVerifyAll;
+struct OptNointroVerifyAll {
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
+}
 
 impl OptNointroVerifyAll {
     fn execute(self) -> Result<(), Error> {
@@ -1927,6 +1961,7 @@ impl OptNointroVerifyAll {
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| Ok::<_, Never>(datfile.verify(dir, pbar)),
+            self.show_all,
         )
         .unwrap();
 
@@ -1973,6 +2008,10 @@ impl OptNointroRepair {
 struct OptNointroRepairAll {
     /// input file, directory, or URL
     input: Vec<Resource>,
+
+    /// show all systems in output table
+    #[clap(short = 'A', long = "all")]
+    show_all: bool,
 }
 
 impl OptNointroRepairAll {
@@ -1984,6 +2023,7 @@ impl OptNointroRepairAll {
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
             |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            self.show_all,
         )
     }
 }
@@ -2993,6 +3033,7 @@ fn process_all_mess<E>(
             &MultiProgress,
         ) -> Result<Vec<game::VerifyFailure<'g>>, E>
         + Sync,
+    show_all: bool,
 ) -> Result<(), E>
 where
     E: Send,
@@ -3049,7 +3090,9 @@ where
             }
         }
 
-        table.add_row(db_total.row(&software_list));
+        if show_all || (db_total.successes != db_total.total) {
+            table.add_row(db_total.row(&software_list));
+        }
         total += db_total;
         mbar.remove(&pbar2);
     }
@@ -3089,6 +3132,7 @@ fn process_all_dat<I, E>(
         &Path,
         &indicatif::ProgressBar,
     ) -> Result<dat::VerifyResults<'d>, E>,
+    show_all: bool,
 ) -> Result<(), E>
 where
     I: ExactSizeIterator<Item = (String, PathBuf)>,
@@ -3111,7 +3155,9 @@ where
             for failure in failures {
                 mbar.println(format!("{}", failure)).unwrap();
             }
-            table.add_row(summary.row(datfile.name()));
+            if show_all || (summary.successes != summary.total) {
+                table.add_row(summary.row(datfile.name()));
+            }
             total += summary;
             mbar.remove(&pbar2);
         }
