@@ -1,7 +1,7 @@
 [package]
 name = "emuman"
 description = "Utility for managing emulator ROM files."
-version = "2.8.0"
+version = "2.8.1"
 authors = ["Brian Langenberger <bjl@usa.net>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/tuffy/emuman"
@@ -25,7 +25,7 @@ once_cell = "1.17"
 dashmap = {version = "5.4", features=["rayon"]}
 xattr = "1.0"
 attohttpc = "0.24"
-quick-xml = {version = "0.27", features=["serialize"]}
+quick-xml = {version = "0.26", features=["serialize"]}
 url = "2.3"
 hex = "0.4"
 base64 = "0.20"
