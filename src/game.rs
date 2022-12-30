@@ -552,30 +552,31 @@ impl GameParts {
             })?;
         }
 
-        // determine renamed, missing and extra files
-        //
-        // Note that we need to find all the missing and extra files
-        // before we can map missing files to either missing
-        // renamed or extra.
+        // process anything left over on disk
         let extras = DashMap::new();
 
         files
             .into_par_iter()
             .for_each(|(_, path)| match Part::from_path(&path) {
                 Ok(part) => {
+                    // populate extras hash
                     if let Some(path) = extras.insert(part.clone(), path) {
+                        // treat multiple files that hash the same as extras
                         failures.lock().unwrap().extend_item(VerifyFailure::Extra {
                             path,
                             part: Ok(part),
                         })
                     }
                 }
+
+                // treat everything we can't read as extras
                 part @ Err(_) => failures
                     .lock()
                     .unwrap()
                     .extend_item(VerifyFailure::Extra { path, part }),
             });
 
+        // process everything tagged as missing
         missing
             .into_inner()
             .unwrap()
@@ -584,6 +585,8 @@ impl GameParts {
                 let destination = missing_path(name);
 
                 match handle_failure(match extras.remove(part) {
+                    // if the missing file is in the extras pile
+                    // treat it as a rename and handle it
                     Some((_, source)) => VerifyFailure::Rename {
                         source,
                         destination,
@@ -591,6 +594,7 @@ impl GameParts {
                         part,
                     },
 
+                    // otherwise, treat it as a missing file an handle it
                     None => VerifyFailure::Missing {
                         path: destination,
                         name,
@@ -612,8 +616,10 @@ impl GameParts {
                 Ok(())
             })?;
 
+        // nothing left to run in parallel, so dispose of the mutex
         let failures = failures.into_inner().unwrap();
 
+        // any leftover extras are treated as failures
         failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
             part: Ok(part),
             path,
