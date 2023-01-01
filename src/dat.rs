@@ -3,6 +3,7 @@ use crate::game::{ExtendOne, FileSize, GameParts, Part, RomSources, VerifyFailur
 use crate::Resource;
 use comfy_table::Table;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +15,11 @@ pub struct Datafile {
 }
 
 impl Datafile {
+    #[inline]
+    pub fn name(&self) -> &str {
+        self.header.name.as_str()
+    }
+
     #[inline]
     pub fn games(&self) -> impl Iterator<Item = &Game> {
         self.game.iter().flatten()
@@ -68,6 +74,36 @@ impl Game {
                 )
                 .collect::<Result<GameParts, _>>()?,
         ))
+    }
+
+    fn flattened_name(&self) -> Cow<'_, str> {
+        match &self {
+            Game {
+                name: game_name,
+                rom: Some(roms),
+                disk: None,
+            } => match &roms[..] {
+                [Rom {
+                    name: rom_name,
+                    sha1: Some(_),
+                    ..
+                }] if rom_name.starts_with(game_name) => rom_name.as_str().into(),
+                _ => game_name.as_str().into(),
+            },
+            Game {
+                name: game_name,
+                rom: None,
+                disk: Some(disks),
+            } => match &disks[..] {
+                [Disk {
+                    name: disk_name,
+                    sha1: Some(_),
+                    ..
+                }] if disk_name.starts_with(game_name) => (disk_name.clone() + ".chd").into(),
+                _ => game_name.into(),
+            },
+            Game { name, .. } => name.into(),
+        }
     }
 
     // if the game has exactly one ROM with a defined SHA1 field,
@@ -448,9 +484,10 @@ pub struct VerifyResults<'v> {
     pub summary: crate::game::VerifyResultsSummary,
 }
 
-pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
+pub fn edit_file(dat: Datafile, old_dat: Option<DatFile>) -> Result<Datafile, Error> {
     use crate::terminal_height;
     use inquire::list_option::ListOption;
+    use std::collections::HashSet;
 
     match dat {
         Datafile {
@@ -460,9 +497,22 @@ pub fn edit_file(dat: Datafile) -> Result<Datafile, Error> {
         } if !game.is_empty() => {
             game.sort_unstable_by(|x, y| x.name().cmp(y.name()));
 
+            let defaults: Vec<usize> = old_dat
+                .map(|dat| {
+                    let existing = dat.games().collect::<HashSet<_>>();
+                    game.iter()
+                        .enumerate()
+                        .filter_map(|(i, g)| {
+                            existing.contains(g.flattened_name().as_ref()).then_some(i)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
             Ok(Datafile {
                 game: Some(
                     inquire::MultiSelect::new(&header.name, game)
+                        .with_default(&defaults)
                         .with_page_size(terminal_height())
                         .with_formatter(&|opts: &[ListOption<&Game>]| {
                             format!(

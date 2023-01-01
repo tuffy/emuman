@@ -1341,7 +1341,8 @@ impl OptRedumpInit {
 
         for datfile in dat::fetch_and_parse::<_, Vec<_>>(self.xml, |file, datfile| {
             (if self.edit {
-                dat::edit_file(datfile)
+                let old_dat = read_named_db(REDUMP, DIR_REDUMP, datfile.name()).ok();
+                dat::edit_file(datfile, old_dat)
             } else {
                 Ok(datfile)
             })
@@ -1796,7 +1797,8 @@ impl OptNointroInit {
 
         for datfile in dat::fetch_and_parse::<_, Vec<_>>(self.dats, |file, datfile| {
             (if self.edit {
-                dat::edit_file(datfile)
+                let old_dat = read_named_db(NOINTRO, DIR_NOINTRO, datfile.name()).ok();
+                dat::edit_file(datfile, old_dat)
             } else {
                 Ok(datfile)
             })
@@ -2149,7 +2151,7 @@ impl OptDatVerify {
         process_dat(
             dat::fetch_and_parse_single(self.dat, |file, datfile| {
                 (if self.edit {
-                    dat::edit_file(datfile)
+                    dat::edit_file(datfile, None)
                 } else {
                     Ok(datfile)
                 })
@@ -2187,7 +2189,7 @@ impl OptDatRepair {
         process_dat(
             dat::fetch_and_parse_single(self.dat, |file, datfile| {
                 (if self.edit {
-                    dat::edit_file(datfile)
+                    dat::edit_file(datfile, None)
                 } else {
                     Ok(datfile)
                 })
