@@ -308,7 +308,7 @@ impl Game {
         &self,
         rom_sources: &RomSources,
         target_dir: &Path,
-        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.parts
             .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), handle_repair)
@@ -463,7 +463,7 @@ impl GameParts {
         &'s self,
         game_root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<Option<PathBuf>, VerifyFailure>, E>
             + Send
             + Sync,
     ) -> Result<(S, F), E>
@@ -505,7 +505,7 @@ impl GameParts {
         failures: &mut F,
         missing_path: impl Fn(&str) -> PathBuf + Send + Sync,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<Option<PathBuf>, VerifyFailure>, E>
             + Send
             + Sync,
     ) -> Result<S, E>
@@ -532,11 +532,12 @@ impl GameParts {
                             Ok(success) => successes.lock().unwrap().extend_item(success),
 
                             Err(failure) => match handle_failure(failure)? {
-                                Ok(path) => successes.lock().unwrap().extend_item(VerifySuccess {
-                                    name,
-                                    part,
-                                    path,
-                                }),
+                                Ok(Some(path)) => successes
+                                    .lock()
+                                    .unwrap()
+                                    .extend_item(VerifySuccess { name, part, path }),
+
+                                Ok(None) => { /* do nothing */ }
 
                                 Err(failure) => failures.lock().unwrap().extend_item(failure),
                             },
@@ -555,17 +556,19 @@ impl GameParts {
         // process anything left over on disk
         let extras = DashMap::new();
 
-        files
-            .into_par_iter()
-            .for_each(|(_, path)| match Part::from_path(&path) {
+        files.into_par_iter().try_for_each(|(_, path)| {
+            match Part::from_path(&path) {
                 Ok(part) => {
                     // populate extras hash
                     if let Some(path) = extras.insert(part.clone(), path) {
                         // treat multiple files that hash the same as extras
-                        failures.lock().unwrap().extend_item(VerifyFailure::Extra {
+                        if let Err(failure) = handle_failure(VerifyFailure::Extra {
                             path,
                             part: Ok(part),
-                        })
+                        })? {
+                            // leftover Extras can't be promoted to successes
+                            failures.lock().unwrap().extend_item(failure)
+                        }
                     }
                 }
 
@@ -574,7 +577,9 @@ impl GameParts {
                     .lock()
                     .unwrap()
                     .extend_item(VerifyFailure::Extra { path, part }),
-            });
+            };
+            Ok::<(), E>(())
+        })?;
 
         // process everything tagged as missing
         missing
@@ -601,12 +606,14 @@ impl GameParts {
                         part,
                     },
                 })? {
-                    Ok(path) => {
+                    Ok(Some(path)) => {
                         successes
                             .lock()
                             .unwrap()
                             .extend_item(VerifySuccess { name, part, path })
                     }
+
+                    Ok(None) => { /* do nothing*/ }
 
                     Err(failure) => failures.lock().unwrap().extend_item(failure),
                 }
@@ -619,11 +626,19 @@ impl GameParts {
         // nothing left to run in parallel, so dispose of the mutex
         let failures = failures.into_inner().unwrap();
 
-        // any leftover extras are treated as failures
-        failures.extend_many(extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
+        // any leftover extras are handled
+        for extra in extras.into_iter().map(|(part, path)| VerifyFailure::Extra {
             part: Ok(part),
             path,
-        }));
+        }) {
+            // at this point, any misnamed files have already been handled
+            // and Extra files can't be promoted to VerifySuccesses
+            // (since they have no valid names)
+            // so only the Err case needs to be handled
+            if let Err(failure) = handle_failure(extra)? {
+                failures.extend_item(failure);
+            }
+        }
 
         Ok(successes.into_inner().unwrap())
     }
@@ -665,7 +680,7 @@ impl GameParts {
         rom_sources: &RomSources,
         game_root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -681,7 +696,7 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
         S: Default + ExtendOne<VerifySuccess<'s>> + Send,
@@ -695,7 +710,7 @@ impl GameParts {
         &'s self,
         rom_sources: &RomSources,
         game_root: &Path,
-        handle_repair: impl Fn(Repaired<'_>) -> PathBuf + Send + Sync + Copy,
+        handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<Vec<VerifyFailure>, Error> {
         self.add_and_verify(rom_sources, game_root, handle_repair)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
@@ -837,7 +852,10 @@ impl<'s> VerifyFailure<'s> {
         }
     }
 
-    // attempt to fix failure by populating missing/bad ROMs from rom_sources
+    // attempt to fix failure, returning either:
+    // repair successful            - Ok(Ok(Repaired))
+    // unable to repair             - Ok(Err(Self))
+    // error occurred during repair - Err(Error)
     pub fn try_fix<'u>(
         self,
         rom_sources: &RomSources<'u>,
@@ -883,6 +901,11 @@ impl<'s> VerifyFailure<'s> {
                     source,
                     destination,
                 }))
+            }
+
+            VerifyFailure::Extra { path, .. } => {
+                std::fs::remove_file(&path)?;
+                Ok(Ok(Repaired::Deleted(path)))
             }
 
             failure => Ok(Err(failure)),
@@ -956,13 +979,15 @@ pub enum Repaired<'u> {
         source: PathBuf,
         destination: PathBuf,
     },
+    Deleted(PathBuf),
 }
 
 impl<'u> Repaired<'u> {
-    pub fn into_fixed_pathbuf(self) -> PathBuf {
+    pub fn into_fixed_pathbuf(self) -> Option<PathBuf> {
         match self {
-            Self::Extracted { target, .. } => target,
-            Self::Moved { destination, .. } => destination,
+            Self::Extracted { target, .. } => Some(target),
+            Self::Moved { destination, .. } => Some(destination),
+            Self::Deleted(_) => None,
         }
     }
 }
@@ -997,6 +1022,7 @@ impl<'u> fmt::Display for Repaired<'u> {
             } => {
                 write!(f, "{} \u{2192} {}", source.display(), destination.display())
             }
+            Self::Deleted(path) => write!(f, "removed : {}", path.display()),
         }
     }
 }

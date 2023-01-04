@@ -356,7 +356,7 @@ impl DatFile {
         &self,
         root: &Path,
         increment_progress: impl Fn() + Send + Sync,
-        handle_failure: impl Fn(VerifyFailure) -> Result<Result<PathBuf, VerifyFailure>, E>
+        handle_failure: impl Fn(VerifyFailure) -> Result<Result<Option<PathBuf>, VerifyFailure>, E>
             + Send
             + Sync,
     ) -> Result<VerifyResults, E>
