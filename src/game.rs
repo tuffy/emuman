@@ -903,7 +903,7 @@ impl<'s> VerifyFailure<'s> {
                 }))
             }
 
-            VerifyFailure::Extra { path, .. } => {
+            VerifyFailure::Extra { path, part: Ok(_) } => {
                 std::fs::remove_file(&path)?;
                 Ok(Ok(Repaired::Deleted(path)))
             }
