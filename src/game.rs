@@ -863,6 +863,42 @@ impl<'s> VerifyFailure<'s> {
     ) -> Result<Result<Repaired<'u>, Self>, Error> {
         use dashmap::mapref::entry::Entry;
 
+        fn extract_to<'u, S: std::hash::BuildHasher>(
+            mut entry: OccupiedEntry<'_, Part, RomSource<'u>, S>,
+            target: PathBuf,
+            part: &Part,
+        ) -> Result<Repaired<'u>, Error> {
+            let source = entry.get();
+
+            match source.extract(target.as_ref())? {
+                extracted @ Extracted::Copied { .. } => {
+                    part.set_xattr(&target);
+
+                    Ok(Repaired::Extracted {
+                        extracted,
+                        source: entry.insert(RomSource::File {
+                            file: Arc::from(target.clone()),
+                            has_xattr: true,
+                            zip_parts: ZipParts::default(),
+                        }),
+                        target,
+                    })
+                }
+
+                extracted @ Extracted::Linked { has_xattr } => {
+                    if !has_xattr {
+                        part.set_xattr(&target);
+                    }
+
+                    Ok(Repaired::Extracted {
+                        extracted,
+                        source: source.clone(),
+                        target,
+                    })
+                }
+            }
+        }
+
         match self {
             VerifyFailure::Bad {
                 path,
@@ -872,7 +908,7 @@ impl<'s> VerifyFailure<'s> {
             } => match rom_sources.entry(expected.clone()) {
                 Entry::Occupied(entry) => {
                     std::fs::remove_file(&path)?;
-                    Self::extract_to(entry, path, expected).map(Ok)
+                    extract_to(entry, path, expected).map(Ok)
                 }
 
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Bad {
@@ -886,7 +922,7 @@ impl<'s> VerifyFailure<'s> {
             VerifyFailure::Missing { path, part, name } => match rom_sources.entry(part.clone()) {
                 Entry::Occupied(entry) => {
                     std::fs::create_dir_all(path.parent().unwrap())?;
-                    Self::extract_to(entry, path, part).map(Ok)
+                    extract_to(entry, path, part).map(Ok)
                 }
 
                 Entry::Vacant(_) => Ok(Err(VerifyFailure::Missing { path, part, name })),
@@ -910,42 +946,6 @@ impl<'s> VerifyFailure<'s> {
             }
 
             failure => Ok(Err(failure)),
-        }
-    }
-
-    fn extract_to<'u, S: std::hash::BuildHasher>(
-        mut entry: OccupiedEntry<'_, Part, RomSource<'u>, S>,
-        target: PathBuf,
-        part: &Part,
-    ) -> Result<Repaired<'u>, Error> {
-        let source = entry.get();
-
-        match source.extract(target.as_ref())? {
-            extracted @ Extracted::Copied { .. } => {
-                part.set_xattr(&target);
-
-                Ok(Repaired::Extracted {
-                    extracted,
-                    source: entry.insert(RomSource::File {
-                        file: Arc::from(target.clone()),
-                        has_xattr: true,
-                        zip_parts: ZipParts::default(),
-                    }),
-                    target,
-                })
-            }
-
-            extracted @ Extracted::Linked { has_xattr } => {
-                if !has_xattr {
-                    part.set_xattr(&target);
-                }
-
-                Ok(Repaired::Extracted {
-                    extracted,
-                    source: source.clone(),
-                    target,
-                })
-            }
         }
     }
 }
