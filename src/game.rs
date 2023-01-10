@@ -537,7 +537,7 @@ impl GameParts {
                                     .unwrap()
                                     .extend_item(VerifySuccess { name, part, path }),
 
-                                Ok(None) => { /* do nothing */ }
+                                Ok(None) => { /* file deleted, so do nothing */ }
 
                                 Err(failure) => failures.lock().unwrap().extend_item(failure),
                             },
@@ -559,7 +559,7 @@ impl GameParts {
         files.into_par_iter().try_for_each(|(_, path)| {
             match Part::from_path(&path) {
                 Ok(part) => {
-                    // populate extras hash
+                    // populate extras map
                     if let Some(path) = extras.insert(part.clone(), path) {
                         // treat multiple files that hash the same as extras
                         if let Err(failure) = handle_failure(VerifyFailure::Extra {
@@ -567,6 +567,7 @@ impl GameParts {
                             part: Ok(part),
                         })? {
                             // leftover Extras can't be promoted to successes
+                            // so don't worry about Ok case
                             failures.lock().unwrap().extend_item(failure)
                         }
                     }
@@ -599,7 +600,7 @@ impl GameParts {
                         part,
                     },
 
-                    // otherwise, treat it as a missing file an handle it
+                    // otherwise, treat it as a missing file and handle it
                     None => VerifyFailure::Missing {
                         path: destination,
                         name,
@@ -613,7 +614,7 @@ impl GameParts {
                             .extend_item(VerifySuccess { name, part, path })
                     }
 
-                    Ok(None) => { /* do nothing*/ }
+                    Ok(None) => { /* file deleted, so do nothing (shouldn't happen) */ }
 
                     Err(failure) => failures.lock().unwrap().extend_item(failure),
                 }
@@ -959,7 +960,7 @@ impl fmt::Display for VerifyFailure<'_> {
                 write!(f, "   EXTRA : {}", path.display())
             }
             VerifyFailure::Rename { source, .. } => {
-                write!(f, "MISNAMED : {}", source.display(),)
+                write!(f, "MISNAMED : {}", source.display())
             }
             VerifyFailure::Bad { path, .. } => write!(f, "     BAD : {}", path.display()),
             VerifyFailure::Error { path, err } => {
