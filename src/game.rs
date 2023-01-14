@@ -1573,31 +1573,30 @@ impl<'u> RomSource<'u> {
         let file = Arc::from(pb);
         let mut r = File::open(&file).map(BufReader::new)?;
 
-        let mut result = vec![(
-            Part::from_reader(&mut r)?,
-            RomSource::File {
-                file: Arc::clone(&file),
-                has_xattr: false,
-                zip_parts: ZipParts::default(),
-            },
-        )];
-
-        r.seek(std::io::SeekFrom::Start(0))?;
-
-        if is_zip(&mut r).unwrap_or(false) {
-            result.extend(unpack_zip_parts(r).into_iter().map(|(part, zip_parts)| {
-                (
-                    part,
-                    RomSource::File {
-                        file: Arc::clone(&file),
-                        has_xattr: false,
-                        zip_parts,
-                    },
-                )
-            }));
-        }
-
-        Ok(result)
+        Ok(if is_zip(&mut r).unwrap_or(false) {
+            unpack_zip_parts(r)
+                .into_iter()
+                .map(|(part, zip_parts)| {
+                    (
+                        part,
+                        RomSource::File {
+                            file: Arc::clone(&file),
+                            has_xattr: false,
+                            zip_parts,
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            vec![(
+                Part::from_reader(&mut r)?,
+                RomSource::File {
+                    file: Arc::clone(&file),
+                    has_xattr: false,
+                    zip_parts: ZipParts::default(),
+                },
+            )]
+        })
     }
 
     pub fn from_url(url: &'u str, progress: &MultiProgress) -> Result<Vec<(Part, Self)>, Error> {
@@ -1734,7 +1733,7 @@ fn extract_from_zip_file<R: Read + Seek>(
     }
 }
 
-fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
+fn unpack_zip_parts<F: Read + Seek>(mut zip: F) -> Vec<(Part, ZipParts)> {
     // a valid ROM might be an invalid Zip file
     // so a failure to unpack Zip parts from a file
     // should not be considered a fatal error
@@ -1776,7 +1775,13 @@ fn unpack_zip_parts<F: Read + Seek>(zip: F) -> Vec<(Part, ZipParts)> {
         Ok(results)
     }
 
-    unpack(zip).unwrap_or_default()
+    let mut unpacked = unpack(&mut zip).unwrap_or_default();
+    if zip.rewind().is_ok() {
+        if let Ok(part) = Part::from_reader(zip) {
+            unpacked.push((part, ZipParts::default()));
+        }
+    }
+    unpacked
 }
 
 #[derive(Copy, Clone)]

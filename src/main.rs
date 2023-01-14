@@ -2247,7 +2247,7 @@ impl OptDatParts {
 #[derive(Args)]
 struct OptIdentify {
     /// ROMs or CHDs to identify
-    parts: Vec<PathBuf>,
+    resources: Vec<Resource>,
 
     /// perform reverse lookup
     #[clap(short = 'l', long = "lookup")]
@@ -2257,20 +2257,19 @@ struct OptIdentify {
 impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::dat::DatFile;
-        use crate::game::{GameDb, Part, RomSource};
+        use crate::game::{GameDb, Part};
         use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+        use indicatif::{ProgressDrawTarget, ProgressIterator};
         use std::collections::{BTreeSet, HashMap};
 
-        let sources = self
-            .parts
-            .into_par_iter()
-            .map(RomSource::from_path)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten();
+        let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
+        let pbar1 = mbar.add(
+            ProgressBar::new(self.resources.len().try_into().unwrap())
+                .with_style(game::verify_style()),
+        );
+        pbar1.set_message("retrieving ROMs");
 
         if self.lookup {
             use iter_group::IntoGroup;
@@ -2316,23 +2315,32 @@ impl OptIdentify {
                 .load_preset(UTF8_FULL_CONDENSED)
                 .apply_modifier(UTF8_ROUND_CORNERS);
 
-            for (part, source) in sources {
-                for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
-                    table.add_row(vec![
-                        source.to_string().as_str(),
-                        category,
-                        system,
-                        game,
-                        rom,
-                    ]);
+            for resource in self.resources.into_iter().progress_with(pbar1) {
+                for (part, source) in resource.rom_sources(&mbar) {
+                    for [category, system, game, rom] in lookup.get(&part).into_iter().flatten() {
+                        table.add_row(vec![
+                            source.to_string().as_str(),
+                            category,
+                            system,
+                            game,
+                            rom,
+                        ]);
+                    }
                 }
             }
 
+            mbar.clear().unwrap();
+
             println!("{table}");
         } else {
-            for (part, source) in sources {
-                println!("{}  {}", part.digest(), source);
+            for resource in self.resources.into_iter().progress_with(pbar1) {
+                for (part, source) in resource.rom_sources(&mbar) {
+                    mbar.println(format!("{}  {}", part.digest(), source))
+                        .unwrap();
+                }
             }
+
+            mbar.clear().unwrap();
         }
 
         Ok(())
