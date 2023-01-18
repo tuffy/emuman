@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 const CACHE_XATTR: &str = "user.emupart";
 
+type PartMap<T> = DashMap<Part, T>;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
     description: String,
@@ -554,10 +556,10 @@ impl GameParts {
         }
 
         // process anything left over on disk
-        let extras = DashMap::new();
+        let extras = PartMap::default();
 
         files.into_par_iter().try_for_each(|(_, path)| {
-            match Part::from_path(&path) {
+            match Part::from_disk_cached_path(&path) {
                 Ok(part) => {
                     // populate extras map
                     if let Some(path) = extras.insert(part.clone(), path) {
@@ -1845,7 +1847,7 @@ pub fn with_progress<T>(
     results
 }
 
-pub type RomSources<'u> = DashMap<Part, RomSource<'u>>;
+pub type RomSources<'u> = PartMap<RomSource<'u>>;
 
 pub fn empty_rom_sources<'r>() -> RomSources<'r> {
     let map = RomSources::default();
