@@ -8,14 +8,14 @@ repository = "https://github.com/tuffy/emuman"
 edition = "2021"
 
 [dependencies]
-clap = {version = "4.0", features=["derive"]}
+clap = {version = "4.1", features=["derive"]}
 sha1_smol = "1.0"
 rayon = "1.6"
 walkdir = "2"
 directories = "4.0"
 serde = "1.0"
 serde_derive = "1.0"
-toml = "0.5"
+toml = "0.6"
 ciborium = "0.2"
 fxhash = "0.2"
 nohash = "0.2"
@@ -28,7 +28,7 @@ attohttpc = "0.24"
 quick-xml = {version = "0.26", features=["serialize"]}
 url = "2.3"
 hex = "0.4"
-base64 = "0.20"
+base64 = "0.21"
 inquire = "0.5"
 iter-group = "0.1"
 comfy-table = "6.1"

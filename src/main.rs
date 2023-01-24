@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use base64::Engine;
 use indicatif::{MultiProgress, ProgressBar};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -2648,21 +2649,17 @@ fn named_db_dir(db_dir: &'static str) -> PathBuf {
         .join(db_dir)
 }
 
-const BASE64_ENGINE: base64::engine::fast_portable::FastPortable =
-    base64::engine::fast_portable::FastPortable::from(
-        &base64::alphabet::URL_SAFE,
-        base64::engine::fast_portable::PAD,
-    );
+const BASE64_ENGINE: base64::engine::GeneralPurpose = base64::engine::general_purpose::URL_SAFE;
 
 // names might contain slashes, so we'll encode them
 // into base64 to ensure they stay in the directory we put them in
 fn named_db_path(db_dir: &'static str, name: &str) -> PathBuf {
-    named_db_dir(db_dir).join(base64::encode_engine(name, &BASE64_ENGINE))
+    named_db_dir(db_dir).join(BASE64_ENGINE.encode(name))
 }
 
 // extracts database name from existing path, if any
 fn path_db_name(path: &Path) -> Option<String> {
-    String::from_utf8(base64::decode_engine(path.file_name()?.to_str()?, &BASE64_ENGINE).ok()?).ok()
+    String::from_utf8(BASE64_ENGINE.decode(path.file_name()?.to_str()?).ok()?).ok()
 }
 
 fn write_named_db<S: Serialize>(db_dir: &'static str, name: &str, cache: S) -> Result<(), Error> {

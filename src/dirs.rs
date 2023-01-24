@@ -24,13 +24,13 @@ impl DirectoryConfig {
     fn new() -> Option<Self> {
         use std::io::Read;
 
-        let mut toml = Vec::new();
+        let mut toml = String::new();
 
         std::fs::File::open(Self::location())
-            .and_then(|mut f| f.read_to_end(&mut toml))
+            .and_then(|mut f| f.read_to_string(&mut toml))
             .ok()?;
 
-        toml::from_slice(&toml).ok()
+        toml::from_str(&toml).ok()
     }
 
     fn save(self) -> Result<(), Error> {

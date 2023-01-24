@@ -559,7 +559,7 @@ impl GameParts {
         let extras = PartMap::default();
 
         files.into_par_iter().try_for_each(|(_, path)| {
-            match Part::from_disk_cached_path(&path) {
+            match Part::from_cached_path(&path) {
                 Ok(part) => {
                     // populate extras map
                     if let Some(path) = extras.insert(part.clone(), path) {
