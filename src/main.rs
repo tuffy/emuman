@@ -1,5 +1,7 @@
-use clap::{Args, Parser, Subcommand};
+#![forbid(unsafe_code)]
+
 use base64::Engine;
+use clap::{Args, Parser, Subcommand};
 use indicatif::{MultiProgress, ProgressBar};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::{BTreeMap, HashSet};

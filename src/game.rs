@@ -242,17 +242,12 @@ impl GameDb {
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Default)]
 pub enum Status {
+    #[default]
     Working,
     Partial,
     NotWorking,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Status::Working
-    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
