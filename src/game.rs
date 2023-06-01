@@ -1247,7 +1247,7 @@ impl Part {
 
     fn from_cached_path(path: &Path) -> Result<Self, std::io::Error> {
         use fxhash::FxBuildHasher;
-        use once_cell::sync::OnceCell;
+        use std::sync::OnceLock as OnceCell;
 
         static PART_CACHE: OnceCell<DashMap<FileId, Part, FxBuildHasher>> = OnceCell::new();
 
