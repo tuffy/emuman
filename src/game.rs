@@ -515,13 +515,15 @@ impl GameParts {
         use std::sync::Mutex;
 
         let successes = Mutex::new(S::default());
-        let missing = Mutex::new(Vec::new());
+        let missing;
         let failures = Mutex::new(failures);
 
         // verify all game parts
         if files.is_empty() {
-            missing.lock().unwrap().extend(self.parts.iter());
+            missing = Mutex::new(self.parts.iter().collect());
         } else {
+            missing = Mutex::new(Vec::new());
+
             self.parts.par_iter().try_for_each(|(name, part)| {
                 match files.remove(name) {
                     Some((_, path)) => {
