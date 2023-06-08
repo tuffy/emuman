@@ -7,7 +7,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde_derive::{Deserialize, Serialize};
 use sha1_smol::Sha1;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::{Read, Seek};
 use std::iter::FromIterator;
@@ -1579,7 +1579,7 @@ impl<'u> RomSource<'u> {
                         RomSource::File {
                             file: Arc::clone(&file),
                             has_xattr: false,
-                            zip_parts,
+                            zip_parts: zip_parts.into(),
                         },
                     )
                 })
@@ -1619,7 +1619,7 @@ impl<'u> RomSource<'u> {
                         RomSource::Url {
                             url,
                             data: data.clone(),
-                            zip_parts,
+                            zip_parts: zip_parts.into(),
                         },
                     )
                 },
@@ -1730,7 +1730,7 @@ fn extract_from_zip_file<R: Read + Seek>(
     }
 }
 
-fn unpack_zip_parts<Z, F>(mut zip: Z, whole_file: F) -> Vec<(Part, ZipParts)>
+fn unpack_zip_parts<Z, F>(mut zip: Z, whole_file: F) -> Vec<(Part, VecDeque<Compression>)>
 where
     Z: Read + Seek,
     F: Read + Send + 'static,
@@ -1739,7 +1739,7 @@ where
     // so a failure to unpack Zip parts from a file
     // should not be considered a fatal error
 
-    fn unpack<F: Read + Seek>(zip: F) -> Result<Vec<(Part, ZipParts)>, Error> {
+    fn unpack<F: Read + Seek>(zip: F) -> Result<Vec<(Part, VecDeque<Compression>)>, Error> {
         fn is_zip<R: Read>(mut reader: R) -> bool {
             let mut buf = [0; 4];
             match reader.read_exact(&mut buf) {
@@ -1761,14 +1761,14 @@ where
 
                 results.extend(unpack_zip_parts(sub_zip.clone(), sub_zip).into_iter().map(
                     |(part, mut zip_parts)| {
-                        zip_parts.insert(0, Compression::Zip { index });
+                        zip_parts.push_front(Compression::Zip { index });
                         (part, zip_parts)
                     },
                 ))
             } else {
                 results.push((
                     Part::from_reader(zip.by_index(index)?)?,
-                    vec![Compression::Zip { index }],
+                    vec![Compression::Zip { index }].into(),
                 ))
             }
         }
@@ -1781,7 +1781,7 @@ where
     let mut unpacked = unpack(&mut zip).unwrap_or_default();
 
     if let Ok(Ok(part)) = handler.join() {
-        unpacked.push((part, ZipParts::default()));
+        unpacked.push((part, VecDeque::default()));
     }
 
     unpacked
