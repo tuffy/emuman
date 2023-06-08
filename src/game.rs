@@ -1571,7 +1571,7 @@ impl<'u> RomSource<'u> {
         let mut r = File::open(&file).map(BufReader::new)?;
 
         Ok(if is_zip(&mut r).unwrap_or(false) {
-            unpack_zip_parts(r)
+            unpack_zip_parts(r, File::open(&file).map(BufReader::new)?)
                 .into_iter()
                 .map(|(part, zip_parts)| {
                     (
@@ -1610,20 +1610,20 @@ impl<'u> RomSource<'u> {
         )];
 
         if matches!(data[..], [0x50, 0x4B, 0x03, 0x04, ..]) {
-            result.extend(
-                unpack_zip_parts(std::io::Cursor::new(data.clone()))
-                    .into_iter()
-                    .map(|(part, zip_parts)| {
-                        (
-                            part,
-                            RomSource::Url {
-                                url,
-                                data: data.clone(),
-                                zip_parts,
-                            },
-                        )
-                    }),
-            );
+            let sub_zip = std::io::Cursor::new(data.clone());
+
+            result.extend(unpack_zip_parts(sub_zip.clone(), sub_zip).into_iter().map(
+                |(part, zip_parts)| {
+                    (
+                        part,
+                        RomSource::Url {
+                            url,
+                            data: data.clone(),
+                            zip_parts,
+                        },
+                    )
+                },
+            ));
         }
 
         Ok(result)
@@ -1730,37 +1730,41 @@ fn extract_from_zip_file<R: Read + Seek>(
     }
 }
 
-fn unpack_zip_parts<F: Read + Seek>(mut zip: F) -> Vec<(Part, ZipParts)> {
+fn unpack_zip_parts<Z, F>(mut zip: Z, whole_file: F) -> Vec<(Part, ZipParts)>
+where
+    Z: Read + Seek,
+    F: Read + Send + 'static,
+{
     // a valid ROM might be an invalid Zip file
     // so a failure to unpack Zip parts from a file
     // should not be considered a fatal error
 
-    fn is_zip<R: Read>(mut reader: R) -> bool {
-        let mut buf = [0; 4];
-        match reader.read_exact(&mut buf) {
-            Ok(()) => &buf == b"\x50\x4b\x03\x04",
-            Err(_) => false,
-        }
-    }
-
     fn unpack<F: Read + Seek>(zip: F) -> Result<Vec<(Part, ZipParts)>, Error> {
+        fn is_zip<R: Read>(mut reader: R) -> bool {
+            let mut buf = [0; 4];
+            match reader.read_exact(&mut buf) {
+                Ok(()) => &buf == b"\x50\x4b\x03\x04",
+                Err(_) => false,
+            }
+        }
+
         let mut zip = zip::ZipArchive::new(zip)?;
         let mut results = Vec::new();
 
         for index in 0..zip.len() {
             if is_zip(zip.by_index(index)?) {
                 let mut zip_data = Vec::new();
+                let sub_zip;
 
                 zip.by_index(index)?.read_to_end(&mut zip_data)?;
+                sub_zip = std::io::Cursor::new(zip_data);
 
-                results.extend(
-                    unpack_zip_parts(std::io::Cursor::new(zip_data))
-                        .into_iter()
-                        .map(|(part, mut zip_parts)| {
-                            zip_parts.insert(0, Compression::Zip { index });
-                            (part, zip_parts)
-                        }),
-                )
+                results.extend(unpack_zip_parts(sub_zip.clone(), sub_zip).into_iter().map(
+                    |(part, mut zip_parts)| {
+                        zip_parts.insert(0, Compression::Zip { index });
+                        (part, zip_parts)
+                    },
+                ))
             } else {
                 results.push((
                     Part::from_reader(zip.by_index(index)?)?,
@@ -1772,12 +1776,14 @@ fn unpack_zip_parts<F: Read + Seek>(mut zip: F) -> Vec<(Part, ZipParts)> {
         Ok(results)
     }
 
+    let handler = std::thread::spawn(|| Part::from_reader(whole_file));
+
     let mut unpacked = unpack(&mut zip).unwrap_or_default();
-    if zip.rewind().is_ok() {
-        if let Ok(part) = Part::from_reader(zip) {
-            unpacked.push((part, ZipParts::default()));
-        }
+
+    if let Ok(Ok(part)) = handler.join() {
+        unpacked.push((part, ZipParts::default()));
     }
+
     unpacked
 }
 
