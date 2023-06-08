@@ -1734,7 +1734,7 @@ fn extract_from_zip_file<R: Read + Seek>(
 
 fn unpack_zip_parts<Z, F>(mut zip: Z, whole_file: F) -> Vec<(Part, VecDeque<Compression>)>
 where
-    Z: Read + Seek,
+    Z: Read + Seek + Send,
     F: Read + Send + 'static,
 {
     // a valid ROM might be an invalid Zip file
@@ -1778,11 +1778,12 @@ where
         Ok(results)
     }
 
-    let handler = std::thread::spawn(|| Part::from_reader(whole_file));
+    let (mut unpacked, whole) = rayon::join(
+        || unpack(&mut zip).unwrap_or_default(),
+        || Part::from_reader(whole_file),
+    );
 
-    let mut unpacked = unpack(&mut zip).unwrap_or_default();
-
-    if let Ok(Ok(part)) = handler.join() {
+    if let Ok(part) = whole {
         unpacked.push((part, VecDeque::default()));
     }
 
