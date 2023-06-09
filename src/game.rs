@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 const CACHE_XATTR: &str = "user.emupart";
 
-type PartMap<T> = DashMap<Part, T>;
+type PartMap<T> = DashMap<Part, T, fnv::FnvBuildHasher>;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GameDb {
