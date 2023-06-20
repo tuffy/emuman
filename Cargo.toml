@@ -8,7 +8,7 @@ repository = "https://github.com/tuffy/emuman"
 edition = "2021"
 
 [dependencies]
-clap = {version = "4.2", features=["derive"]}
+clap = {version = "4.3", features=["derive"]}
 sha1_smol = "1.0"
 rayon = "1.7"
 walkdir = "2"
