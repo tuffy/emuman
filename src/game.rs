@@ -1273,51 +1273,65 @@ impl Part {
 
     #[inline]
     pub fn get_xattr(path: &Path) -> Option<Self> {
-        xattr::get(path, CACHE_XATTR)
-            .ok()
-            .flatten()
-            .and_then(|v| match v.as_slice() {
-                [b'r', sha1_hex @ ..] => {
-                    let mut sha1 = [0; 20];
-                    hex::decode_to_slice(sha1_hex, &mut sha1)
-                        .map(|()| Self::Rom { sha1 })
-                        .ok()
-                }
-                [b'd', sha1_hex @ ..] => {
-                    let mut sha1 = [0; 20];
-                    hex::decode_to_slice(sha1_hex, &mut sha1)
-                        .map(|()| Self::Disk { sha1 })
-                        .ok()
-                }
-                _ => None,
-            })
+        if xattr::SUPPORTED_PLATFORM {
+            xattr::get(path, CACHE_XATTR)
+                .ok()
+                .flatten()
+                .and_then(|v| match v.as_slice() {
+                    [b'r', sha1_hex @ ..] => {
+                        let mut sha1 = [0; 20];
+                        hex::decode_to_slice(sha1_hex, &mut sha1)
+                            .map(|()| Self::Rom { sha1 })
+                            .ok()
+                    }
+                    [b'd', sha1_hex @ ..] => {
+                        let mut sha1 = [0; 20];
+                        hex::decode_to_slice(sha1_hex, &mut sha1)
+                            .map(|()| Self::Disk { sha1 })
+                            .ok()
+                    }
+                    _ => None,
+                })
+        } else {
+            None
+        }
     }
 
     #[inline]
     pub fn set_xattr(&self, path: &Path) {
-        let mut attr = [0; 41];
-        match self {
-            Self::Rom { sha1 } => {
-                attr[0] = b'r';
-                hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
+        if xattr::SUPPORTED_PLATFORM {
+            let mut attr = [0; 41];
+            match self {
+                Self::Rom { sha1 } => {
+                    attr[0] = b'r';
+                    hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
+                }
+                Self::Disk { sha1 } => {
+                    attr[0] = b'd';
+                    hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
+                }
             }
-            Self::Disk { sha1 } => {
-                attr[0] = b'd';
-                hex::encode_to_slice(sha1, &mut attr[1..]).unwrap();
-            }
-        }
 
-        let _ = xattr::set(path, CACHE_XATTR, &attr);
+            let _ = xattr::set(path, CACHE_XATTR, &attr);
+        }
     }
 
     #[inline]
     pub fn has_xattr(path: &Path) -> Result<bool, std::io::Error> {
-        xattr::list(path).map(|mut iter| iter.any(|s| s == CACHE_XATTR))
+        if xattr::SUPPORTED_PLATFORM {
+            xattr::list(path).map(|mut iter| iter.any(|s| s == CACHE_XATTR))
+        } else {
+            Ok(false)
+        }
     }
 
     #[inline]
     pub fn remove_xattr(path: &Path) -> Result<(), std::io::Error> {
-        xattr::remove(path, CACHE_XATTR)
+        if xattr::SUPPORTED_PLATFORM {
+            xattr::remove(path, CACHE_XATTR)
+        } else {
+            return Ok(())
+        }
     }
 
     fn from_disk_cached_path(path: &Path) -> Result<Self, std::io::Error> {
