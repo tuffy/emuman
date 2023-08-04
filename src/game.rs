@@ -1271,7 +1271,7 @@ impl Part {
         }
     }
 
-    #[inline]
+    #[cfg(not(target_os = "windows"))]
     pub fn get_xattr(path: &Path) -> Option<Self> {
         if xattr::SUPPORTED_PLATFORM {
             xattr::get(path, CACHE_XATTR)
@@ -1297,7 +1297,12 @@ impl Part {
         }
     }
 
-    #[inline]
+    #[cfg(target_os = "windows")]
+    pub fn get_xattr(_path: &Path) -> Option<Self> {
+        None
+    }
+
+    #[cfg(not(target_os = "windows"))]
     pub fn set_xattr(&self, path: &Path) {
         if xattr::SUPPORTED_PLATFORM {
             let mut attr = [0; 41];
@@ -1316,7 +1321,12 @@ impl Part {
         }
     }
 
-    #[inline]
+    #[cfg(target_os = "windows")]
+    pub fn set_xattr(&self, _path: &Path) {
+        // do nothing
+    }
+
+    #[cfg(not(target_os = "windows"))]
     pub fn has_xattr(path: &Path) -> Result<bool, std::io::Error> {
         if xattr::SUPPORTED_PLATFORM {
             xattr::list(path).map(|mut iter| iter.any(|s| s == CACHE_XATTR))
@@ -1325,13 +1335,23 @@ impl Part {
         }
     }
 
-    #[inline]
+    #[cfg(target_os = "windows")]
+    pub fn has_xattr(_path: &Path) -> Result<bool, std::io::Error> {
+        Ok(false)
+    }
+
+    #[cfg(not(target_os = "windows"))]
     pub fn remove_xattr(path: &Path) -> Result<(), std::io::Error> {
         if xattr::SUPPORTED_PLATFORM {
             xattr::remove(path, CACHE_XATTR)
         } else {
-            return Ok(())
+            Ok(())
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn remove_xattr(_path: &Path) -> Result<(), std::io::Error> {
+        Ok(())
     }
 
     fn from_disk_cached_path(path: &Path) -> Result<Self, std::io::Error> {
