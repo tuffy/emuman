@@ -3316,7 +3316,8 @@ fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::Verify
 }
 
 fn rom_sources(sources: &[Resource]) -> game::RomSources {
-    use indicatif::{ProgressDrawTarget, ProgressIterator};
+    use indicatif::{ParallelProgressIterator, ProgressDrawTarget};
+    use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
     fn merge_sources<'u>(
         base: game::RomSources<'u>,
@@ -3345,11 +3346,12 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
     pbar1.set_message("retrieving ROMs");
 
     let results = sources
-        .iter()
+        .par_iter()
         .progress_with(pbar1)
-        .fold(game::empty_rom_sources(), |acc, r| {
-            merge_sources(acc, r.rom_sources(&mbar))
-        });
+        .map(|r| r.rom_sources(&mbar))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold(game::empty_rom_sources(), |acc, r| merge_sources(acc, r));
 
     mbar.clear().unwrap();
 
