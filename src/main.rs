@@ -3320,10 +3320,14 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
     fn merge_sources<'u>(
-        base: game::RomSources<'u>,
-        extend: game::RomSources<'u>,
+        mut base: game::RomSources<'u>,
+        mut extend: game::RomSources<'u>,
     ) -> game::RomSources<'u> {
         use dashmap::mapref::entry::Entry;
+
+        if extend.len() > base.len() {
+            std::mem::swap(&mut base, &mut extend);
+        }
 
         for (part, source) in extend {
             match base.entry(part) {
