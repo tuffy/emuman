@@ -40,7 +40,7 @@ pub fn terminal_height() -> usize {
     const PAGE_SIZE: usize = 25;
 
     terminal_size()
-        .and_then(|(_, Height(h))| usize::try_from(h).ok())
+        .map(|(_, Height(h))| usize::from(h))
         .and_then(|size| size.checked_sub(3))
         .map(|size| size.clamp(2, PAGE_SIZE))
         .unwrap_or(PAGE_SIZE)
@@ -86,38 +86,22 @@ pub enum Error {
     InvalidSha1(ResourceError<hex::FromHexError>),
 }
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::IO(err)
-    }
+macro_rules! err_from {
+    ($error:ty, $variant:ident) => {
+        impl From<$error> for Error {
+            #[inline]
+            fn from(err: $error) -> Self {
+                Error::$variant(err)
+            }
+        }
+    };
 }
 
-impl From<zip::result::ZipError> for Error {
-    fn from(err: zip::result::ZipError) -> Self {
-        Error::Zip(err)
-    }
-}
-
-impl From<attohttpc::Error> for Error {
-    #[inline]
-    fn from(err: attohttpc::Error) -> Self {
-        Error::Http(err)
-    }
-}
-
-impl From<toml::ser::Error> for Error {
-    #[inline]
-    fn from(err: toml::ser::Error) -> Self {
-        Error::TomlWrite(err)
-    }
-}
-
-impl From<inquire::error::InquireError> for Error {
-    #[inline]
-    fn from(err: inquire::error::InquireError) -> Self {
-        Error::Inquire(err)
-    }
-}
+err_from!(std::io::Error, IO);
+err_from!(zip::result::ZipError, Zip);
+err_from!(attohttpc::Error, Http);
+err_from!(toml::ser::Error, TomlWrite);
+err_from!(inquire::error::InquireError, Inquire);
 
 impl std::error::Error for Error {}
 
@@ -3353,9 +3337,7 @@ fn rom_sources(sources: &[Resource]) -> game::RomSources {
         .par_iter()
         .progress_with(pbar1)
         .map(|r| r.rom_sources(&mbar))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .fold(game::empty_rom_sources(), |acc, r| merge_sources(acc, r));
+        .reduce(game::empty_rom_sources, merge_sources);
 
     mbar.clear().unwrap();
 

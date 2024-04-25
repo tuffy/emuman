@@ -294,7 +294,7 @@ impl DatFile {
         self.flat
             .into_iter()
             .map(|(game, part)| (game.clone(), std::iter::once((game, part)).collect()))
-            .chain(self.tree.into_iter())
+            .chain(self.tree)
     }
 
     pub fn game_parts(&self) -> impl Iterator<Item = (&str, &GameParts)> {

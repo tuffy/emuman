@@ -41,10 +41,7 @@ impl SplitDb {
         for game in datafile.games() {
             let (total_size, split) = game_to_split(game);
             if split.tracks.len() > 1 {
-                self.games
-                    .entry(total_size)
-                    .or_insert_with(Vec::new)
-                    .push(split);
+                self.games.entry(total_size).or_default().push(split);
             }
         }
     }

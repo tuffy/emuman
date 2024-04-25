@@ -706,8 +706,8 @@ impl GameParts {
     }
 
     #[inline]
-    pub fn add_and_verify_failures<'s>(
-        &'s self,
+    pub fn add_and_verify_failures(
+        &self,
         rom_sources: &RomSources,
         game_root: &Path,
         handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
@@ -1386,7 +1386,7 @@ impl Part {
 
         let mut r = ByteReader::endian(r, BigEndian);
 
-        if r.read_to_bytes()
+        if r.read::<[u8; 8]>()
             .map(|tag| &tag != b"MComprHD")
             .unwrap_or(true)
         {
@@ -1405,9 +1405,7 @@ impl Part {
         };
         r.skip(bytes_to_skip)?;
 
-        Ok(Some(Part::Disk {
-            sha1: r.read_to_bytes()?,
-        }))
+        Ok(Some(Part::Disk { sha1: r.read()? }))
     }
 
     pub fn verify<'s>(
@@ -1533,6 +1531,29 @@ impl std::fmt::Display for Compression {
         match self {
             Compression::Zip { index } => write!(f, "{}", index),
         }
+    }
+}
+
+impl Compression {
+    fn extract<R, W>(&self, i: R, mut o: W) -> Result<u64, Error>
+    where
+        R: Read + Seek,
+        W: std::io::Write,
+    {
+        match self {
+            Self::Zip { index } => {
+                std::io::copy(&mut zip::ZipArchive::new(i)?.by_index(*index)?, &mut o)
+                    .map_err(Error::IO)
+            }
+        }
+    }
+
+    fn extract_to_buf<R>(&self, i: R) -> Result<std::io::Cursor<Vec<u8>>, Error>
+    where
+        R: Read + Seek,
+    {
+        let mut buf = Vec::new();
+        self.extract(i, &mut buf).map(|_| std::io::Cursor::new(buf))
     }
 }
 
@@ -1684,26 +1705,16 @@ impl<'u> RomSource<'u> {
                             .map_err(Error::IO)
                     }),
 
-                [Compression::Zip { index }] => std::fs::File::create(target)
-                    .and_then(|mut w| {
-                        Rate::from_copy(|| {
-                            std::io::copy(
-                                &mut zip::ZipArchive::new(File::open(source.as_ref())?)?
-                                    .by_index(*index)?,
-                                &mut w,
-                            )
-                        })
-                    })
-                    .map(|rate| Extracted::Copied { rate })
-                    .map_err(Error::IO),
+                [c] => std::fs::File::create(target)
+                    .map_err(Error::IO)
+                    .and_then(|w| Rate::from_copy(|| c.extract(File::open(source.as_ref())?, w)))
+                    .map(|rate| Extracted::Copied { rate }),
 
-                [Compression::Zip { index }, rest @ ..] => {
-                    let mut index_file = Vec::new();
-                    zip::ZipArchive::new(File::open(source.as_ref())?)?
-                        .by_index(*index)?
-                        .read_to_end(&mut index_file)?;
-                    extract_from_zip_file(rest, std::io::Cursor::new(index_file), target)
-                }
+                [c, rest @ ..] => extract_from_zip_file(
+                    rest,
+                    c.extract_to_buf(File::open(source.as_ref())?)?,
+                    target,
+                ),
             },
 
             RomSource::Url {
@@ -1747,22 +1758,12 @@ fn extract_from_zip_file<R: Read + Seek>(
             .map(|rate| Extracted::Copied { rate })
             .map_err(Error::IO),
 
-        [Compression::Zip { index }] => std::fs::File::create(target)
-            .and_then(|mut w| {
-                Rate::from_copy(|| {
-                    std::io::copy(&mut zip::ZipArchive::new(r)?.by_index(*index)?, &mut w)
-                })
-            })
-            .map(|rate| Extracted::Copied { rate })
-            .map_err(Error::IO),
+        [c] => std::fs::File::create(target)
+            .map_err(Error::IO)
+            .and_then(|w| Rate::from_copy(|| c.extract(r, w)))
+            .map(|rate| Extracted::Copied { rate }),
 
-        [Compression::Zip { index }, rest @ ..] => {
-            let mut index_file = Vec::new();
-            zip::ZipArchive::new(r)?
-                .by_index(*index)?
-                .read_to_end(&mut index_file)?;
-            extract_from_zip_file(rest, std::io::Cursor::new(index_file), target)
-        }
+        [c, rest @ ..] => extract_from_zip_file(rest, c.extract_to_buf(r)?, target),
     }
 }
 
@@ -1790,10 +1791,10 @@ where
         for index in 0..zip.len() {
             if is_zip(zip.by_index(index)?) {
                 let mut zip_data = Vec::new();
-                let sub_zip;
 
                 zip.by_index(index)?.read_to_end(&mut zip_data)?;
-                sub_zip = std::io::Cursor::new(zip_data);
+
+                let sub_zip = std::io::Cursor::new(zip_data);
 
                 results.extend(unpack_zip_parts(sub_zip.clone(), sub_zip).into_iter().map(
                     |(part, mut zip_parts)| {
@@ -1844,9 +1845,7 @@ impl Rate {
     }
 
     #[inline]
-    fn from_copy(
-        copy: impl FnOnce() -> Result<u64, std::io::Error>,
-    ) -> Result<Option<Self>, std::io::Error> {
+    fn from_copy<E>(copy: impl FnOnce() -> Result<u64, E>) -> Result<Option<Self>, E> {
         use std::time::SystemTime;
 
         let start = SystemTime::now();
