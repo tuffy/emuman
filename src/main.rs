@@ -1333,9 +1333,8 @@ impl OptRedumpInit {
             } else {
                 Ok(datfile)
             })
-            .map(|datfile| {
-                split_db.populate(&datfile);
-                datfile
+            .inspect(|datfile| {
+                split_db.populate(datfile);
             })
             .and_then(|datfile| {
                 dat::DatFile::new_flattened(datfile)

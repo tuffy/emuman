@@ -465,7 +465,7 @@ impl GameParts {
             + Sync,
     ) -> Result<(S, F), E>
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
         E: Send,
     {
@@ -507,7 +507,7 @@ impl GameParts {
             + Sync,
     ) -> Result<S, E>
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: ExtendOne<VerifyFailure<'s>> + Send,
         E: Send,
     {
@@ -531,10 +531,7 @@ impl GameParts {
                             Ok(success) => successes.lock().unwrap().extend_item(success),
 
                             Err(failure) => match handle_failure(failure)? {
-                                Ok(Some(path)) => successes
-                                    .lock()
-                                    .unwrap()
-                                    .extend_item(VerifySuccess { name, part, path }),
+                                Ok(Some(_)) => successes.lock().unwrap().extend_item(VerifySuccess),
 
                                 Ok(None) => { /* file deleted, so do nothing */ }
 
@@ -595,8 +592,6 @@ impl GameParts {
                     Some((_, source)) => VerifyFailure::Rename {
                         source,
                         destination,
-                        name,
-                        part,
                     },
 
                     // otherwise, treat it as a missing file and handle it
@@ -606,12 +601,7 @@ impl GameParts {
                         part,
                     },
                 })? {
-                    Ok(Some(path)) => {
-                        successes
-                            .lock()
-                            .unwrap()
-                            .extend_item(VerifySuccess { name, part, path })
-                    }
+                    Ok(Some(_)) => successes.lock().unwrap().extend_item(VerifySuccess),
 
                     Ok(None) => { /* file deleted, so do nothing (shouldn't happen) */ }
 
@@ -650,7 +640,7 @@ impl GameParts {
         increment_progress: impl Fn() + Send + Sync,
     ) -> (S, F)
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.process_parts(game_root, increment_progress, |failure| {
@@ -662,7 +652,7 @@ impl GameParts {
     #[inline]
     pub fn verify<'s, S, F>(&'s self, game_root: &Path) -> (S, F)
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.verify_with_progress(game_root, || {})
@@ -683,7 +673,7 @@ impl GameParts {
         handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.process_parts(game_root, increment_progress, |failure| {
@@ -699,7 +689,7 @@ impl GameParts {
         handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
     ) -> Result<(S, F), Error>
     where
-        S: Default + ExtendOne<VerifySuccess<'s>> + Send,
+        S: Default + ExtendOne<VerifySuccess> + Send,
         F: Default + ExtendOne<VerifyFailure<'s>> + Send,
     {
         self.add_and_verify_with_progress(rom_sources, game_root, || {}, handle_repair)
@@ -783,11 +773,7 @@ impl<'a> GameRow<'a> {
 }
 
 #[derive(Debug)]
-pub struct VerifySuccess<'s> {
-    pub name: &'s str,
-    pub part: &'s Part,
-    pub path: PathBuf,
-}
+pub struct VerifySuccess;
 
 #[derive(Debug)]
 pub enum VerifyFailure<'s> {
@@ -803,8 +789,6 @@ pub enum VerifyFailure<'s> {
     Rename {
         source: PathBuf,
         destination: PathBuf,
-        name: &'s str,
-        part: &'s Part,
     },
     ExtraDir {
         path: PathBuf,
@@ -862,8 +846,8 @@ impl<'s> VerifyFailure<'s> {
     ) -> Result<Result<Repaired<'u>, Self>, Error> {
         use dashmap::mapref::entry::Entry;
 
-        fn extract_to<'u, S: std::hash::BuildHasher>(
-            mut entry: OccupiedEntry<'_, Part, RomSource<'u>, S>,
+        fn extract_to<'u>(
+            mut entry: OccupiedEntry<'_, Part, RomSource<'u>>,
             target: PathBuf,
             part: &Part,
         ) -> Result<Repaired<'u>, Error> {
@@ -1030,14 +1014,6 @@ impl<'u> fmt::Display for Repaired<'u> {
 // a simple polyfill until extend_one stabilizes in the Extend trait
 pub trait ExtendOne<I>: Extend<I> {
     fn extend_item(&mut self, item: I);
-
-    #[inline]
-    fn extend_many<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = I>,
-    {
-        self.extend(iter);
-    }
 }
 
 impl<I> ExtendOne<I> for Vec<I> {
@@ -1183,16 +1159,6 @@ impl FileId {
         path.metadata().map(|m| Self {
             dev: m.st_dev(),
             ino: m.st_ino(),
-        })
-    }
-
-    #[cfg(target_os = "unix")]
-    pub fn new(path: &Path) -> Result<Self, std::io::Error> {
-        use std::os::unix::fs::MetadataExt;
-
-        path.metadata().map(|m| Self {
-            dev: m.dev(),
-            ino: m.ino(),
         })
     }
 
@@ -1412,13 +1378,9 @@ impl Part {
         &'s self,
         name: &'s str,
         path: PathBuf,
-    ) -> Result<VerifySuccess<'s>, VerifyFailure<'s>> {
+    ) -> Result<VerifySuccess, VerifyFailure<'s>> {
         match Part::from_cached_path(path.as_ref()) {
-            Ok(ref disk_part) if self == disk_part => Ok(VerifySuccess {
-                name,
-                part: self,
-                path,
-            }),
+            Ok(ref disk_part) if self == disk_part => Ok(VerifySuccess),
             Ok(disk_part) => Err(VerifyFailure::Bad {
                 path,
                 name,
