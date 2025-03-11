@@ -352,7 +352,7 @@ impl DatFile {
         println!("{table}");
     }
 
-    fn process<E>(
+    fn process<const REPAIRING: bool, E>(
         &self,
         root: &Path,
         increment_progress: impl Fn() + Send + Sync,
@@ -367,6 +367,10 @@ impl DatFile {
         use dashmap::DashMap;
         use rayon::prelude::*;
         use std::sync::Mutex;
+
+        if REPAIRING && !crate::verify_overwrite(root) {
+            return Ok(VerifyResults::default());
+        }
 
         let GameDir {
             files,
@@ -439,7 +443,7 @@ impl DatFile {
         use crate::game::Never;
 
         let results = self
-            .process(
+            .process::<false, _>(
                 root,
                 || progress_bar.inc(1),
                 |failure| Ok::<_, Never>(Err(failure)),
@@ -449,13 +453,16 @@ impl DatFile {
         results
     }
 
-    pub fn add_and_verify(
+    // note that "REPAIRING" can be set to false
+    // if we're processing a whole slew of files
+    // and don't want to prompt each one individually
+    pub fn add_and_verify<const REPAIRING: bool>(
         &self,
         roms: &mut RomSources,
         root: &Path,
         progress_bar: &indicatif::ProgressBar,
     ) -> Result<VerifyResults, Error> {
-        self.process(
+        self.process::<REPAIRING, _>(
             root,
             || progress_bar.inc(1),
             |failure| match failure.try_fix(roms) {
@@ -479,6 +486,7 @@ impl DatFile {
     }
 }
 
+#[derive(Default)]
 pub struct VerifyResults<'v> {
     pub failures: Vec<VerifyFailure<'v>>,
     pub summary: crate::game::VerifyResultsSummary,

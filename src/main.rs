@@ -766,8 +766,7 @@ impl OptMessVerifyAll {
     fn execute(self) -> Result<(), Error> {
         use crate::game::Never;
 
-        process_all_mess(
-            "verifying software lists",
+        process_all_mess::<false, _>(
             self.roms,
             |parts, path, _| -> Result<_, Never> { Ok(parts.verify_failures(path)) },
             self.show_all,
@@ -839,8 +838,7 @@ impl OptMessRepairAll {
     fn execute(self) -> Result<(), Error> {
         let rom_sources = rom_sources(&self.input);
 
-        process_all_mess(
-            "adding and verifying software lists",
+        process_all_mess::<true, _>(
             self.roms,
             |parts, path, mbar| {
                 parts.add_and_verify_failures(&rom_sources, path, |repaired| {
@@ -1131,7 +1129,7 @@ impl OptExtraVerifyAll {
     fn execute(self) -> Result<(), Error> {
         use game::Never;
 
-        process_all_dat(
+        process_all_dat::<false, _, _>(
             "verifying all MAME extras",
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
@@ -1170,7 +1168,7 @@ impl OptExtraRepair {
         let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
-            datfile.add_and_verify(
+            datfile.add_and_verify::<true>(
                 &mut rom_sources,
                 dirs::extra_dir(dir, &extra).as_ref(),
                 pbar,
@@ -1193,11 +1191,11 @@ impl OptExtraRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
-        process_all_dat(
+        process_all_dat::<true, _, _>(
             "adding and verifying all MAME extras",
             dirs::extra_dirs(),
             |name| read_named_db(EXTRA, DIR_EXTRA, name),
-            |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            |datfile, dir, pbar| datfile.add_and_verify::<false>(&mut parts, dir, pbar),
             self.show_all,
         )
     }
@@ -1494,7 +1492,7 @@ impl OptRedumpVerifyAll {
     fn execute(self) -> Result<(), Error> {
         use game::Never;
 
-        process_all_dat(
+        process_all_dat::<false, _, _>(
             "verifying all Redump files",
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
@@ -1533,7 +1531,7 @@ impl OptRedumpRepair {
         let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
-            datfile.add_and_verify(
+            datfile.add_and_verify::<true>(
                 &mut rom_sources,
                 dirs::redump_roms(roms, &name).as_ref(),
                 pbar,
@@ -1556,11 +1554,11 @@ impl OptRedumpRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
-        process_all_dat(
+        process_all_dat::<true, _, _>(
             "adding and verifying all Redump files",
             dirs::redump_dirs(),
             |name| read_named_db(REDUMP, DIR_REDUMP, name),
-            |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            |datfile, dir, pbar| datfile.add_and_verify::<false>(&mut parts, dir, pbar),
             self.show_all,
         )
     }
@@ -1944,7 +1942,7 @@ impl OptNointroVerifyAll {
     fn execute(self) -> Result<(), Error> {
         use game::Never;
 
-        process_all_dat(
+        process_all_dat::<false, _, _>(
             "verifying all No-Intro files",
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
@@ -1983,7 +1981,7 @@ impl OptNointroRepair {
         let mut rom_sources = rom_sources(&self.input);
 
         process_dat(datfile, |datfile, pbar| {
-            datfile.add_and_verify(
+            datfile.add_and_verify::<true>(
                 &mut rom_sources,
                 dirs::nointro_roms(roms, &name).as_ref(),
                 pbar,
@@ -2006,11 +2004,11 @@ impl OptNointroRepairAll {
     fn execute(self) -> Result<(), Error> {
         let mut parts = rom_sources(&self.input);
 
-        process_all_dat(
+        process_all_dat::<true, _, _>(
             "adding and verifying No-Intro files",
             dirs::nointro_dirs(),
             |name| read_named_db(NOINTRO, DIR_NOINTRO, name),
-            |datfile, dir, pbar| datfile.add_and_verify(&mut parts, dir, pbar),
+            |datfile, dir, pbar| datfile.add_and_verify::<false>(&mut parts, dir, pbar),
             self.show_all,
         )
     }
@@ -2184,7 +2182,7 @@ impl OptDatRepair {
                         .map_err(|error| Error::InvalidSha1(ResourceError { file, error }))
                 })
             })?,
-            |datfile, pbar| datfile.add_and_verify(&mut rom_sources, &self.roms, pbar),
+            |datfile, pbar| datfile.add_and_verify::<true>(&mut rom_sources, &self.roms, pbar),
         )
     }
 }
@@ -2940,8 +2938,35 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-fn process_games<'g, I, P, E>(
-    message: &'static str,
+// returns true if the path is a directory
+// and the prompt to overwrite it is confirmed
+fn verify_overwrite(directory: &Path) -> bool {
+    directory.is_dir()
+        && matches!(
+            inquire::Confirm::new("Directory already exists, overwrite?")
+                .with_help_message(&directory.display().to_string())
+                .prompt(),
+            Ok(true)
+        )
+}
+
+// returns true if any path is a directory
+// and the prompt to overwrite it is confirmed
+fn verify_any_overwrite<'p>(dirs: impl Iterator<Item = &'p Path>) -> bool {
+    match dirs.filter(|directory| directory.is_dir()).count() {
+        0 => false,
+        1 => matches!(
+            inquire::Confirm::new("Directory already exists, overwrite?").prompt(),
+            Ok(true)
+        ),
+        n => matches!(
+            inquire::Confirm::new(&format!("{n} directories already exist, overwrite?")).prompt(),
+            Ok(true)
+        ),
+    }
+}
+
+fn process_games<'g, const REPAIRING: bool, I, P, E>(
     root: P,
     games: I,
     handle_game: impl Fn(&'g game::Game, &Path, &ProgressBar) -> Result<Vec<game::VerifyFailure<'g>>, E>
@@ -2955,11 +2980,18 @@ where
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
+    if REPAIRING && !verify_overwrite(root.as_ref()) {
+        return Ok(());
+    }
+
     let total = games.len();
 
     let pbar = ProgressBar::new(total.try_into().unwrap())
         .with_style(game::verify_style())
-        .with_message(message);
+        .with_message(match REPAIRING {
+            true => "adding and verifying games",
+            false => "verifying games",
+        });
 
     let results = games
         .par_bridge()
@@ -2990,7 +3022,7 @@ where
     I: ExactSizeIterator<Item = &'g game::Game>,
     I: Send,
 {
-    process_games("verifying games", root, games, |game, root, _| {
+    process_games::<false, _, _, _>(root, games, |game, root, _| {
         Ok::<_, game::Never>(db.verify(root, game))
     })
     .unwrap()
@@ -3003,21 +3035,15 @@ where
     I: ExactSizeIterator<Item = &'g game::Game>,
     I: Send,
 {
-    process_games(
-        "adding and verifying games",
-        root,
-        games,
-        |game, root, pbar| {
-            game.add_and_verify(roms, root.as_ref(), |r| {
-                pbar.println(format!("{r}"));
-                r.into_fixed_pathbuf()
-            })
-        },
-    )
+    process_games::<true, _, _, _>(root, games, |game, root, pbar| {
+        game.add_and_verify(roms, root.as_ref(), |r| {
+            pbar.println(format!("{r}"));
+            r.into_fixed_pathbuf()
+        })
+    })
 }
 
-fn process_all_mess<E>(
-    message: &'static str,
+fn process_all_mess<const REPAIRING: bool, E>(
     roms: Option<PathBuf>,
     handle_parts: impl for<'g> Fn(
             &'g game::GameParts,
@@ -3034,6 +3060,11 @@ where
     use indicatif::{ParallelProgressIterator, ProgressDrawTarget, ProgressIterator};
 
     let roms_dir = dirs::mess_roms_all(roms);
+
+    if REPAIRING && !verify_overwrite(roms_dir.as_ref()) {
+        return Ok(());
+    }
+
     let mut total = game::VerifyResultsSummary::default();
     let mut table = init_dat_table();
     let dbs = read_collected_dbs::<BTreeMap<_, _>, game::GameDb>(DIR_SL);
@@ -3041,7 +3072,10 @@ where
     let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 =
         mbar.add(ProgressBar::new(dbs.len().try_into().unwrap()).with_style(verify_style()));
-    pbar1.set_message(message);
+    pbar1.set_message(match REPAIRING {
+        true => "adding and verifying software lists",
+        false => "verifying software lists",
+    });
 
     for (software_list, db) in dbs.into_iter().progress_with(pbar1.clone()) {
         use crate::game::{Game, VerifyFailure};
@@ -3115,7 +3149,7 @@ fn process_dat<E>(
     Ok(())
 }
 
-fn process_all_dat<I, E>(
+fn process_all_dat<const REPAIRING: bool, I, E>(
     message: &'static str,
     dirs: I,
     read_named_db: impl Fn(&str) -> Result<dat::DatFile, Error>,
@@ -3132,6 +3166,11 @@ where
     use game::verify_style;
     use indicatif::{ProgressDrawTarget, ProgressIterator};
 
+    let dirs = dirs.collect::<Vec<_>>();
+    if REPAIRING && !verify_any_overwrite(dirs.iter().map(|(_, d)| d.as_path())) {
+        return Ok(());
+    }
+
     let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 =
         mbar.add(ProgressBar::new(dirs.len().try_into().unwrap()).with_style(verify_style()));
@@ -3139,7 +3178,7 @@ where
 
     let mut table = init_dat_table();
     let mut total = game::VerifyResultsSummary::default();
-    for (name, dir) in dirs.progress_with(pbar1.clone()) {
+    for (name, dir) in dirs.into_iter().progress_with(pbar1.clone()) {
         if let Ok(datfile) = read_named_db(&name) {
             let pbar2 = mbar.insert_after(&pbar1, datfile.progress_bar());
             let dat::VerifyResults { failures, summary } = process_dat(&datfile, &dir, &pbar2)?;
