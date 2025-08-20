@@ -36,6 +36,7 @@ type Flattened = Result<(String, Part), (String, GameParts)>;
 
 #[derive(Debug, Deserialize)]
 pub struct Game {
+    #[serde(rename = "@name")]
     name: String,
     rom: Option<Vec<Rom>>,
     disk: Option<Vec<Disk>>,
@@ -148,8 +149,11 @@ impl Game {
 
 #[derive(Debug, Deserialize)]
 pub struct Rom {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@size")]
     size: Option<u64>,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 
@@ -194,7 +198,9 @@ impl Rom {
 
 #[derive(Debug, Deserialize)]
 pub struct Disk {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 
@@ -368,7 +374,15 @@ impl DatFile {
         use rayon::prelude::*;
         use std::sync::Mutex;
 
-        if REPAIRING && !crate::verify_overwrite(root) {
+        if REPAIRING
+            && root.is_dir()
+            && !matches!(
+                inquire::Confirm::new("Directory already exists, overwrite?")
+                    .with_help_message(&root.display().to_string())
+                    .prompt(),
+                Ok(true)
+            )
+        {
             return Ok(VerifyResults::default());
         }
 

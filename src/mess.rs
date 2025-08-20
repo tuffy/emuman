@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Softwarelist {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@description")]
     description: String,
     software: Option<Vec<Software>>,
 }
@@ -45,6 +47,7 @@ impl Softwarelist {
 
 #[derive(Debug, Deserialize)]
 pub struct Software {
+    #[serde(rename = "@name")]
     name: String,
     description: String,
     year: String,
@@ -149,8 +152,11 @@ impl Dataarea {
 
 #[derive(Debug, Deserialize)]
 pub struct Rom {
+    #[serde(rename = "@name")]
     name: Option<String>,
+    #[serde(rename = "@size")]
     size: Option<String>,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 
@@ -192,7 +198,9 @@ impl Diskarea {
 
 #[derive(Debug, Deserialize)]
 pub struct Disk {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 

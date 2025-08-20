@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Mame {
+    #[serde(rename = "@build")]
     build: Option<String>,
     machine: Vec<Machine>,
 }
@@ -22,7 +23,9 @@ impl Mame {
 
 #[derive(Debug, Deserialize)]
 pub struct Machine {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@isdevice")]
     isdevice: Option<String>,
     description: String,
     year: Option<String>,
@@ -62,6 +65,7 @@ impl Machine {
 
 #[derive(Debug, Deserialize)]
 struct Driver {
+    #[serde(rename = "@status")]
     status: String,
 }
 
@@ -78,7 +82,9 @@ impl Driver {
 
 #[derive(Debug, Deserialize)]
 struct Rom {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 
@@ -91,7 +97,9 @@ impl Rom {
 
 #[derive(Debug, Deserialize)]
 struct Disk {
+    #[serde(rename = "@name")]
     name: String,
+    #[serde(rename = "@sha1")]
     sha1: Option<String>,
 }
 
@@ -107,5 +115,6 @@ impl Disk {
 
 #[derive(Debug, Deserialize)]
 struct DeviceRef {
+    #[serde(rename = "@name")]
     name: String,
 }

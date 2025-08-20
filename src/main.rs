@@ -2938,18 +2938,6 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-// returns true if the path is a directory
-// and the prompt to overwrite it is confirmed
-fn verify_overwrite(directory: &Path) -> bool {
-    directory.is_dir()
-        && matches!(
-            inquire::Confirm::new("Directory already exists, overwrite?")
-                .with_help_message(&directory.display().to_string())
-                .prompt(),
-            Ok(true)
-        )
-}
-
 // returns true if any path is a directory
 // and the prompt to overwrite it is confirmed
 fn verify_any_overwrite<'p>(dirs: impl Iterator<Item = &'p Path>) -> bool {
@@ -2980,7 +2968,15 @@ where
     use indicatif::ParallelProgressIterator;
     use rayon::prelude::*;
 
-    if REPAIRING && !verify_overwrite(root.as_ref()) {
+    if REPAIRING
+        && root.as_ref().is_dir()
+        && !matches!(
+            inquire::Confirm::new("Directory already exists, overwrite?")
+                .with_help_message(&root.as_ref().display().to_string())
+                .prompt(),
+            Ok(true)
+        )
+    {
         return Ok(());
     }
 
@@ -3061,7 +3057,16 @@ where
 
     let roms_dir = dirs::mess_roms_all(roms);
 
-    if REPAIRING && !verify_overwrite(roms_dir.as_ref()) {
+    // if REPAIRING && !verify_overwrite(roms_dir.as_ref()) {
+    if REPAIRING
+        && roms_dir.as_ref().is_dir()
+        && !matches!(
+            inquire::Confirm::new("Directory already exists, overwrite?")
+                .with_help_message(&roms_dir.as_ref().display().to_string())
+                .prompt(),
+            Ok(true)
+        )
+    {
         return Ok(());
     }
 
