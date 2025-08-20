@@ -97,7 +97,7 @@ impl GameDb {
         results
     }
 
-    pub fn list_results(&self, search: Option<&str>, simple: bool) -> Vec<GameRow> {
+    pub fn list_results(&self, search: Option<&str>, simple: bool) -> Vec<GameRow<'_>> {
         if let Some(search) = search {
             self.games_iter()
                 .filter(|g| !g.is_device)
@@ -136,7 +136,7 @@ impl GameDb {
         games: &HashSet<String>,
         search: Option<&str>,
         simple: bool,
-    ) -> Vec<GameRow> {
+    ) -> Vec<GameRow<'_>> {
         let mut results: Vec<GameRow> = games
             .iter()
             .filter_map(|g| {
@@ -263,7 +263,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn report(&self, simple: bool) -> GameRow {
+    pub fn report(&self, simple: bool) -> GameRow<'_> {
         #[inline]
         fn no_parens(s: &str) -> &str {
             if let Some(index) = s.find('(') {
@@ -306,7 +306,7 @@ impl Game {
         rom_sources: &RomSources,
         target_dir: &Path,
         handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
-    ) -> Result<Vec<VerifyFailure>, Error> {
+    ) -> Result<Vec<VerifyFailure<'_>>, Error> {
         self.parts
             .add_and_verify_failures(rom_sources, &target_dir.join(&self.name), handle_repair)
     }
@@ -701,7 +701,7 @@ impl GameParts {
         rom_sources: &RomSources,
         game_root: &Path,
         handle_repair: impl Fn(Repaired<'_>) -> Option<PathBuf> + Send + Sync + Copy,
-    ) -> Result<Vec<VerifyFailure>, Error> {
+    ) -> Result<Vec<VerifyFailure<'_>>, Error> {
         self.add_and_verify(rom_sources, game_root, handle_repair)
             .map(|(_, failures): (ExtendSink<_>, _)| failures)
     }
@@ -1196,7 +1196,7 @@ impl Part {
     }
 
     #[inline]
-    pub fn digest(&self) -> Digest {
+    pub fn digest(&self) -> Digest<'_> {
         match self {
             Part::Rom { sha1 } => Digest(sha1),
             Part::Disk { sha1 } => Digest(sha1),

@@ -359,7 +359,7 @@ impl DatFile {
         handle_failure: impl Fn(VerifyFailure) -> Result<Result<Option<PathBuf>, VerifyFailure>, E>
             + Send
             + Sync,
-    ) -> Result<VerifyResults, E>
+    ) -> Result<VerifyResults<'_>, E>
     where
         E: Send,
     {
@@ -439,7 +439,7 @@ impl DatFile {
         .with_message(format!("{} ({})", self.name, self.version))
     }
 
-    pub fn verify(&self, root: &Path, progress_bar: &indicatif::ProgressBar) -> VerifyResults {
+    pub fn verify(&self, root: &Path, progress_bar: &indicatif::ProgressBar) -> VerifyResults<'_> {
         use crate::game::Never;
 
         let results = self
@@ -461,7 +461,7 @@ impl DatFile {
         roms: &mut RomSources,
         root: &Path,
         progress_bar: &indicatif::ProgressBar,
-    ) -> Result<VerifyResults, Error> {
+    ) -> Result<VerifyResults<'_>, Error> {
         self.process::<REPAIRING, _>(
             root,
             || progress_bar.inc(1),

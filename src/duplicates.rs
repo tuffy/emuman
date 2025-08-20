@@ -10,7 +10,7 @@ type MaybeFound<'i, I> = Result<Option<(OwnedItem<I>, &'i I)>, (OwnedItem<I>, st
 pub trait Duplicates {
     type Item: ToOwned + ?Sized;
 
-    fn get_or_add(&mut self, source: OwnedItem<Self::Item>) -> MaybeFound<Self::Item>;
+    fn get_or_add(&mut self, source: OwnedItem<Self::Item>) -> MaybeFound<'_, Self::Item>;
 }
 
 #[derive(Default)]

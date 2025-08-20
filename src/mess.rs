@@ -161,7 +161,7 @@ impl Rom {
     }
 
     #[inline]
-    fn to_size(&self) -> Option<RomSize> {
+    fn to_size(&self) -> Option<RomSize<'_>> {
         Some(RomSize {
             name: self.name.as_deref()?,
             size: parse_int(self.size.as_deref()?).ok()?,

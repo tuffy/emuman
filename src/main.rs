@@ -158,7 +158,7 @@ impl Resource {
         }
     }
 
-    fn rom_sources(&self, progress: &MultiProgress) -> game::RomSources {
+    fn rom_sources(&self, progress: &MultiProgress) -> game::RomSources<'_> {
         match self {
             Self::File(f) => game::file_rom_sources(f, progress),
             Self::Url(url) => game::url_rom_sources(url, progress),
@@ -3337,7 +3337,7 @@ fn display_dat_table(mut table: comfy_table::Table, summary: Option<game::Verify
     println!("{table}");
 }
 
-fn rom_sources(sources: &[Resource]) -> game::RomSources {
+fn rom_sources(sources: &[Resource]) -> game::RomSources<'_> {
     use indicatif::{ParallelProgressIterator, ProgressDrawTarget};
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
