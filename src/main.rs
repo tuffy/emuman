@@ -2938,22 +2938,6 @@ fn promote_dbs() -> Result<(), Error> {
     Ok(())
 }
 
-// returns true if any path is a directory
-// and the prompt to overwrite it is confirmed
-fn verify_any_overwrite<'p>(dirs: impl Iterator<Item = &'p Path>) -> bool {
-    match dirs.filter(|directory| directory.is_dir()).count() {
-        0 => false,
-        1 => matches!(
-            inquire::Confirm::new("Directory already exists, overwrite?").prompt(),
-            Ok(true)
-        ),
-        n => matches!(
-            inquire::Confirm::new(&format!("{n} directories already exist, overwrite?")).prompt(),
-            Ok(true)
-        ),
-    }
-}
-
 fn process_games<'g, const REPAIRING: bool, I, P, E>(
     root: P,
     games: I,
@@ -3172,9 +3156,6 @@ where
     use indicatif::{ProgressDrawTarget, ProgressIterator};
 
     let dirs = dirs.collect::<Vec<_>>();
-    if REPAIRING && !verify_any_overwrite(dirs.iter().map(|(_, d)| d.as_path())) {
-        return Ok(());
-    }
 
     let mbar = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(2));
     let pbar1 =
