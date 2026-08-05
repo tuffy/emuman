@@ -270,15 +270,13 @@ struct OptMameDir;
 
 impl OptMameDir {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
         let mut table = Table::new();
         table
             .set_header(vec!["Version", "Directory"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         table.add_row(vec![
             read_game_db::<game::GameDb>(MAME, DB_MAME)?.description(),
@@ -527,15 +525,13 @@ struct OptMessDirs {
 
 impl OptMessDirs {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
         let mut table = Table::new();
         table
             .set_header(vec!["Software", "Directory"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         table.add_rows(
             read_collected_dbs::<BTreeMap<String, game::GameDb>, _>(DIR_SL)
@@ -639,7 +635,6 @@ struct OptMessParts {
 
 impl OptMessParts {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
@@ -658,8 +653,7 @@ impl OptMessParts {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         game.display_parts(&mut table);
         println!("{table}");
@@ -1213,7 +1207,6 @@ struct OptExtraParts {
 
 impl OptExtraParts {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
@@ -1245,8 +1238,7 @@ impl OptExtraParts {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
@@ -1576,7 +1568,6 @@ struct OptRedumpParts {
 
 impl OptRedumpParts {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
@@ -1607,8 +1598,7 @@ impl OptRedumpParts {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
@@ -2026,7 +2016,6 @@ struct OptNointroParts {
 
 impl OptNointroParts {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
@@ -2058,8 +2047,7 @@ impl OptNointroParts {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
@@ -2197,7 +2185,6 @@ struct OptDatParts {
 
 impl OptDatParts {
     fn execute(self) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
 
@@ -2216,8 +2203,7 @@ impl OptDatParts {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for (name, part) in game.into_iter().collect::<BTreeMap<_, _>>() {
             table.add_row(vec![name, part.digest().to_string()]);
@@ -2242,7 +2228,7 @@ impl OptIdentify {
     fn execute(self) -> Result<(), Error> {
         use crate::dat::DatFile;
         use crate::game::{GameDb, Part};
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::Table;
         use indicatif::{ProgressDrawTarget, ProgressIterator};
@@ -2296,8 +2282,7 @@ impl OptIdentify {
             let mut table = Table::new();
             table
                 .set_header(vec!["Source", "Category", "System", "Game", "Part"])
-                .load_preset(UTF8_FULL_CONDENSED)
-                .apply_modifier(UTF8_ROUND_CORNERS);
+                .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
             for resource in self.resources.into_iter().progress_with(pbar1) {
                 for (part, source) in resource.rom_sources(&mbar) {
@@ -3192,7 +3177,6 @@ fn display_dirs<D>(
 ) where
     D: Iterator<Item = (String, PathBuf)>,
 {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL_CONDENSED;
     use comfy_table::Table;
 
@@ -3220,8 +3204,7 @@ fn display_dirs<D>(
     let mut table = Table::new();
     table
         .set_header(vec!["Version", "DAT Name", "Directory"])
-        .load_preset(UTF8_FULL_CONDENSED)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
     for [version, name, dir] in results {
         table.add_row(vec![version, name, dir]);
@@ -3238,7 +3221,7 @@ fn display_dir_sizes<D>(
     D: Iterator<Item = (String, PathBuf)>,
 {
     use crate::game::FileSize;
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+
     use comfy_table::presets::UTF8_FULL_CONDENSED;
     use comfy_table::{Cell, CellAlignment, Table};
 
@@ -3284,8 +3267,7 @@ fn display_dir_sizes<D>(
     let mut table = Table::new();
     table
         .set_header(vec!["Size", "Real Size", "DAT Name", "Directory"])
-        .load_preset(UTF8_FULL_CONDENSED)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
     for (FileSize { len, real }, name, dir) in results {
         table.add_row(vec![
@@ -3299,7 +3281,6 @@ fn display_dir_sizes<D>(
 }
 
 fn init_dat_table() -> comfy_table::Table {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL_CONDENSED;
     use comfy_table::{Cell, CellAlignment};
 
@@ -3310,8 +3291,7 @@ fn init_dat_table() -> comfy_table::Table {
             Cell::new("OK").set_alignment(CellAlignment::Right),
             Cell::new(""),
         ])
-        .load_preset(UTF8_FULL_CONDENSED)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
     table
 }

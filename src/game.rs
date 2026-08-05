@@ -166,15 +166,13 @@ impl GameDb {
     }
 
     fn display_report(games: &[GameRow]) {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::{Cell, Color};
 
         let mut table = Table::new();
         table
             .set_header(vec!["Game", "Creator", "Year", "Shortname"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for GameRow {
             description,
@@ -200,7 +198,6 @@ impl GameDb {
     }
 
     pub fn display_parts(&self, name: &str) -> Result<(), Error> {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
         use comfy_table::{Attribute, Cell, CellAlignment};
 
@@ -211,8 +208,7 @@ impl GameDb {
         let mut table = Table::new();
         table
             .set_header(vec!["Part", "SHA1 Hash"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         let devices: BTreeMap<&str, &Game> = game
             .devices

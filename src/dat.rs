@@ -319,14 +319,12 @@ impl DatFile {
     where
         I: IntoIterator<Item = (T, Self)>,
     {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
 
         let mut table = Table::new();
         table
             .set_header(vec!["Version", "DAT Name"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for (_, datfile) in iter {
             table.add_row(vec![datfile.version(), datfile.name()]);
@@ -336,7 +334,6 @@ impl DatFile {
     }
 
     pub fn list(&self, search: Option<&str>) {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
         use comfy_table::presets::UTF8_FULL_CONDENSED;
 
         let mut games: Vec<_> = match search {
@@ -348,8 +345,7 @@ impl DatFile {
         let mut table = Table::new();
         table
             .set_header(vec!["Game"])
-            .load_preset(UTF8_FULL_CONDENSED)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+            .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
         for game in games {
             table.add_row(vec![game]);

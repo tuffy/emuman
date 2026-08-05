@@ -230,15 +230,13 @@ pub fn list(db: &MessDb, search: Option<&str>, sort: GameColumn, simple: bool) {
 }
 
 pub fn display_results(results: &[(&str, GameRow)]) {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL_CONDENSED;
     use comfy_table::{Cell, Color, Table};
 
     let mut table = Table::new();
     table
         .set_header(vec!["Game", "Creator", "Year", "List", "Shortname"])
-        .load_preset(UTF8_FULL_CONDENSED)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
     for (
         db_name,
@@ -268,15 +266,13 @@ pub fn display_results(results: &[(&str, GameRow)]) {
 }
 
 pub fn list_all(db: &MessDb) {
-    use comfy_table::modifiers::UTF8_ROUND_CORNERS;
     use comfy_table::presets::UTF8_FULL_CONDENSED;
     use comfy_table::Table;
 
     let mut table = Table::new();
     table
         .set_header(vec!["Software List", "Shortname"])
-        .load_preset(UTF8_FULL_CONDENSED)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+        .load_style(UTF8_FULL_CONDENSED.with_rounded_corners());
 
     for (name, game_db) in db.iter() {
         table.add_row(vec![game_db.description(), name]);
